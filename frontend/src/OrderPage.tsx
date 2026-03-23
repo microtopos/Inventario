@@ -637,7 +637,6 @@ export default function OrderPage({ onNavigate, onDraftChange }: {
                               color: hasQty ? "#1d4ed8" : "#374151",
                               backgroundColor: hasQty ? "#eff6ff" : "#fff",
                               outline: "none",
-                              // remove number spinners
                               MozAppearance: "textfield" as any,
                             }}
                           />
@@ -697,7 +696,7 @@ export default function OrderPage({ onNavigate, onDraftChange }: {
             ) : (
               <>
                 {items.map(item => {
-                  const tallas = [...item.tallas].sort((a, b) => ordenarTallas(a.talla, b.talla))
+                  const tallasOrdenadasResumen = [...item.tallas].sort((a, b) => ordenarTallas(a.talla, b.talla))
                   return (
                     <div key={item.producto.id} style={{ padding: "12px 14px", borderBottom: "1px solid #f0f0f0" }}>
                       <div style={{ fontWeight: 600, fontSize: "13px", marginBottom: "8px", color: "#111" }}>
@@ -709,7 +708,7 @@ export default function OrderPage({ onNavigate, onDraftChange }: {
                         )}
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
-                        {tallas.map((t: any) => (
+                        {tallasOrdenadasResumen.map((t: any) => (
                           <div
                             key={t.tallaId}
                             style={{
