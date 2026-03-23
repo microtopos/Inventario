@@ -23,55 +23,67 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions, dr
       top: 0,
       zIndex: 100,
     }}>
-      {/* LADO IZQUIERDO: logo + breadcrumb */}
-      <div style={{ display: "flex", alignItems: "center" }}>
-        <h1
-          style={{
+      {/* LADO IZQUIERDO */}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+
+        {/* Botón atrás — solo visible en subpáginas */}
+        {onBack && (
+          <button
+            onClick={onBack}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              padding: "7px 14px",
+              borderRadius: "8px",
+              border: "1px solid #d1d5db",
+              backgroundColor: "#f9fafb",
+              color: "#374151",
+              fontSize: "14px",
+              fontWeight: 600,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              transition: "background-color 0.15s, border-color 0.15s",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.backgroundColor = "#f3f4f6"
+              e.currentTarget.style.borderColor = "#9ca3af"
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.backgroundColor = "#f9fafb"
+              e.currentTarget.style.borderColor = "#d1d5db"
+            }}
+          >
+            <span style={{ fontSize: "16px", lineHeight: 1 }}>←</span>
+            Volver
+          </button>
+        )}
+
+        {/* Logo + breadcrumb */}
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <h1 style={{
             fontSize: "18px",
             fontWeight: 700,
             color: "#111",
             margin: 0,
             letterSpacing: "-0.3px",
             whiteSpace: "nowrap",
-          }}
-        >
-          Gestión de Ropa
-        </h1>
+          }}>
+            Gestión de Ropa
+          </h1>
 
-        {onBack && (
-          <div style={{ display: "flex", alignItems: "center", marginLeft: "12px" }}>
-            <span style={{ color: "#ddd", fontSize: "20px", fontWeight: 300, margin: "0 8px" }}>/</span>
-            <button
-              onClick={onBack}
-              style={{
-                background: "none", border: "none", padding: "4px 8px",
-                fontSize: "13px", color: "#aaa", cursor: "pointer",
-                borderRadius: "5px", fontWeight: 400,
-              }}
-              onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#f5f5f5")}
-              onMouseLeave={e => (e.currentTarget.style.backgroundColor = "")}
-            >
-              {page === "inventory"
-                ? "Inventario"
-                : page === "dashboard"
-                ? "Estadísticas"
-                : page === "orders"
-                ? "Pedidos"
-                : "Historial"}
-            </button>
-            {title && (
-              <>
-                <span style={{ color: "#ddd", fontSize: "20px", fontWeight: 300, margin: "0 8px" }}>/</span>
-                <span style={{ fontSize: "13px", fontWeight: 500, color: "#111" }}>
-                  {title}
-                </span>
-              </>
-            )}
-          </div>
-        )}
+          {title && (
+            <div style={{ display: "flex", alignItems: "center", marginLeft: "12px" }}>
+              <span style={{ color: "#ddd", fontSize: "20px", fontWeight: 300, margin: "0 8px" }}>/</span>
+              <span style={{ fontSize: "13px", fontWeight: 500, color: "#111" }}>
+                {title}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* LADO DERECHO: acciones opcionales + tabs (siempre visibles) */}
+      {/* LADO DERECHO: acciones + tabs */}
       <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
         {actions}
         {([
