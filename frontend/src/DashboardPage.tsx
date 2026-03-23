@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Bar,
   BarChart,
@@ -20,6 +20,9 @@ import {
   getStockPorDepartamento,
 } from "./dashboardService"
 import AppHeader from "./AppHeader"
+import { usePagination } from "./usePagination"
+import { useDraft } from "./DraftContext"
+import { cardStyle, thStyle, tdStyle, sectionTitleStyle, sectionSubStyle, btnOutlineStyle, dateInputStyle } from "./styles"
 
 type RangePreset = "7d" | "1m" | "3m" | "year" | "all"
 
@@ -140,7 +143,6 @@ function sumByDepartamento(pivot: ReturnType<typeof pivotByMes>) {
     .sort((a, b) => b.value - a.value)
 }
 
-// KPI totals helpers
 function sumPivot(pivot: ReturnType<typeof pivotByMes>): number {
   return pivot.data.reduce((acc, row) => {
     return acc + pivot.departments.reduce((s, dep) => s + (Number(row[dep]) || 0), 0)
@@ -157,7 +159,6 @@ function PieDonut({ data, colorOffset }: { data: { name: string; value: number; 
   }
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "0", padding: "12px 16px 20px" }}>
-      {/* Pie */}
       <div style={{ width: "180px", height: "180px", flexShrink: 0 }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
@@ -179,7 +180,6 @@ function PieDonut({ data, colorOffset }: { data: { name: string; value: number; 
           </PieChart>
         </ResponsiveContainer>
       </div>
-      {/* Legend */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "7px", paddingLeft: "8px" }}>
         {data.map((d, i) => (
           <div key={d.name} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -203,7 +203,7 @@ function PieDonut({ data, colorOffset }: { data: { name: string; value: number; 
   )
 }
 
-export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: (page: any) => void; draftCount?: number }) {
+export default function DashboardPage({ onNavigate }: { onNavigate: (page: any) => void }) {
   const [desde, setDesde] = useState<string>("")
   const [hasta, setHasta] = useState<string>("")
   const [preset, setPreset] = useState<RangePreset>("all")
@@ -211,11 +211,23 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
   const [stock, setStock] = useState<{ departamento: string; stock: number }[]>([])
   const [entradas, setEntradas] = useState<{ mes: string; departamento: string; total: number }[]>([])
   const [consumo, setConsumo] = useState<{ mes: string; departamento: string; total: number }[]>([])
-  const [movs, setMovs] = useState<any[]>([])
-  const [movsTotal, setMovsTotal] = useState(0)
-  const [movsPage, setMovsPage] = useState(0)
-  const [movsPageSize, setMovsPageSize] = useState(25)
-  const [loading, setLoading] = useState(false)
+  const [chartsLoading, setChartsLoading] = useState(false)
+  const { draftCount } = useDraft()
+
+  // ── Paginación de movimientos via hook ──────────────────────────────────────
+  const movPagination = usePagination<any>({
+    fetchFn: useCallback(async (pageSize, offset) => {
+      const d = desde?.trim() || undefined
+      const h = hasta?.trim() || undefined
+      const [items, total] = await Promise.all([
+        getMovimientos(d, h, pageSize, offset),
+        getMovimientosCount(d, h),
+      ])
+      return [items, total]
+    }, [desde, hasta]),
+    defaultPageSize: 25,
+    deps: [desde, hasta],
+  })
 
   function applyPreset(p: RangePreset) {
     setPreset(p)
@@ -235,39 +247,27 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Carga de charts (stock, entradas, consumo) — sin paginación
   useEffect(() => {
-    async function load() {
-      setLoading(true)
+    async function loadCharts() {
+      setChartsLoading(true)
       try {
         const d = desde?.trim() || undefined
         const h = hasta?.trim() || undefined
-        const [s, e, c, m, total] = await Promise.all([
+        const [s, e, c] = await Promise.all([
           getStockPorDepartamento(),
           getEntradasPorDepartamento(d, h),
           getConsumoPorDepartamento(d, h),
-          getMovimientos(d, h, movsPageSize, 0),
-          getMovimientosCount(d, h),
         ])
         setStock(s)
         setEntradas(e)
         setConsumo(c)
-        setMovs(m)
-        setMovsTotal(total)
-        setMovsPage(0)
       } finally {
-        setLoading(false)
+        setChartsLoading(false)
       }
     }
-    load()
-  }, [desde, hasta, movsPageSize])
-
-  async function loadMovsPage(page: number) {
-    const d = desde?.trim() || undefined
-    const h = hasta?.trim() || undefined
-    const m = await getMovimientos(d, h, movsPageSize, page * movsPageSize)
-    setMovs(m)
-    setMovsPage(page)
-  }
+    loadCharts()
+  }, [desde, hasta])
 
   const entradasPivot = useMemo(() => pivotByMes(entradas), [entradas])
   const consumoPivot = useMemo(() => pivotByMes(consumo), [consumo])
@@ -275,6 +275,8 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
   const totalStock = useMemo(() => stock.reduce((a, r) => a + r.stock, 0), [stock])
   const totalConsumo = useMemo(() => sumPivot(consumoPivot), [consumoPivot])
   const totalEntradas = useMemo(() => sumPivot(entradasPivot), [entradasPivot])
+
+  const loading = chartsLoading || movPagination.loading
 
   const presets: { key: RangePreset; label: string }[] = [
     { key: "7d", label: "7 días" },
@@ -286,7 +288,7 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f5", fontFamily: "system-ui, sans-serif" }}>
-      <AppHeader page="dashboard" onNavigate={onNavigate} draftCount={draftCount} />
+      <AppHeader page="dashboard" onNavigate={onNavigate} />
 
       <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "28px 24px" }}>
 
@@ -303,7 +305,6 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
 
           {/* FILTRO PERÍODO */}
           <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
-            {/* Preset pills */}
             <div style={{ display: "flex", gap: "4px", backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "8px", padding: "4px" }}>
               {presets.map((p) => (
                 <button
@@ -325,7 +326,6 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
                 </button>
               ))}
             </div>
-            {/* Date inputs */}
             <input
               type="date"
               value={desde}
@@ -357,13 +357,7 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
 
         {/* KPI CARDS */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginBottom: "20px" }}>
-          {/* CONSUMO — prioritario, destacado */}
-          <div style={{
-            ...cardStyle,
-            padding: "20px 22px",
-            borderLeft: "4px solid #dc2626",
-            gridColumn: "1 / 2",
-          }}>
+          <div style={{ ...cardStyle, padding: "20px 22px", borderLeft: "4px solid #dc2626", gridColumn: "1 / 2" }}>
             <div style={{ fontSize: "11px", fontWeight: 700, color: "#dc2626", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "8px" }}>
               🔻 Consumo total
             </div>
@@ -373,7 +367,6 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
             <div style={{ fontSize: "12px", color: "#aaa", marginTop: "6px" }}>unidades consumidas en el período</div>
           </div>
 
-          {/* ENTRADAS */}
           <div style={{ ...cardStyle, padding: "20px 22px", borderLeft: "4px solid #16a34a" }}>
             <div style={{ fontSize: "11px", fontWeight: 700, color: "#16a34a", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "8px" }}>
               🔺 Entradas totales
@@ -384,7 +377,6 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
             <div style={{ fontSize: "12px", color: "#aaa", marginTop: "6px" }}>unidades recibidas en el período</div>
           </div>
 
-          {/* STOCK */}
           <div style={{ ...cardStyle, padding: "20px 22px", borderLeft: "4px solid #2563eb" }}>
             <div style={{ fontSize: "11px", fontWeight: 700, color: "#2563eb", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "8px" }}>
               📦 Stock actual
@@ -396,13 +388,10 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
           </div>
         </div>
 
-        {/* GRÁFICOS: CONSUMO PRIMERO */}
+        {/* GRÁFICOS */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "16px" }}>
 
-          {/* CONSUMO + ENTRADAS — pie charts side by side */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-
-            {/* CONSUMO PIE */}
             <div style={{ ...cardStyle, borderTop: "3px solid #f43f5e" }}>
               <div style={{ padding: "18px 22px 0" }}>
                 <div style={{ ...sectionTitleStyle, color: "#f43f5e" }}>🔻 Consumo por departamento</div>
@@ -411,7 +400,6 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
               <PieDonut data={sumByDepartamento(consumoPivot)} colorOffset={0} />
             </div>
 
-            {/* ENTRADAS PIE */}
             <div style={{ ...cardStyle, borderTop: "3px solid #10b981" }}>
               <div style={{ padding: "18px 22px 0" }}>
                 <div style={{ ...sectionTitleStyle, color: "#10b981" }}>🔺 Entradas por departamento</div>
@@ -419,10 +407,8 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
               </div>
               <PieDonut data={sumByDepartamento(entradasPivot)} colorOffset={2} />
             </div>
-
           </div>
 
-          {/* STOCK */}
           <div style={{ ...cardStyle, borderTop: "3px solid #2563eb" }}>
             <div style={{ padding: "16px 20px 0" }}>
               <div style={{ ...sectionTitleStyle, color: "#2563eb" }}>📦 Stock actual por departamento</div>
@@ -448,54 +434,54 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
             <div>
               <div style={sectionTitleStyle}>Movimientos</div>
               <div style={sectionSubStyle}>
-                {movsTotal > 0
-                  ? `${movsTotal} movimiento${movsTotal !== 1 ? "s" : ""} en el período`
+                {movPagination.total > 0
+                  ? `${movPagination.total} movimiento${movPagination.total !== 1 ? "s" : ""} en el período`
                   : "Sin movimientos en el período seleccionado"}
               </div>
             </div>
-            {movsTotal > 0 && (
+            {movPagination.total > 0 && (
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                   <span style={{ fontSize: "12px", color: "#aaa" }}>Mostrar:</span>
                   {[10, 25, 50].map(size => (
                     <button
                       key={size}
-                      onClick={() => setMovsPageSize(size)}
+                      onClick={() => movPagination.setPageSize(size)}
                       style={{
                         padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer",
-                        border: movsPageSize === size ? "1px solid #111" : "1px solid #e0e0e0",
-                        backgroundColor: movsPageSize === size ? "#111" : "#fff",
-                        color: movsPageSize === size ? "#fff" : "#555",
-                        fontWeight: movsPageSize === size ? 600 : 400,
+                        border: movPagination.pageSize === size ? "1px solid #111" : "1px solid #e0e0e0",
+                        backgroundColor: movPagination.pageSize === size ? "#111" : "#fff",
+                        color: movPagination.pageSize === size ? "#fff" : "#555",
+                        fontWeight: movPagination.pageSize === size ? 600 : 400,
                       }}
                     >
                       {size}
                     </button>
                   ))}
                 </div>
-                {movsTotal > movsPageSize && (
+                {movPagination.total > movPagination.pageSize && (
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                     <span style={{ fontSize: "12px", color: "#aaa" }}>
-                      {movsPage + 1} / {Math.ceil(movsTotal / movsPageSize)}
+                      {movPagination.page + 1} / {movPagination.totalPages}
                     </span>
                     <button
-                      onClick={() => loadMovsPage(movsPage - 1)}
-                      disabled={movsPage === 0}
+                      onClick={() => movPagination.goToPage(movPagination.page - 1)}
+                      disabled={movPagination.page === 0}
                       style={{
                         padding: "4px 10px", borderRadius: "6px", border: "1px solid #e0e0e0",
                         backgroundColor: "#fff", fontSize: "13px",
-                        cursor: movsPage === 0 ? "not-allowed" : "pointer",
-                        color: movsPage === 0 ? "#ccc" : "#333",
+                        cursor: movPagination.page === 0 ? "not-allowed" : "pointer",
+                        color: movPagination.page === 0 ? "#ccc" : "#333",
                       }}
                     >←</button>
                     <button
-                      onClick={() => loadMovsPage(movsPage + 1)}
-                      disabled={(movsPage + 1) * movsPageSize >= movsTotal}
+                      onClick={() => movPagination.goToPage(movPagination.page + 1)}
+                      disabled={movPagination.page + 1 >= movPagination.totalPages}
                       style={{
                         padding: "4px 10px", borderRadius: "6px", border: "1px solid #e0e0e0",
                         backgroundColor: "#fff", fontSize: "13px",
-                        cursor: (movsPage + 1) * movsPageSize >= movsTotal ? "not-allowed" : "pointer",
-                        color: (movsPage + 1) * movsPageSize >= movsTotal ? "#ccc" : "#333",
+                        cursor: movPagination.page + 1 >= movPagination.totalPages ? "not-allowed" : "pointer",
+                        color: movPagination.page + 1 >= movPagination.totalPages ? "#ccc" : "#333",
                       }}
                     >→</button>
                   </div>
@@ -515,22 +501,22 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
               </tr>
             </thead>
             <tbody>
-              {movs.length === 0 && (
+              {movPagination.items.length === 0 && (
                 <tr>
                   <td colSpan={6} style={{ padding: "32px 22px", color: "#bbb", textAlign: "center", fontSize: "14px" }}>
                     No hay movimientos en el rango seleccionado
                   </td>
                 </tr>
               )}
-              {movs.map((m: any) => {
+              {movPagination.items.map((m: any) => {
                 const isEntrada = Number(m.cambio) > 0
                 const origen = m.origen === "pedido" ? "📦 Pedido" : m.origen ? "✏️ Manual" : "—"
                 return (
                   <tr
                     key={m.id}
                     style={{ borderBottom: "1px solid #f5f5f5" }}
-                    onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.backgroundColor = "#fafafa")}
-                    onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.backgroundColor = "")}
+                    onMouseEnter={e => ((e.currentTarget as HTMLElement).style.backgroundColor = "#fafafa")}
+                    onMouseLeave={e => ((e.currentTarget as HTMLElement).style.backgroundColor = "")}
                   >
                     <td style={{ ...tdStyle, color: "#888", fontSize: "13px" }}>{fmtFechaHora(m.fecha)}</td>
                     <td style={tdStyle}>
@@ -562,60 +548,4 @@ export default function DashboardPage({ onNavigate, draftCount }: { onNavigate: 
   )
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const cardStyle: React.CSSProperties = {
-  backgroundColor: "#fff",
-  border: "1px solid #e0e0e0",
-  borderRadius: "12px",
-}
-
-const sectionTitleStyle: React.CSSProperties = {
-  fontSize: "14px",
-  fontWeight: 700,
-  color: "#111",
-  marginBottom: "2px",
-}
-
-const sectionSubStyle: React.CSSProperties = {
-  fontSize: "12px",
-  color: "#aaa",
-  marginBottom: "0",
-}
-
-const dateInputStyle: React.CSSProperties = {
-  padding: "7px 10px",
-  borderRadius: "8px",
-  border: "1px solid #ddd",
-  fontSize: "13px",
-  backgroundColor: "#fff",
-  outline: "none",
-  color: "#333",
-}
-
-const btnOutlineStyle: React.CSSProperties = {
-  padding: "7px 12px",
-  borderRadius: "8px",
-  border: "1px solid #e0e0e0",
-  backgroundColor: "#fff",
-  color: "#555",
-  fontSize: "13px",
-  cursor: "pointer",
-  fontWeight: 500,
-}
-
-const thStyle: React.CSSProperties = {
-  padding: "10px 16px",
-  textAlign: "left",
-  fontSize: "11px",
-  fontWeight: 700,
-  color: "#888",
-  textTransform: "uppercase",
-  letterSpacing: "0.06em",
-}
-
-const tdStyle: React.CSSProperties = {
-  padding: "12px 16px",
-  fontSize: "14px",
-  verticalAlign: "middle",
-}
+// ── Styles — ver styles.ts ──────────────────────────────────────────────────────

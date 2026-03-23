@@ -93,24 +93,24 @@ export async function undoMovimientos(movimientoIds: number[]): Promise<void> {
   if (movimientoIds.length === 0) return
   const db = await getDB()
   for (const movId of movimientoIds) {
-    // Leer el movimiento para saber cuánto revertir y a qué talla
     const rows: any = await db.select(
       "SELECT talla_id, cambio FROM movimientos WHERE id = ?",
       [movId]
     )
     if (!rows || rows.length === 0) continue
     const { talla_id, cambio } = rows[0]
-    // Revertir el stock (invertir el cambio)
     await db.execute(
       "UPDATE tallas SET stock = stock - ? WHERE id = ?",
       [cambio, talla_id]
     )
-    // Borrar el movimiento
     await db.execute("DELETE FROM movimientos WHERE id = ?", [movId])
   }
 }
 
-export async function updateProduct(productId: number, fields: { nombre: string; codigo: string; departamento_id: number | null }) {
+export async function updateProduct(
+  productId: number,
+  fields: { nombre: string; codigo: string; departamento_id: number | null }
+) {
   const db = await getDB()
   await db.execute(
     "UPDATE productos SET nombre = ?, codigo = ?, departamento_id = ? WHERE id = ?",
@@ -161,4 +161,27 @@ export async function getProductMovements(productId: number, limit = 50, offset 
     LIMIT ? OFFSET ?
   `, [productId, limit, offset])
   return rows
+}
+
+// ─── Tallas ───────────────────────────────────────────────────────────────────
+
+/**
+ * Añade una talla al producto con stock 0.
+ * Usa INSERT OR IGNORE para que sea idempotente.
+ */
+export async function addTallaToProduct(productId: number, talla: string): Promise<void> {
+  const db = await getDB()
+  await db.execute(
+    "INSERT OR IGNORE INTO tallas (producto_id, talla, stock) VALUES (?, ?, 0)",
+    [productId, talla.trim()]
+  )
+}
+
+/**
+ * Elimina una talla y todos sus movimientos asociados.
+ */
+export async function deleteTalla(tallaId: number): Promise<void> {
+  const db = await getDB()
+  await db.execute("DELETE FROM movimientos WHERE talla_id = ?", [tallaId])
+  await db.execute("DELETE FROM tallas WHERE id = ?", [tallaId])
 }

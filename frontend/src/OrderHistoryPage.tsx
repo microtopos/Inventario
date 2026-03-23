@@ -1,5 +1,12 @@
 import { useState, useEffect, useRef } from "react"
-import { getOrders, getOrderDetail, receivePrendaItems, modifyItem, updateOrderNotes, deleteOrder } from "./orderService"
+import {
+  getOrders,
+  getOrderDetail,
+  receivePrendaItems,
+  modifyItem,
+  updateOrderNotes,
+  deleteOrder,
+} from "./orderService"
 import AppHeader from "./AppHeader"
 import { useConfirm } from "./ConfirmDialog"
 import { ordenarTallas } from "./sortTallas"
@@ -9,11 +16,17 @@ import { writeFile } from "@tauri-apps/plugin-fs"
 import { resolveExportDir } from "./exportService"
 import { useToast } from "./Toast"
 import { useSortableTable } from "./useSortableTable"
+import { useAsyncAction } from "./useAsyncAction"
+import { useDraft } from "./DraftContext"
+import { thStyleSm, tdStyleSm, badgeStyle as badgeStyleBase } from "./styles"
 
 function formatDate(dateStr: string) {
   if (!dateStr) return "—"
   const d = new Date(dateStr)
-  return d.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })
+  return d.toLocaleDateString("es-ES", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  })
 }
 
 function agruparItems(items: any[]) {
@@ -21,12 +34,22 @@ function agruparItems(items: any[]) {
   for (const item of items) {
     const key = `${item.producto_nombre}__${item.producto_color ?? ""}`
     if (!map[key]) {
-      map[key] = { nombre: item.producto_nombre, codigo: item.producto_codigo, color: item.producto_color, tallas: [], total: 0 }
+      map[key] = {
+        nombre: item.producto_nombre,
+        codigo: item.producto_codigo,
+        color: item.producto_color,
+        tallas: [],
+        total: 0,
+      }
     }
     map[key].tallas.push({
-      itemId: item.id, talla: item.talla, cantidad: item.cantidad,
-      cantidad_acordada: item.cantidad_acordada, cantidad_recibida: item.cantidad_recibida,
-      estado: item.estado, stock_actual: item.stock_actual,
+      itemId: item.id,
+      talla: item.talla,
+      cantidad: item.cantidad,
+      cantidad_acordada: item.cantidad_acordada,
+      cantidad_recibida: item.cantidad_recibida,
+      estado: item.estado,
+      stock_actual: item.stock_actual,
     })
     map[key].total += Number(item.cantidad_acordada ?? item.cantidad) || 0
   }
@@ -62,36 +85,40 @@ function StepperBtn({ side, onClick }: { side: "left" | "right"; onClick: () => 
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
+export default function OrderHistoryPage({
+  onNavigate,
+  onBack,
+}: {
   onNavigate: (page: any) => void
   onBack?: () => void
-  draftCount?: number
 }) {
   const [orders, setOrders] = useState<any[]>([])
   const [selectedOrder, setSelectedOrder] = useState<any>(null)
   const [orderDetail, setOrderDetail] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [receiving, setReceiving] = useState(false)
+  const [loadingOrders, setLoadingOrders] = useState(true)
   const [exporting, setExporting] = useState(false)
   const [filter, setFilter] = useState<"all" | "pending" | "received">("all")
-  const { confirm, dialog } = useConfirm()
-  const toast = useToast()
-
-  const receivingRef = useRef(false)
-  const mountedRef = useRef(true)
-  const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [notesDraft, setNotesDraft] = useState("")
   const [editingItemId, setEditingItemId] = useState<number | null>(null)
   const [editValue, setEditValue] = useState<number | "">(0)
+  const [notesDraft, setNotesDraft] = useState("")
 
-  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false } }, [])
+  const { confirm, dialog } = useConfirm()
+  const { draftCount } = useDraft()
+  const toast = useToast()
+  const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Un único hook para todas las acciones async de este componente
+  const receiveAction = useAsyncAction()
+  const modifyAction = useAsyncAction()
+  const deleteAction = useAsyncAction()
+
   useEffect(() => { loadOrders() }, [])
 
   async function loadOrders() {
-    setLoading(true)
+    setLoadingOrders(true)
     const data = await getOrders()
     setOrders(data)
-    setLoading(false)
+    setLoadingOrders(false)
   }
 
   async function openOrder(order: any) {
@@ -113,43 +140,44 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
 
   async function refreshSelectedOrder() {
     if (!selectedOrder) return
-    const [ordersList, detail] = await Promise.all([getOrders(), getOrderDetail(selectedOrder.id)])
+    const [ordersList, detail] = await Promise.all([
+      getOrders(),
+      getOrderDetail(selectedOrder.id),
+    ])
     const row = ordersList.find((o: any) => o.id === selectedOrder.id) ?? selectedOrder
-    if (mountedRef.current) { setOrders(ordersList); setSelectedOrder(row); setOrderDetail(detail) }
+    setOrders(ordersList)
+    setSelectedOrder(row)
+    setOrderDetail(detail)
   }
 
   async function handleReceivePrenda(itemIds: number[]) {
-    if (!selectedOrder || receivingRef.current) return
-    receivingRef.current = true; setReceiving(true)
-    try {
+    if (!selectedOrder) return
+    await receiveAction.run(async () => {
       await receivePrendaItems(itemIds)
       await refreshSelectedOrder()
-    } catch (e: any) {
-      toast.error("No se pudo recibir la prenda", e?.message ?? String(e))
-    } finally {
-      receivingRef.current = false
-      if (mountedRef.current) setReceiving(false)
-    }
+    }, { errorTitle: "No se pudo recibir la prenda" })
   }
 
   async function handleReceiveAll() {
     if (!selectedOrder) return
     const pendingIds = orderDetail
-      .filter((it: any) => { const st = String(it.estado ?? "pendiente"); return st === "pendiente" || st === "modificado" })
+      .filter((it: any) => {
+        const st = String(it.estado ?? "pendiente")
+        return st === "pendiente" || st === "modificado"
+      })
       .map((it: any) => it.id as number)
     if (pendingIds.length === 0) return
-    const ok = await confirm("¿Marcar todo el pedido como recibido? Se actualizará el stock de todas las prendas pendientes.", { confirmLabel: "Recibir todo" })
-    if (!ok || receivingRef.current) return
-    receivingRef.current = true; setReceiving(true)
-    try {
+
+    const ok = await confirm(
+      "¿Marcar todo el pedido como recibido? Se actualizará el stock de todas las prendas pendientes.",
+      { confirmLabel: "Recibir todo" }
+    )
+    if (!ok) return
+
+    await receiveAction.run(async () => {
       await receivePrendaItems(pendingIds)
       await refreshSelectedOrder()
-    } catch (e: any) {
-      toast.error("No se pudo recibir el pedido", e?.message ?? String(e))
-    } finally {
-      receivingRef.current = false
-      if (mountedRef.current) setReceiving(false)
-    }
+    }, { errorTitle: "No se pudo recibir el pedido" })
   }
 
   function startEditing(itemId: number, currentEffective: number) {
@@ -163,18 +191,12 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
       toast.error("Cantidad inválida", "Usa un número (0 para cancelar).")
       return
     }
-    if (receivingRef.current) return
-    receivingRef.current = true; setReceiving(true)
-    try {
+    await modifyAction.run(async () => {
       await modifyItem(itemId, editValue === "" ? null : Math.trunc(n as number))
-      setEditingItemId(null); setEditValue(0)
+      setEditingItemId(null)
+      setEditValue(0)
       await refreshSelectedOrder()
-    } catch (e: any) {
-      toast.error("No se pudo modificar", e?.message ?? String(e))
-    } finally {
-      receivingRef.current = false
-      if (mountedRef.current) setReceiving(false)
-    }
+    }, { errorTitle: "No se pudo modificar" })
   }
 
   function scheduleSaveNotes(next: string) {
@@ -194,19 +216,26 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
 
   async function handleDelete(order: any) {
     if (order.recibido) {
-      await confirm("Este pedido ya fue recibido y no se puede eliminar.", { confirmLabel: "Entendido", danger: false })
+      await confirm("Este pedido ya fue recibido y no se puede eliminar.", {
+        confirmLabel: "Entendido", danger: false,
+      })
       return
     }
-    const ok = await confirm(`¿Eliminar el pedido #${order.id}? Esta acción no se puede deshacer.`, { confirmLabel: "Eliminar", danger: true })
+    const ok = await confirm(
+      `¿Eliminar el pedido #${order.id}? Esta acción no se puede deshacer.`,
+      { confirmLabel: "Eliminar", danger: true }
+    )
     if (!ok) return
-    try {
+
+    await deleteAction.run(async () => {
       await deleteOrder(order.id)
-      if (selectedOrder?.id === order.id) { setSelectedOrder(null); setOrderDetail([]) }
+      if (selectedOrder?.id === order.id) {
+        setSelectedOrder(null)
+        setOrderDetail([])
+      }
       await loadOrders()
       toast.success("Pedido eliminado", `Pedido #${order.id} eliminado`)
-    } catch (e: any) {
-      toast.error("No se pudo eliminar el pedido", e?.message ?? String(e))
-    }
+    }, { errorTitle: "No se pudo eliminar el pedido" })
   }
 
   async function exportOrderPDF() {
@@ -215,7 +244,8 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
     try {
       const grouped = agruparItems(orderDetail)
       const doc = new jsPDF()
-      const PW = doc.internal.pageSize.getWidth(), PH = doc.internal.pageSize.getHeight()
+      const PW = doc.internal.pageSize.getWidth()
+      const PH = doc.internal.pageSize.getHeight()
       const ML = 14, MR = 14, CW = PW - ML - MR
 
       const fecha = formatDate(selectedOrder.fecha)
@@ -231,19 +261,28 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
 
       function drawHeader() {
         doc.setDrawColor(...linea); doc.setLineWidth(0.4); doc.line(ML, 12, PW - MR, 12)
-        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro); doc.text("Gestión de Ropa", ML, 9)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris); doc.text(new Date().toLocaleDateString("es-ES"), PW - MR, 9, { align: "right" })
-        doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(...negro); doc.text(`Pedido #${selectedOrder.id}`, ML, 22)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro)
+        doc.text("Gestión de Ropa", ML, 9)
         doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris)
-        doc.text(`${fecha}  ·  ${totalLineas} prenda${totalLineas !== 1 ? "s" : ""}  ·  ${totalUnidades} unidades` + (selectedOrder.recibido ? "  ·  Recibido" : "  ·  Pendiente"), ML, 28)
+        doc.text(new Date().toLocaleDateString("es-ES"), PW - MR, 9, { align: "right" })
+        doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(...negro)
+        doc.text(`Pedido #${selectedOrder.id}`, ML, 22)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris)
+        doc.text(
+          `${fecha}  ·  ${totalLineas} prenda${totalLineas !== 1 ? "s" : ""}  ·  ${totalUnidades} unidades` +
+          (selectedOrder.recibido ? "  ·  Recibido" : "  ·  Pendiente"),
+          ML, 28
+        )
         doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(ML, 31, PW - MR, 31)
       }
 
       function addPage() {
         doc.addPage()
         doc.setDrawColor(...linea); doc.setLineWidth(0.4); doc.line(ML, 12, PW - MR, 12)
-        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro); doc.text("Gestión de Ropa", ML, 9)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris); doc.text(`Pedido #${selectedOrder.id}`, PW - MR, 9, { align: "right" })
+        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro)
+        doc.text("Gestión de Ropa", ML, 9)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris)
+        doc.text(`Pedido #${selectedOrder.id}`, PW - MR, 9, { align: "right" })
         doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(ML, 14, PW - MR, 14)
       }
 
@@ -263,17 +302,21 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
         const boxH = 4 + 3 + lines.length * 4.1 + 4
         y = checkPageBreak(y, boxH + 4)
         doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.rect(ML, y, CW, boxH, "S")
-        doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...gris); doc.text("NOTAS", ML + boxPadX, y + 6)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...negro); doc.text(lines, ML + boxPadX, y + 11)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...gris)
+        doc.text("NOTAS", ML + boxPadX, y + 6)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...negro)
+        doc.text(lines, ML + boxPadX, y + 11)
         y += boxH + 8
       }
 
       doc.setFillColor(...fondoCab); doc.rect(ML, y, CW, 7, "F")
       doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...gris)
-      doc.text("PRENDA", ML + 2, y + 5); doc.text("TOTAL", PW - MR - 2, y + 5, { align: "right" })
+      doc.text("PRENDA", ML + 2, y + 5)
+      doc.text("TOTAL", PW - MR - 2, y + 5, { align: "right" })
       y += 9
 
-      const colW = 22, chipsPerRow = Math.floor(CW / colW)
+      const colW = 22
+      const chipsPerRow = Math.floor(CW / colW)
       const chipH = selectedOrder.recibido ? 10 : 7.5
 
       grouped.forEach((g: any, idx: number) => {
@@ -282,9 +325,13 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
         const filasTallas = Math.ceil(tallas.length / chipsPerRow)
         const blockH = 7 + (hasMeta ? 6 : 0) + filasTallas * (chipH + 1.5) + 5
         y = checkPageBreak(y, blockH)
-        if (idx % 2 === 0) { doc.setFillColor(...fondoFil); doc.rect(ML, y - 1, CW, blockH + 1, "F") }
+        if (idx % 2 === 0) {
+          doc.setFillColor(...fondoFil)
+          doc.rect(ML, y - 1, CW, blockH + 1, "F")
+        }
         doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro)
-        doc.text(g.nombre, ML + 2, y + 5); doc.text(`${g.total} ud.`, PW - MR - 2, y + 5, { align: "right" })
+        doc.text(g.nombre, ML + 2, y + 5)
+        doc.text(`${g.total} ud.`, PW - MR - 2, y + 5, { align: "right" })
         let tallaStartY = y + 8
         if (hasMeta) {
           doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...gris)
@@ -295,38 +342,53 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
         for (const t of tallas) {
           if (col >= chipsPerRow) { col = 0; tx = ML + 2; ty += chipH + 1.5 }
           doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.rect(tx, ty, colW - 2, chipH, "S")
-          doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(...negro); doc.text(t.talla, tx + 2, ty + 3.5)
-          doc.setFont("helvetica", "normal"); doc.setTextColor(...gris); doc.text(`${t.cantidad}ud`, tx + (colW - 2) - 2, ty + 3.5, { align: "right" })
+          doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(...negro)
+          doc.text(t.talla, tx + 2, ty + 3.5)
+          doc.setFont("helvetica", "normal"); doc.setTextColor(...gris)
+          doc.text(`${t.cantidad}ud`, tx + (colW - 2) - 2, ty + 3.5, { align: "right" })
           if (selectedOrder.recibido && t.stock_actual !== undefined) {
-            doc.setFontSize(6); doc.setTextColor(...grisClar); doc.text(`→${t.stock_actual}`, tx + (colW - 2) / 2, ty + 7.5, { align: "center" })
+            doc.setFontSize(6); doc.setTextColor(...grisClar)
+            doc.text(`→${t.stock_actual}`, tx + (colW - 2) / 2, ty + 7.5, { align: "center" })
           }
           tx += colW; col++
         }
-        y += blockH; doc.setDrawColor(...linea); doc.setLineWidth(0.2); doc.line(ML, y, PW - MR, y); y += 1
+        y += blockH
+        doc.setDrawColor(...linea); doc.setLineWidth(0.2); doc.line(ML, y, PW - MR, y); y += 1
       })
 
       y = checkPageBreak(y, 14); y += 5
-      doc.setDrawColor(...[180, 180, 180] as [number,number,number]); doc.setLineWidth(0.5); doc.line(ML, y - 2, PW - MR, y - 2)
+      doc.setDrawColor(...[180, 180, 180] as [number,number,number])
+      doc.setLineWidth(0.5); doc.line(ML, y - 2, PW - MR, y - 2)
       doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...negro)
-      doc.text("Total del pedido:", ML + 2, y + 4); doc.text(`${totalLineas} prendas  ·  ${totalUnidades} unidades`, PW - MR - 2, y + 4, { align: "right" })
+      doc.text("Total del pedido:", ML + 2, y + 4)
+      doc.text(`${totalLineas} prendas  ·  ${totalUnidades} unidades`, PW - MR - 2, y + 4, { align: "right" })
 
       const pages = doc.getNumberOfPages()
       for (let i = 1; i <= pages; i++) {
-        doc.setPage(i); doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(ML, 286, PW - MR, 286)
+        doc.setPage(i)
+        doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(ML, 286, PW - MR, 286)
         doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...grisClar)
-        doc.text("Gestión de Ropa", ML, 290); doc.text(`Página ${i} de ${pages}`, PW - MR, 290, { align: "right" })
+        doc.text("Gestión de Ropa", ML, 290)
+        doc.text(`Página ${i} de ${pages}`, PW - MR, 290, { align: "right" })
       }
 
       const pdfBytes = new Uint8Array(doc.output("arraybuffer"))
       const base = await resolveExportDir()
-      const filePath = await join(base, `pedido_${selectedOrder.id}_${new Date().toISOString().slice(0, 10)}.pdf`)
+      const filePath = await join(
+        base,
+        `pedido_${selectedOrder.id}_${new Date().toISOString().slice(0, 10)}.pdf`
+      )
       await writeFile(filePath.replace(/\\/g, "/"), pdfBytes)
       toast.success("PDF guardado", filePath)
     } catch (e: any) {
-      if (e?.message !== "Selección cancelada") toast.error("Error al exportar el PDF", e?.message ?? String(e))
+      if (e?.message !== "Selección cancelada") {
+        toast.error("Error al exportar el PDF", e?.message ?? String(e))
+      }
     }
     setExporting(false)
   }
+
+  // ── Render ──────────────────────────────────────────────────────────────────
 
   const visibleOrders = orders.filter(o => {
     if (filter === "pending")  return !o.recibido
@@ -346,10 +408,13 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
   const detailTotalLineas = grouped.length
   const detailTotalUnidades = grouped.reduce((s: number, g: any) => s + g.total, 0)
 
+  // loading unificado para deshabilitar botones de acción
+  const actionLoading = receiveAction.loading || modifyAction.loading
+
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f5", fontFamily: "system-ui, sans-serif" }}>
 
-      <AppHeader page="orderHistory" onNavigate={onNavigate} onBack={onBack} draftCount={draftCount} />
+      <AppHeader page="orderHistory" onNavigate={onNavigate} onBack={onBack} />
 
       <div style={{ backgroundColor: "#fff", borderBottom: "1px solid #e0e0e0", padding: "0 32px", display: "flex", alignItems: "center", height: "48px", gap: "12px" }}>
         <span style={{ fontSize: "15px", fontWeight: 600, color: "#111" }}>📋 Historial de pedidos</span>
@@ -366,7 +431,11 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
         <div style={{ width: "320px", flexShrink: 0 }}>
           <div style={{ display: "flex", gap: "6px", marginBottom: "14px" }}>
             {(["all", "pending", "received"] as const).map(f => (
-              <button key={f} onClick={() => setFilter(f)} style={{ padding: "6px 14px", borderRadius: "6px", border: "1px solid #ddd", fontSize: "13px", cursor: "pointer", fontWeight: filter === f ? 600 : 400, backgroundColor: filter === f ? "#111" : "#fff", color: filter === f ? "#fff" : "#555" }}>
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                style={{ padding: "6px 14px", borderRadius: "6px", border: "1px solid #ddd", fontSize: "13px", cursor: "pointer", fontWeight: filter === f ? 600 : 400, backgroundColor: filter === f ? "#111" : "#fff", color: filter === f ? "#fff" : "#555" }}
+              >
                 {f === "all" ? "Todos" : f === "pending" ? "⏳ Pendientes" : "✅ Recibidos"}
               </button>
             ))}
@@ -382,7 +451,7 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
           </div>
 
           <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px", overflow: "hidden" }}>
-            {loading ? (
+            {loadingOrders ? (
               <div style={{ padding: "40px", textAlign: "center", color: "#aaa" }}>Cargando...</div>
             ) : visibleOrders.length === 0 ? (
               <div style={{ padding: "40px", textAlign: "center", color: "#aaa", fontSize: "14px" }}>
@@ -390,21 +459,30 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
               </div>
             ) : (
               sortedOrders.map(order => (
-                <div key={order.id} onClick={() => openOrder(order)}
+                <div
+                  key={order.id}
+                  onClick={() => openOrder(order)}
                   style={{ padding: "14px 16px", borderBottom: "1px solid #f0f0f0", cursor: "pointer", backgroundColor: selectedOrder?.id === order.id ? "#eff6ff" : "#fff", transition: "background 0.1s" }}
                   onMouseEnter={e => { if (selectedOrder?.id !== order.id) e.currentTarget.style.backgroundColor = "#f9f9f9" }}
-                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = selectedOrder?.id === order.id ? "#eff6ff" : "#fff" }}>
+                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = selectedOrder?.id === order.id ? "#eff6ff" : "#fff" }}
+                >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div>
                       <div style={{ fontWeight: 600, fontSize: "14px", color: "#111" }}>Pedido #{order.id}</div>
                       <div style={{ fontSize: "12px", color: "#888", marginTop: "3px" }}>{formatDate(order.fecha)}</div>
                       <div style={{ fontSize: "12px", color: "#555", marginTop: "4px" }}>
-                        {order.num_lineas > 0 ? `${order.num_lineas} línea${order.num_lineas !== 1 ? "s" : ""} · ${order.total_unidades ?? 0} unidades` : "Sin artículos"}
+                        {order.num_lineas > 0
+                          ? `${order.num_lineas} línea${order.num_lineas !== 1 ? "s" : ""} · ${order.total_unidades ?? 0} unidades`
+                          : "Sin artículos"}
                       </div>
                     </div>
                     {(() => {
                       const b = orderBadge(order)
-                      return <span style={{ padding: "3px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: 600, backgroundColor: b.bg, color: b.color, whiteSpace: "nowrap", marginLeft: "8px" }}>{b.text}</span>
+                      return (
+                        <span style={{ padding: "3px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: 600, backgroundColor: b.bg, color: b.color, whiteSpace: "nowrap", marginLeft: "8px" }}>
+                          {b.text}
+                        </span>
+                      )
                     })()}
                   </div>
                 </div>
@@ -430,25 +508,38 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
                     <div style={{ fontSize: "13px", color: "#888", marginTop: "3px" }}>Creado el {formatDate(selectedOrder.fecha)}</div>
                   </div>
                   <div style={{ display: "flex", gap: "10px", alignItems: "center", flexShrink: 0 }}>
-                    <button onClick={exportOrderPDF} disabled={exporting || orderDetail.length === 0}
-                      style={{ padding: "9px 16px", backgroundColor: "#fff", color: "#2563eb", border: "1px solid #bfdbfe", borderRadius: "7px", fontSize: "14px", fontWeight: 600, cursor: exporting || orderDetail.length === 0 ? "not-allowed" : "pointer", opacity: orderDetail.length === 0 ? 0.5 : 1 }}>
+                    <button
+                      onClick={exportOrderPDF}
+                      disabled={exporting || orderDetail.length === 0}
+                      style={{ padding: "9px 16px", backgroundColor: "#fff", color: "#2563eb", border: "1px solid #bfdbfe", borderRadius: "7px", fontSize: "14px", fontWeight: 600, cursor: exporting || orderDetail.length === 0 ? "not-allowed" : "pointer", opacity: orderDetail.length === 0 ? 0.5 : 1 }}
+                    >
                       {exporting ? "Exportando…" : "📄 Exportar PDF"}
                     </button>
                     {!!selectedOrder.recibido && (
-                      <span style={{ padding: "9px 16px", backgroundColor: "#dcfce7", color: "#166534", borderRadius: "7px", fontSize: "14px", fontWeight: 600 }}>✅ Pedido recibido</span>
+                      <span style={{ padding: "9px 16px", backgroundColor: "#dcfce7", color: "#166534", borderRadius: "7px", fontSize: "14px", fontWeight: 600 }}>
+                        ✅ Pedido recibido
+                      </span>
                     )}
                     {!selectedOrder.recibido && (() => {
-                      const hasPending = orderDetail.some((it: any) => { const st = String(it.estado ?? "pendiente"); return st === "pendiente" || st === "modificado" })
+                      const hasPending = orderDetail.some((it: any) => {
+                        const st = String(it.estado ?? "pendiente")
+                        return st === "pendiente" || st === "modificado"
+                      })
                       return hasPending ? (
-                        <button onClick={handleReceiveAll} disabled={receiving}
-                          style={{ padding: "9px 16px", backgroundColor: receiving ? "#ccc" : "#16a34a", color: "#fff", border: "none", borderRadius: "7px", fontSize: "14px", fontWeight: 600, cursor: receiving ? "not-allowed" : "pointer" }}>
+                        <button
+                          onClick={handleReceiveAll}
+                          disabled={actionLoading}
+                          style={{ padding: "9px 16px", backgroundColor: actionLoading ? "#ccc" : "#16a34a", color: "#fff", border: "none", borderRadius: "7px", fontSize: "14px", fontWeight: 600, cursor: actionLoading ? "not-allowed" : "pointer" }}
+                        >
                           ✓ Recibir todo
                         </button>
                       ) : null
                     })()}
                     {!selectedOrder.recibido && (
-                      <button onClick={() => handleDelete(selectedOrder)}
-                        style={{ padding: "9px 16px", background: "none", border: "1px solid #fca5a5", color: "#dc2626", borderRadius: "7px", fontSize: "14px", cursor: "pointer" }}>
+                      <button
+                        onClick={() => handleDelete(selectedOrder)}
+                        style={{ padding: "9px 16px", background: "none", border: "1px solid #fca5a5", color: "#dc2626", borderRadius: "7px", fontSize: "14px", cursor: "pointer" }}
+                      >
                         Eliminar
                       </button>
                     )}
@@ -456,10 +547,12 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
                 </div>
                 <div style={{ marginTop: "16px" }}>
                   <div style={{ fontSize: "11px", fontWeight: 700, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>Notas</div>
-                  <textarea value={notesDraft}
+                  <textarea
+                    value={notesDraft}
                     onChange={(e) => { setNotesDraft(e.target.value); scheduleSaveNotes(e.target.value) }}
                     onBlur={() => scheduleSaveNotes(notesDraft)}
-                    placeholder="Proveedor, albarán, condiciones…" rows={2}
+                    placeholder="Proveedor, albarán, condiciones…"
+                    rows={2}
                     style={{ width: "100%", resize: "vertical", padding: "9px 12px", borderRadius: "8px", border: "1px solid #ddd", fontSize: "13px", boxSizing: "border-box", backgroundColor: "#fff", outline: "none" }}
                   />
                 </div>
@@ -505,10 +598,18 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
                         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                           <span style={{ fontSize: "13px", fontWeight: 600, color: "#555" }}>{g.total} ud. pedidas</span>
                           {!selectedOrder.recibido && (() => {
-                            const pendingIds = g.tallas.filter((t: any) => { const st = String(t.estado ?? "pendiente"); return st === "pendiente" || st === "modificado" }).map((t: any) => t.itemId as number)
+                            const pendingIds = g.tallas
+                              .filter((t: any) => {
+                                const st = String(t.estado ?? "pendiente")
+                                return st === "pendiente" || st === "modificado"
+                              })
+                              .map((t: any) => t.itemId as number)
                             return pendingIds.length > 0 ? (
-                              <button onClick={() => handleReceivePrenda(pendingIds)} disabled={receiving}
-                                style={{ padding: "6px 12px", borderRadius: "7px", border: "none", backgroundColor: receiving ? "#ccc" : "#16a34a", color: "#fff", fontSize: "12px", fontWeight: 700, cursor: receiving ? "not-allowed" : "pointer" }}>
+                              <button
+                                onClick={() => handleReceivePrenda(pendingIds)}
+                                disabled={actionLoading}
+                                style={{ padding: "6px 12px", borderRadius: "7px", border: "none", backgroundColor: actionLoading ? "#ccc" : "#16a34a", color: "#fff", fontSize: "12px", fontWeight: 700, cursor: actionLoading ? "not-allowed" : "pointer" }}
+                              >
                                 ✓ Recibir prenda
                               </button>
                             ) : null
@@ -538,8 +639,8 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
                             const rowBg = estado === "recibido" ? "#f0fdf4" : estado === "cancelado" ? "#fafafa" : "transparent"
 
                             const badgeEl = (() => {
-                              if (estado === "recibido")  return <span style={{ ...tallaBadgeStyle, backgroundColor: "#dcfce7", color: "#166534" }}>Recibido</span>
-                              if (estado === "cancelado") return <span style={{ ...tallaBadgeStyle, backgroundColor: "#f3f4f6", color: "#6b7280" }}>Cancelado</span>
+                              if (estado === "recibido")   return <span style={{ ...tallaBadgeStyle, backgroundColor: "#dcfce7", color: "#166534" }}>Recibido</span>
+                              if (estado === "cancelado")  return <span style={{ ...tallaBadgeStyle, backgroundColor: "#f3f4f6", color: "#6b7280" }}>Cancelado</span>
                               if (estado === "modificado") return <span style={{ ...tallaBadgeStyle, backgroundColor: "#ffedd5", color: "#c2410c" }}>Modificado</span>
                               return <span style={{ ...tallaBadgeStyle, backgroundColor: "#eff6ff", color: "#2563eb" }}>Pendiente</span>
                             })()
@@ -550,13 +651,10 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
                                 <tr key={j} style={{ borderBottom: "1px solid #f5f5f5", backgroundColor: "#fffbeb" }}>
                                   <td colSpan={6} style={{ padding: "12px 16px" }}>
                                     <div style={{ display: "flex", alignItems: "center", gap: "16px", flexWrap: "wrap" }}>
-                                      {/* Info */}
                                       <span style={{ fontWeight: 700, fontSize: "15px", minWidth: "36px" }}>{t.talla}</span>
                                       <span style={{ fontSize: "13px", color: "#888" }}>
                                         Pedido: <b style={{ color: "#2563eb" }}>{t.cantidad} ud.</b>
                                       </span>
-
-                                      {/* Stepper */}
                                       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                                         <span style={{ fontSize: "13px", color: "#555", whiteSpace: "nowrap" }}>Acordar:</span>
                                         <div style={{ display: "flex", alignItems: "center" }}>
@@ -571,28 +669,24 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
                                               if (e.key === "Enter") handleSaveModify(t.itemId)
                                               if (e.key === "Escape") { setEditingItemId(null); setEditValue(0) }
                                             }}
-                                            style={{
-                                              width: "60px", height: "34px",
-                                              border: "1px solid #e0e0e0", fontSize: "14px", fontWeight: 600,
-                                              textAlign: "center", outline: "none",
-                                              color: currentVal === 0 ? "#9ca3af" : "#111",
-                                              backgroundColor: "#fff",
-                                              MozAppearance: "textfield" as any,
-                                            }}
+                                            style={{ width: "60px", height: "34px", border: "1px solid #e0e0e0", fontSize: "14px", fontWeight: 600, textAlign: "center", outline: "none", color: currentVal === 0 ? "#9ca3af" : "#111", backgroundColor: "#fff", MozAppearance: "textfield" as any }}
                                           />
                                           <StepperBtn side="right" onClick={() => setEditValue(currentVal + 1)} />
                                         </div>
                                         <span style={{ fontSize: "11px", color: "#aaa" }}>ud. (0 = cancelar)</span>
                                       </div>
-
-                                      {/* Botones */}
                                       <div style={{ display: "flex", gap: "8px", marginLeft: "auto" }}>
-                                        <button onClick={() => handleSaveModify(t.itemId)} disabled={receiving}
-                                          style={{ padding: "7px 18px", borderRadius: "7px", border: "none", backgroundColor: receiving ? "#ccc" : "#111", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: receiving ? "not-allowed" : "pointer" }}>
+                                        <button
+                                          onClick={() => handleSaveModify(t.itemId)}
+                                          disabled={actionLoading}
+                                          style={{ padding: "7px 18px", borderRadius: "7px", border: "none", backgroundColor: actionLoading ? "#ccc" : "#111", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: actionLoading ? "not-allowed" : "pointer" }}
+                                        >
                                           Guardar
                                         </button>
-                                        <button onClick={() => { setEditingItemId(null); setEditValue(0) }}
-                                          style={{ padding: "7px 14px", borderRadius: "7px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "13px", cursor: "pointer" }}>
+                                        <button
+                                          onClick={() => { setEditingItemId(null); setEditValue(0) }}
+                                          style={{ padding: "7px 14px", borderRadius: "7px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "13px", cursor: "pointer" }}
+                                        >
                                           Cancelar
                                         </button>
                                       </div>
@@ -619,8 +713,11 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
                                 </td>
                                 <td style={{ ...tallaTdStyle, textAlign: "right" }}>
                                   {canAct && (
-                                    <button onClick={() => startEditing(t.itemId, effective)} disabled={receiving}
-                                      style={{ padding: "5px 12px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "12px", fontWeight: 600, cursor: receiving ? "not-allowed" : "pointer" }}>
+                                    <button
+                                      onClick={() => startEditing(t.itemId, effective)}
+                                      disabled={actionLoading}
+                                      style={{ padding: "5px 12px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "12px", fontWeight: 600, cursor: actionLoading ? "not-allowed" : "pointer" }}
+                                    >
                                       ✎ Modificar
                                     </button>
                                   )}
@@ -657,15 +754,7 @@ export default function OrderHistoryPage({ onNavigate, onBack, draftCount }: {
   )
 }
 
-const tallaThStyle: React.CSSProperties = {
-  padding: "8px 14px", textAlign: "left", fontSize: "11px", fontWeight: 700,
-  color: "#aaa", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap",
-}
-
-const tallaTdStyle: React.CSSProperties = {
-  padding: "10px 14px", fontSize: "13px", verticalAlign: "middle",
-}
-
-const tallaBadgeStyle: React.CSSProperties = {
-  display: "inline-block", padding: "3px 9px", borderRadius: "20px", fontSize: "11px", fontWeight: 700,
-}
+// Aliases locales para los estilos compartidos
+const tallaThStyle = thStyleSm
+const tallaTdStyle = tdStyleSm
+const tallaBadgeStyle = badgeStyleBase

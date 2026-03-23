@@ -1,7 +1,17 @@
-import { useEffect, useState } from "react"
-import { getProductSizes, getProductMovements, getProductMovementsCount, updateProduct } from "./productService"
+import { useCallback, useEffect, useState } from "react"
+import { usePagination } from "./usePagination"
+import {
+  getProductSizes,
+  getProductMovements,
+  getProductMovementsCount,
+  updateProduct,
+  addStockWithId,
+  undoMovimientos,
+  updateProductColor,
+  addTallaToProduct,
+  deleteTalla,
+} from "./productService"
 import { pickAndSaveProductImage } from "./imageService"
-import { addStockWithId, undoMovimientos, updateProductColor } from "./productService"
 import { useConfirm } from "./ConfirmDialog"
 import { ordenarTallas } from "./sortTallas"
 import ColorSelect from "./ColorSelect"
@@ -9,23 +19,10 @@ import DepartmentSelect from "./DepartmentSelect"
 import { getImageUrl, invalidateImageCache } from "./getImageUrl"
 import AppHeader from "./AppHeader"
 import type { StockThresholds } from "./settingsService"
-import { getDB } from "./db"
-import { loadDraft, syncDraft } from "./orderService"
 import { useToast } from "./Toast"
-
-async function addTallaToProduct(productId: number, talla: string): Promise<void> {
-  const db = await getDB()
-  await db.execute(
-    "INSERT OR IGNORE INTO tallas (producto_id, talla, stock) VALUES (?, ?, 0)",
-    [productId, talla.trim()]
-  )
-}
-
-async function deleteTalla(tallaId: number): Promise<void> {
-  const db = await getDB()
-  await db.execute("DELETE FROM movimientos WHERE talla_id = ?", [tallaId])
-  await db.execute("DELETE FROM tallas WHERE id = ?", [tallaId])
-}
+import { useDraft } from "./DraftContext"
+import { Field } from "./Field"
+import { thStyle, tdStyle, stockBadgeColors } from "./styles"
 
 // ── Stepper button ────────────────────────────────────────────────────────────
 
@@ -66,26 +63,23 @@ function AddToOrderModal({
   onClose: () => void
   onAdded: (total: number) => void
 }) {
-  const [quantities, setQuantities] = useState<Record<number, number>>({})
-  const [draftId, setDraftId] = useState<number | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const { draftItems, draftNotas, setDraft, loaded: draftLoaded } = useDraft()
   const toast = useToast()
+  const [saving, setSaving] = useState(false)
+  const [initialized, setInitialized] = useState(false)
 
-  // Precarga las cantidades ya existentes en el borrador para esta prenda
+  // Inicializar cantidades cuando el contexto haya cargado desde BD
+  const [quantities, setQuantities] = useState<Record<number, number>>({})
+
   useEffect(() => {
-    loadDraft().then(draft => {
-      if (draft) {
-        setDraftId(draft.id)
-        const preloaded: Record<number, number> = {}
-        for (const size of sizes) {
-          if (draft.items[size.id]) preloaded[size.id] = draft.items[size.id]
-        }
-        setQuantities(preloaded)
-      }
-      setLoading(false)
-    })
-  }, [])
+    if (!draftLoaded || initialized) return
+    const preloaded: Record<number, number> = {}
+    for (const size of sizes) {
+      if (draftItems[size.id]) preloaded[size.id] = draftItems[size.id]
+    }
+    setQuantities(preloaded)
+    setInitialized(true)
+  }, [draftLoaded])
 
   const total = Object.values(quantities).reduce((s, v) => s + (Number(v) || 0), 0)
 
@@ -98,17 +92,14 @@ function AddToOrderModal({
     if (total === 0) { onClose(); return }
     setSaving(true)
     try {
-      // Merge: cargamos el borrador completo y sobreescribimos solo las tallas de este producto
-      const draft = await loadDraft()
-      const baseItems = draft?.items ?? {}
-      const mergedItems = { ...baseItems }
+      // Merge: partir del borrador actual y sobreescribir solo las tallas de este producto
+      const mergedItems = { ...draftItems }
       for (const size of sizes) {
         const q = quantities[size.id] || 0
         if (q > 0) mergedItems[size.id] = q
-        else delete mergedItems[size.id] // si pone 0, quita la talla del pedido
+        else delete mergedItems[size.id]
       }
-      const newId = await syncDraft(draft?.id ?? draftId, mergedItems, draft?.notas ?? "")
-      setDraftId(newId)
+      setDraft(mergedItems, draftNotas)
       onAdded(total)
     } catch (e: any) {
       toast.error("No se pudo añadir al pedido", e?.message ?? String(e))
@@ -121,7 +112,6 @@ function AddToOrderModal({
 
   return (
     <>
-      {/* Overlay */}
       <div
         onClick={onClose}
         style={{
@@ -130,8 +120,6 @@ function AddToOrderModal({
           zIndex: 300,
         }}
       />
-
-      {/* Panel */}
       <div style={{
         position: "fixed",
         top: "50%", left: "50%",
@@ -147,10 +135,7 @@ function AddToOrderModal({
         zIndex: 301,
         overflow: "hidden",
       }}>
-        {/* Franja azul superior */}
         <div style={{ height: "4px", backgroundColor: "#2563eb", flexShrink: 0 }} />
-
-        {/* Cabecera */}
         <div style={{
           padding: "20px 24px 16px",
           borderBottom: "1px solid #f0f0f0",
@@ -173,9 +158,8 @@ function AddToOrderModal({
           </div>
         </div>
 
-        {/* Cuerpo con tallas */}
         <div style={{ overflowY: "auto", padding: "16px 24px", flex: 1 }}>
-          {loading ? (
+          {!draftLoaded ? (
             <div style={{ padding: "32px", textAlign: "center", color: "#aaa", fontSize: "14px" }}>
               Cargando…
             </div>
@@ -199,17 +183,12 @@ function AddToOrderModal({
                       transition: "background-color 0.15s, border-color 0.15s",
                     }}
                   >
-                    {/* Talla */}
                     <div style={{ width: "44px", flexShrink: 0, fontWeight: 700, fontSize: "15px", color: hasQty ? "#1d4ed8" : "#374151" }}>
                       {s.talla}
                     </div>
-
-                    {/* Stock */}
                     <div style={{ flex: 1, fontSize: "12px", color: "#9ca3af" }}>
                       stock: <span style={{ fontWeight: 600, color: "#6b7280" }}>{s.stock}</span>
                     </div>
-
-                    {/* Stepper */}
                     <div style={{ display: "flex", alignItems: "center" }}>
                       <StepperBtn side="left" small onClick={() => setQty(s.id, qty - 1)} />
                       <input
@@ -236,7 +215,6 @@ function AddToOrderModal({
           )}
         </div>
 
-        {/* Pie con resumen y botones */}
         <div style={{
           padding: "16px 24px",
           borderTop: "1px solid #f0f0f0",
@@ -279,13 +257,30 @@ function AddToOrderModal({
 
 // ── ProductDetail ─────────────────────────────────────────────────────────────
 
-export default function ProductDetail({ product, onBack, onNavigate, onProductUpdated, stockThresholds, draftCount, onDraftChange }: any) {
+export default function ProductDetail({
+  product,
+  onBack,
+  onNavigate,
+  onProductUpdated,
+  stockThresholds,
+}: any) {
   const [sizes, setSizes] = useState<any[]>([])
   const [entrada, setEntrada] = useState<Record<number, number | "">>({})
-  const [movements, setMovements] = useState<any[]>([])
-  const [movementsTotal, setMovementsTotal] = useState(0)
-  const [movementsPage, setMovementsPage] = useState(0)
-  const [movementsPageSize, setMovementsPageSize] = useState(10)
+
+  // Contador para forzar recarga del hook tras aplicar ajustes
+  const [movReloadKey, setMovReloadKey] = useState(0)
+
+  const movPagination = usePagination<any>({
+    fetchFn: useCallback(async (pageSize, offset) => {
+      const [items, total] = await Promise.all([
+        getProductMovements(product.id, pageSize, offset),
+        getProductMovementsCount(product.id),
+      ])
+      return [items as any[], total]
+    }, [product.id]),
+    defaultPageSize: 10,
+    deps: [product.id, movReloadKey],
+  })
   const [editingInfo, setEditingInfo] = useState(false)
   const [editNombre, setEditNombre] = useState(product.nombre ?? "")
   const [editCodigo, setEditCodigo] = useState(product.codigo ?? "")
@@ -301,7 +296,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
   const [uploadingImage, setUploadingImage] = useState(false)
   const [addingTalla, setAddingTalla] = useState(false)
   const [newTallaInput, setNewTallaInput] = useState("")
-  // Open cart modal immediately if coming from the inventory quick-add button
   const [showCartModal, setShowCartModal] = useState<boolean>(!!product.autoOpenCart)
 
   const { confirm, dialog } = useConfirm()
@@ -309,29 +303,16 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
 
   const thresholds: StockThresholds = stockThresholds ?? { red: 2, orange: 5 }
 
-  function stockColor(stock: number): { bg: string; color: string } {
-    if (stock <= thresholds.red) return { bg: "#fee2e2", color: "#991b1b" }
-    if (stock <= thresholds.orange) return { bg: "#ffedd5", color: "#c2410c" }
-    return { bg: "#dcfce7", color: "#166534" }
+  function stockColor(stock: number) {
+    return stockBadgeColors(stock, thresholds)
   }
 
   async function reloadSizes() {
     const data = await getProductSizes(product.id)
     setSizes([...data].sort((a, b) => ordenarTallas(a.talla, b.talla)))
-    const [movs, total] = await Promise.all([
-      getProductMovements(product.id, movementsPageSize, 0),
-      getProductMovementsCount(product.id),
-    ])
-    setMovements(movs as any[])
-    setMovementsTotal(total)
-    setMovementsPage(0)
     setEntrada({})
-  }
-
-  async function loadMovementsPage(page: number, pageSize = movementsPageSize) {
-    const movs = await getProductMovements(product.id, pageSize, page * pageSize)
-    setMovements(movs as any[])
-    setMovementsPage(page)
+    // Incrementar la clave fuerza al hook de paginación a recargar desde página 0
+    setMovReloadKey(k => k + 1)
   }
 
   async function reloadImage() {
@@ -359,7 +340,10 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
     const existentes = sizes.map(s => s.talla.trim().toUpperCase())
     const duplicadas = partes.filter(t => existentes.includes(t.toUpperCase()))
     if (duplicadas.length > 0) {
-      await confirm(`La${duplicadas.length > 1 ? "s" : ""} talla${duplicadas.length > 1 ? "s" : ""} "${duplicadas.join(", ")}" ya existe${duplicadas.length > 1 ? "n" : ""} en este producto.`, { confirmLabel: "Entendido", danger: false })
+      await confirm(
+        `La${duplicadas.length > 1 ? "s" : ""} talla${duplicadas.length > 1 ? "s" : ""} "${duplicadas.join(", ")}" ya existe${duplicadas.length > 1 ? "n" : ""} en este producto.`,
+        { confirmLabel: "Entendido", danger: false }
+      )
       return
     }
     for (const talla of partes) await addTallaToProduct(product.id, talla)
@@ -387,7 +371,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
         onNavigate={onNavigate}
         onBack={onBack}
         title={product.nombre}
-        draftCount={draftCount}
         actions={
           sizes.length > 0 ? (
             <button
@@ -409,7 +392,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
         }
       />
 
-      {/* Modal carrito */}
       {showCartModal && (
         <AddToOrderModal
           product={product}
@@ -421,8 +403,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
               "Añadido al borrador",
               `${total} unidad${total !== 1 ? "es" : ""} de "${product.nombre}" en el pedido.`
             )
-            // Notifica al padre para actualizar el badge del header
-            onDraftChange?.()
           }}
         />
       )}
@@ -440,7 +420,15 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
               <div style={{ width: "100%", aspectRatio: "1", backgroundColor: "#f0f0f0", borderRadius: "8px", border: "1px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "80px" }}>👕</div>
             )}
             <button
-              onClick={async () => { setUploadingImage(true); try { const saved = await pickAndSaveProductImage(product.id); if (saved) await reloadImage() } finally { setUploadingImage(false) } }}
+              onClick={async () => {
+                setUploadingImage(true)
+                try {
+                  const saved = await pickAndSaveProductImage(product.id)
+                  if (saved) await reloadImage()
+                } finally {
+                  setUploadingImage(false)
+                }
+              }}
               disabled={uploadingImage}
               style={{ display: "block", width: "100%", padding: "9px 0", borderRadius: "7px", border: "1px solid #ddd", backgroundColor: uploadingImage ? "#f5f5f5" : "#fff", color: uploadingImage ? "#aaa" : "#444", fontSize: "13px", fontWeight: 500, cursor: uploadingImage ? "not-allowed" : "pointer", textAlign: "center", boxSizing: "border-box" }}
             >
@@ -456,48 +444,110 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
                 {infoSaved && <span style={{ fontSize: "12px", color: "#16a34a", fontWeight: 600 }}>✓ Guardado</span>}
                 {editingInfo ? (
                   <>
-                    <button onClick={async () => {
-                      if (!editNombre.trim()) return
-                      await updateProduct(product.id, { nombre: editNombre.trim(), codigo: editCodigo.trim(), departamento_id: editDepartamentoId })
-                      await updateProductColor(product.id, editColor)
-                      product.nombre = editNombre.trim(); product.codigo = editCodigo.trim(); product.color = editColor; product.departamento_id = editDepartamentoId; product.departamento = editDepartamentoNombre
-                      setDisplayNombre(editNombre.trim()); setDisplayCodigo(editCodigo.trim()); setDisplayDepartamento(editDepartamentoNombre)
-                      setEditingInfo(false); setInfoSaved(true); setTimeout(() => setInfoSaved(false), 2500)
-                      onProductUpdated?.({ nombre: editNombre.trim(), codigo: editCodigo.trim(), color: editColor, departamento_id: editDepartamentoId, departamento: editDepartamentoNombre })
-                    }} style={{ padding: "5px 14px", borderRadius: "6px", border: "none", backgroundColor: "#111", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>✓ Guardar</button>
-                    <button onClick={() => { setEditNombre(product.nombre ?? ""); setEditCodigo(product.codigo ?? ""); setEditColor(product.color ?? ""); setEditDepartamentoId(product.departamento_id ?? null); setEditingInfo(false) }}
-                      style={{ padding: "5px 12px", borderRadius: "6px", border: "1px solid #ddd", backgroundColor: "#fff", color: "#555", fontSize: "12px", cursor: "pointer" }}>Cancelar</button>
+                    <button
+                      onClick={async () => {
+                        if (!editNombre.trim()) return
+                        await updateProduct(product.id, {
+                          nombre: editNombre.trim(),
+                          codigo: editCodigo.trim(),
+                          departamento_id: editDepartamentoId,
+                        })
+                        await updateProductColor(product.id, editColor)
+                        product.nombre = editNombre.trim()
+                        product.codigo = editCodigo.trim()
+                        product.color = editColor
+                        product.departamento_id = editDepartamentoId
+                        product.departamento = editDepartamentoNombre
+                        setDisplayNombre(editNombre.trim())
+                        setDisplayCodigo(editCodigo.trim())
+                        setDisplayDepartamento(editDepartamentoNombre)
+                        setEditingInfo(false)
+                        setInfoSaved(true)
+                        setTimeout(() => setInfoSaved(false), 2500)
+                        onProductUpdated?.({
+                          nombre: editNombre.trim(),
+                          codigo: editCodigo.trim(),
+                          color: editColor,
+                          departamento_id: editDepartamentoId,
+                          departamento: editDepartamentoNombre,
+                        })
+                      }}
+                      style={{ padding: "5px 14px", borderRadius: "6px", border: "none", backgroundColor: "#111", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
+                    >
+                      ✓ Guardar
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditNombre(product.nombre ?? "")
+                        setEditCodigo(product.codigo ?? "")
+                        setEditColor(product.color ?? "")
+                        setEditDepartamentoId(product.departamento_id ?? null)
+                        setEditingInfo(false)
+                      }}
+                      style={{ padding: "5px 12px", borderRadius: "6px", border: "1px solid #ddd", backgroundColor: "#fff", color: "#555", fontSize: "12px", cursor: "pointer" }}
+                    >
+                      Cancelar
+                    </button>
                   </>
                 ) : (
-                  <button onClick={() => { setEditNombre(product.nombre ?? ""); setEditCodigo(product.codigo ?? ""); setEditColor(product.color ?? ""); setEditDepartamentoId(product.departamento_id ?? null); setEditDepartamentoNombre(product.departamento ?? ""); setEditingInfo(true) }}
+                  <button
+                    onClick={() => {
+                      setEditNombre(product.nombre ?? "")
+                      setEditCodigo(product.codigo ?? "")
+                      setEditColor(product.color ?? "")
+                      setEditDepartamentoId(product.departamento_id ?? null)
+                      setEditDepartamentoNombre(product.departamento ?? "")
+                      setEditingInfo(true)
+                    }}
                     style={{ background: "none", border: "1px solid #e0e0e0", borderRadius: "6px", padding: "5px 12px", fontSize: "12px", color: "#888", cursor: "pointer" }}
-                    onMouseEnter={e => (e.currentTarget.style.borderColor = "#aaa")} onMouseLeave={e => (e.currentTarget.style.borderColor = "#e0e0e0")}>
+                    onMouseEnter={e => (e.currentTarget.style.borderColor = "#aaa")}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = "#e0e0e0")}
+                  >
                     ✏︎ Editar
                   </button>
                 )}
               </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <div>
-                <div style={fieldLabelStyle}>Nombre</div>
-                {editingInfo ? <input autoFocus value={editNombre} onChange={e => setEditNombre(e.target.value)} style={fieldInputStyle} /> : <div style={fieldValueStyle}>{displayNombre}</div>}
-              </div>
-              <div>
-                <div style={fieldLabelStyle}>Código</div>
-                {editingInfo ? <input value={editCodigo} onChange={e => setEditCodigo(e.target.value)} placeholder="Opcional" style={fieldInputStyle} /> : <div style={{ ...fieldValueStyle, fontFamily: displayCodigo ? "monospace" : "inherit", color: displayCodigo ? "#555" : "#ccc" }}>{displayCodigo || "—"}</div>}
-              </div>
-              <div>
-                <div style={fieldLabelStyle}>Departamento</div>
-                {editingInfo
-                  ? <DepartmentSelect value={editDepartamentoId} onChange={(id, nombre) => { setEditDepartamentoId(id); setEditDepartamentoNombre(nombre ?? "") }} />
-                  : <div style={{ ...fieldValueStyle, color: displayDepartamento ? "#333" : "#ccc" }}>{displayDepartamento || "—"}</div>}
-              </div>
-              <div>
-                <div style={fieldLabelStyle}>Color</div>
-                {editingInfo
-                  ? <ColorSelect value={editColor} onChange={value => setEditColor(value)} />
-                  : <div style={{ ...fieldValueStyle, color: product.color ? "#333" : "#ccc" }}>{product.color || "—"}</div>}
-              </div>
+              <Field
+                label="Nombre"
+                editing={editingInfo}
+                value={editingInfo ? editNombre : displayNombre}
+                onChange={setEditNombre}
+                autoFocus
+              />
+              <Field
+                label="Código"
+                editing={editingInfo}
+                value={editingInfo ? editCodigo : displayCodigo}
+                onChange={setEditCodigo}
+                placeholder="Opcional"
+                mono
+              />
+              <Field
+                label="Departamento"
+                editing={editingInfo}
+                value={displayDepartamento}
+              >
+                {editingInfo ? (
+                  <DepartmentSelect
+                    value={editDepartamentoId}
+                    onChange={(id, nombre) => {
+                      setEditDepartamentoId(id)
+                      setEditDepartamentoNombre(nombre ?? "")
+                    }}
+                  />
+                ) : undefined}
+              </Field>
+              <Field
+                label="Color"
+                editing={editingInfo}
+                value={product.color}
+              >
+                {editingInfo ? (
+                  <ColorSelect value={editColor} onChange={setEditColor} />
+                ) : undefined}
+              </Field>
             </div>
           </div>
 
@@ -515,8 +565,10 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
                 </span>
               )}
               {!addingTalla && (
-                <button onClick={() => { setAddingTalla(true); setNewTallaInput("") }}
-                  style={{ display: "flex", alignItems: "center", gap: "5px", padding: "6px 14px", borderRadius: "7px", border: "1px solid #2563eb", backgroundColor: "#eff6ff", color: "#2563eb", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
+                <button
+                  onClick={() => { setAddingTalla(true); setNewTallaInput("") }}
+                  style={{ display: "flex", alignItems: "center", gap: "5px", padding: "6px 14px", borderRadius: "7px", border: "1px solid #2563eb", backgroundColor: "#eff6ff", color: "#2563eb", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+                >
                   + Añadir talla
                 </button>
               )}
@@ -527,10 +579,17 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
             <div style={{ marginBottom: "16px", padding: "14px 16px", backgroundColor: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: "8px" }}>
               <div style={{ fontSize: "12px", fontWeight: 600, color: "#0369a1", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>Nueva talla</div>
               <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-                <input autoFocus value={newTallaInput} onChange={e => setNewTallaInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") handleAddTalla(); if (e.key === "Escape") { setAddingTalla(false); setNewTallaInput("") } }}
+                <input
+                  autoFocus
+                  value={newTallaInput}
+                  onChange={e => setNewTallaInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") handleAddTalla()
+                    if (e.key === "Escape") { setAddingTalla(false); setNewTallaInput("") }
+                  }}
                   placeholder="Ej: XL  o  S, M, L  (separa con comas)"
-                  style={{ flex: 1, minWidth: "200px", padding: "8px 12px", borderRadius: "7px", border: "1px solid #7dd3fc", fontSize: "14px", backgroundColor: "#fff", outline: "none", boxSizing: "border-box" }} />
+                  style={{ flex: 1, minWidth: "200px", padding: "8px 12px", borderRadius: "7px", border: "1px solid #7dd3fc", fontSize: "14px", backgroundColor: "#fff", outline: "none", boxSizing: "border-box" }}
+                />
                 <button onClick={handleAddTalla} style={{ padding: "8px 18px", borderRadius: "7px", border: "none", backgroundColor: "#0284c7", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>✓ Añadir</button>
                 <button onClick={() => { setAddingTalla(false); setNewTallaInput("") }} style={{ padding: "8px 14px", borderRadius: "7px", border: "1px solid #ddd", backgroundColor: "#fff", color: "#666", fontSize: "13px", cursor: "pointer" }}>Cancelar</button>
               </div>
@@ -620,20 +679,21 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
             <div style={{ marginTop: "20px", paddingTop: "16px", borderTop: "1px solid #f0f0f0", display: "flex", alignItems: "center", gap: "16px" }}>
               <button
                 onClick={async () => {
-                  // Validar stock negativo
                   for (const tallaId in entrada) {
                     const ajuste = Number(entrada[Number(tallaId)])
                     if (!ajuste) continue
                     const talla = sizes.find((s: any) => s.id === Number(tallaId))
                     if (talla && talla.stock + ajuste < 0) {
-                      await confirm(`La talla ${talla.talla} no tiene suficiente stock (stock actual: ${talla.stock}, intentas restar: ${Math.abs(ajuste)})`, { confirmLabel: "Entendido", danger: false })
+                      await confirm(
+                        `La talla ${talla.talla} no tiene suficiente stock (stock actual: ${talla.stock}, intentas restar: ${Math.abs(ajuste)})`,
+                        { confirmLabel: "Entendido", danger: false }
+                      )
                       return
                     }
                   }
                   const ok = await confirm("¿Aplicar los cambios de stock?", { confirmLabel: "Aplicar" })
                   if (!ok) return
 
-                  // Aplicar y recoger los IDs de movimientos creados
                   const movimientoIds: number[] = []
                   const lineas: string[] = []
                   for (const tallaId in entrada) {
@@ -647,7 +707,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
 
                   await reloadSizes()
 
-                  // Toast con undo (15 s)
                   toast.push({
                     type: "success",
                     title: "Ajuste aplicado",
@@ -675,31 +734,40 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
       </main>
 
       {/* HISTORIAL DE MOVIMIENTOS */}
-      {(movements.length > 0 || movementsTotal > 0) && (
+      {(movPagination.items.length > 0 || movPagination.total > 0) && (
         <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "0 24px 32px" }}>
           <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "12px", overflow: "hidden" }}>
             <div style={{ padding: "18px 24px", borderBottom: "1px solid #f0f0f0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <h2 style={{ fontSize: "15px", fontWeight: 600, color: "#111", margin: 0 }}>Historial de movimientos</h2>
-                <span style={{ fontSize: "12px", color: "#aaa" }}>{movementsTotal} movimiento{movementsTotal !== 1 ? "s" : ""}</span>
+                <span style={{ fontSize: "12px", color: "#aaa" }}>{movPagination.total} movimiento{movPagination.total !== 1 ? "s" : ""}</span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                   <span style={{ fontSize: "12px", color: "#aaa" }}>Mostrar:</span>
                   {[10, 25, 50].map(size => (
-                    <button key={size} onClick={async () => { setMovementsPageSize(size); await loadMovementsPage(0, size) }}
-                      style={{ padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", border: movementsPageSize === size ? "1px solid #111" : "1px solid #e0e0e0", backgroundColor: movementsPageSize === size ? "#111" : "#fff", color: movementsPageSize === size ? "#fff" : "#555", fontWeight: movementsPageSize === size ? 600 : 400 }}>
+                    <button
+                      key={size}
+                      onClick={() => movPagination.setPageSize(size)}
+                      style={{ padding: "4px 10px", borderRadius: "6px", fontSize: "12px", cursor: "pointer", border: movPagination.pageSize === size ? "1px solid #111" : "1px solid #e0e0e0", backgroundColor: movPagination.pageSize === size ? "#111" : "#fff", color: movPagination.pageSize === size ? "#fff" : "#555", fontWeight: movPagination.pageSize === size ? 600 : 400 }}
+                    >
                       {size}
                     </button>
                   ))}
                 </div>
-                {movementsTotal > movementsPageSize && (
+                {movPagination.total > movPagination.pageSize && (
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <span style={{ fontSize: "12px", color: "#aaa" }}>{movementsPage + 1} / {Math.ceil(movementsTotal / movementsPageSize)}</span>
-                    <button onClick={() => loadMovementsPage(movementsPage - 1)} disabled={movementsPage === 0}
-                      style={{ padding: "4px 10px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", fontSize: "13px", cursor: movementsPage === 0 ? "not-allowed" : "pointer", color: movementsPage === 0 ? "#ccc" : "#333" }}>←</button>
-                    <button onClick={() => loadMovementsPage(movementsPage + 1)} disabled={(movementsPage + 1) * movementsPageSize >= movementsTotal}
-                      style={{ padding: "4px 10px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", fontSize: "13px", cursor: (movementsPage + 1) * movementsPageSize >= movementsTotal ? "not-allowed" : "pointer", color: (movementsPage + 1) * movementsPageSize >= movementsTotal ? "#ccc" : "#333" }}>→</button>
+                    <span style={{ fontSize: "12px", color: "#aaa" }}>{movPagination.page + 1} / {movPagination.totalPages}</span>
+                    <button
+                      onClick={() => movPagination.goToPage(movPagination.page - 1)}
+                      disabled={movPagination.page === 0}
+                      style={{ padding: "4px 10px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", fontSize: "13px", cursor: movPagination.page === 0 ? "not-allowed" : "pointer", color: movPagination.page === 0 ? "#ccc" : "#333" }}
+                    >←</button>
+                    <button
+                      onClick={() => movPagination.goToPage(movPagination.page + 1)}
+                      disabled={movPagination.page + 1 >= movPagination.totalPages}
+                      style={{ padding: "4px 10px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", fontSize: "13px", cursor: movPagination.page + 1 >= movPagination.totalPages ? "not-allowed" : "pointer", color: movPagination.page + 1 >= movPagination.totalPages ? "#ccc" : "#333" }}
+                    >→</button>
                   </div>
                 )}
               </div>
@@ -715,13 +783,16 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
                 </tr>
               </thead>
               <tbody>
-                {movements.map((m: any, i: number) => {
+                {movPagination.items.map((m: any, i: number) => {
                   const isEntrada = m.cambio > 0
                   const isPedido = m.origen === "pedido"
                   return (
-                    <tr key={m.id ?? i} style={{ borderBottom: "1px solid #f5f5f5" }}
+                    <tr
+                      key={m.id ?? i}
+                      style={{ borderBottom: "1px solid #f5f5f5" }}
                       onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#fafafa")}
-                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = "")}>
+                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = "")}
+                    >
                       <td style={{ ...tdStyle, color: "#888", fontSize: "13px" }}>
                         {m.fecha ? new Date(m.fecha).toLocaleString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
                       </td>
@@ -753,23 +824,4 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
   )
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
-
-const thStyle: React.CSSProperties = {
-  padding: "11px 16px", textAlign: "left", verticalAlign: "middle",
-  fontSize: "11px", fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em",
-}
-const tdStyle: React.CSSProperties = {
-  padding: "11px 16px", fontSize: "14px", verticalAlign: "middle",
-}
-const fieldLabelStyle: React.CSSProperties = {
-  fontSize: "11px", fontWeight: 600, color: "#aaa",
-  textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px",
-}
-const fieldValueStyle: React.CSSProperties = {
-  fontSize: "14px", color: "#333", fontWeight: 500, padding: "2px 0",
-}
-const fieldInputStyle: React.CSSProperties = {
-  width: "100%", padding: "9px 12px", borderRadius: "7px",
-  border: "1px solid #ddd", fontSize: "14px", boxSizing: "border-box",
-}
+// ── Styles — ver styles.ts y Field.tsx ──────────────────────────────────────
