@@ -9,6 +9,21 @@ import DepartmentSelect from "./DepartmentSelect"
 import { getImageUrl, invalidateImageCache } from "./getImageUrl"
 import AppHeader from "./AppHeader"
 import type { StockThresholds } from "./settingsService"
+import { getDB } from "./db"
+
+async function addTallaToProduct(productId: number, talla: string): Promise<void> {
+  const db = await getDB()
+  await db.execute(
+    "INSERT OR IGNORE INTO tallas (producto_id, talla, stock) VALUES (?, ?, 0)",
+    [productId, talla.trim()]
+  )
+}
+
+async function deleteTalla(tallaId: number): Promise<void> {
+  const db = await getDB()
+  await db.execute("DELETE FROM movimientos WHERE talla_id = ?", [tallaId])
+  await db.execute("DELETE FROM tallas WHERE id = ?", [tallaId])
+}
 
 export default function ProductDetail({ product, onBack, onNavigate, onProductUpdated, stockThresholds, draftCount }: any) {
   const [sizes, setSizes] = useState<any[]>([])
@@ -30,6 +45,11 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
   const [imageError, setImageError] = useState(false)
   const [imageUrl, setImageUrl] = useState<string>(product.imageUrl ?? "")
   const [uploadingImage, setUploadingImage] = useState(false)
+
+  // Gestión de tallas
+  const [addingTalla, setAddingTalla] = useState(false)
+  const [newTallaInput, setNewTallaInput] = useState("")
+
   const { confirm, dialog } = useConfirm()
 
   const thresholds: StockThresholds = stockThresholds ?? { red: 2, orange: 5 }
@@ -76,6 +96,46 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
 
   const totalEntrada = Object.values(entrada).reduce((s: any, v: any) => s + (Number(v) || 0), 0) as number
 
+  async function handleAddTalla() {
+    const partes = newTallaInput.split(",").map(t => t.trim()).filter(t => t.length > 0)
+    if (partes.length === 0) { setAddingTalla(false); setNewTallaInput(""); return }
+
+    const existentes = sizes.map(s => s.talla.trim().toUpperCase())
+    const duplicadas = partes.filter(t => existentes.includes(t.toUpperCase()))
+
+    if (duplicadas.length > 0) {
+      await confirm(
+        `La${duplicadas.length > 1 ? "s" : ""} talla${duplicadas.length > 1 ? "s" : ""} "${duplicadas.join(", ")}" ya existe${duplicadas.length > 1 ? "n" : ""} en este producto.`,
+        { confirmLabel: "Entendido", danger: false }
+      )
+      return
+    }
+
+    for (const talla of partes) {
+      await addTallaToProduct(product.id, talla)
+    }
+    setNewTallaInput("")
+    setAddingTalla(false)
+    await reloadSizes()
+  }
+
+  async function handleDeleteTalla(talla: any) {
+    const hasStock = talla.stock > 0
+    const ok = await confirm(
+      `¿Eliminar la talla ${talla.talla}?`,
+      {
+        confirmLabel: "Eliminar talla",
+        danger: true,
+        detail: hasStock
+          ? `Tiene ${talla.stock} unidades en stock. Se eliminarán la talla y todos sus movimientos.`
+          : "Se eliminarán también todos sus movimientos registrados.",
+      }
+    )
+    if (!ok) return
+    await deleteTalla(talla.id)
+    await reloadSizes()
+  }
+
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f5", fontFamily: "system-ui, sans-serif" }}>
 
@@ -89,7 +149,7 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
 
       <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "28px 24px", display: "grid", gridTemplateColumns: "320px 1fr", gap: "20px", alignItems: "start" }}>
 
-        {/* COLUMNA IZQUIERDA: PRODUCTO */}
+        {/* COLUMNA IZQUIERDA */}
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
 
           {/* FOTO */}
@@ -120,18 +180,10 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
               }}
               disabled={uploadingImage}
               style={{
-                display: "block",
-                width: "100%",
-                padding: "9px 0",
-                borderRadius: "7px",
-                border: "1px solid #ddd",
-                backgroundColor: uploadingImage ? "#f5f5f5" : "#fff",
-                color: uploadingImage ? "#aaa" : "#444",
-                fontSize: "13px",
-                fontWeight: 500,
-                cursor: uploadingImage ? "not-allowed" : "pointer",
-                textAlign: "center",
-                boxSizing: "border-box",
+                display: "block", width: "100%", padding: "9px 0", borderRadius: "7px",
+                border: "1px solid #ddd", backgroundColor: uploadingImage ? "#f5f5f5" : "#fff",
+                color: uploadingImage ? "#aaa" : "#444", fontSize: "13px", fontWeight: 500,
+                cursor: uploadingImage ? "not-allowed" : "pointer", textAlign: "center", boxSizing: "border-box",
               }}
             >
               {uploadingImage ? "Guardando…" : "📷 Cambiar foto"}
@@ -140,7 +192,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
 
           {/* INFO */}
           <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "12px", padding: "24px" }}>
-
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
               <span style={{ fontSize: "11px", fontWeight: 600, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                 Información
@@ -181,8 +232,7 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
                       }}
                       style={{
                         padding: "5px 14px", borderRadius: "6px", border: "none",
-                        backgroundColor: "#111", color: "#fff", fontSize: "12px",
-                        fontWeight: 600, cursor: "pointer",
+                        backgroundColor: "#111", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: "pointer",
                       }}
                     >
                       ✓ Guardar
@@ -227,7 +277,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-
               <div>
                 <div style={fieldLabelStyle}>Nombre</div>
                 {editingInfo ? (
@@ -236,7 +285,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
                   <div style={fieldValueStyle}>{displayNombre}</div>
                 )}
               </div>
-
               <div>
                 <div style={fieldLabelStyle}>Código</div>
                 {editingInfo ? (
@@ -247,7 +295,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
                   </div>
                 )}
               </div>
-
               <div>
                 <div style={fieldLabelStyle}>Departamento</div>
                 {editingInfo ? (
@@ -264,21 +311,16 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
                   </div>
                 )}
               </div>
-
               <div>
                 <div style={fieldLabelStyle}>Color</div>
                 {editingInfo ? (
-                  <ColorSelect
-                    value={editColor}
-                    onChange={value => setEditColor(value)}
-                  />
+                  <ColorSelect value={editColor} onChange={value => setEditColor(value)} />
                 ) : (
                   <div style={{ ...fieldValueStyle, color: product.color ? "#333" : "#ccc" }}>
                     {product.color || "—"}
                   </div>
                 )}
               </div>
-
             </div>
           </div>
 
@@ -286,118 +328,221 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
 
         {/* COLUMNA DERECHA: TALLAS */}
         <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "12px", padding: "24px" }}>
+
+          {/* Cabecera */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
             <h2 style={{ fontSize: "16px", fontWeight: 600, color: "#111", margin: 0 }}>Stock por tallas</h2>
-            {totalEntrada !== 0 && (
-              <span style={{ fontSize: "13px", fontWeight: 500, color: totalEntrada > 0 ? "#16a34a" : "#dc2626" }}>
-                {totalEntrada > 0 ? `+${totalEntrada}` : totalEntrada} unidades a aplicar
-              </span>
-            )}
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              {totalEntrada !== 0 && (
+                <span style={{ fontSize: "13px", fontWeight: 500, color: totalEntrada > 0 ? "#16a34a" : "#dc2626" }}>
+                  {totalEntrada > 0 ? `+${totalEntrada}` : totalEntrada} unidades a aplicar
+                </span>
+              )}
+              {!addingTalla && (
+                <button
+                  onClick={() => { setAddingTalla(true); setNewTallaInput("") }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: "5px",
+                    padding: "6px 14px", borderRadius: "7px",
+                    border: "1px solid #2563eb", backgroundColor: "#eff6ff",
+                    color: "#2563eb", fontSize: "13px", fontWeight: 600, cursor: "pointer",
+                  }}
+                >
+                  + Añadir talla
+                </button>
+              )}
+            </div>
           </div>
 
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ borderBottom: "2px solid #f0f0f0" }}>
-                <th style={{ padding: "8px 12px", textAlign: "left", fontSize: "12px", color: "#888", fontWeight: 600, textTransform: "uppercase" }}>Talla</th>
-                <th style={{ padding: "8px 12px", textAlign: "left", fontSize: "12px", color: "#888", fontWeight: 600, textTransform: "uppercase" }}>Stock actual</th>
-                <th style={{ padding: "8px 12px", textAlign: "left", fontSize: "12px", color: "#888", fontWeight: 600, textTransform: "uppercase" }}>Ajuste</th>
-                <th style={{ padding: "8px 12px", textAlign: "left", fontSize: "12px", color: "#888", fontWeight: 600, textTransform: "uppercase" }}>Resultado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sizes.map((s: any) => {
-                const ajuste = Number(entrada[s.id] ?? 0)
-                const resultado = s.stock + ajuste
-                const hayAjuste = entrada[s.id] !== undefined && entrada[s.id] !== ""
-                return (
-                  <tr key={s.id} style={{ borderBottom: "1px solid #f5f5f5" }}>
-                    <td style={{ padding: "12px 12px", fontWeight: 600, fontSize: "15px" }}>{s.talla}</td>
-                    <td style={{ padding: "12px 12px" }}>
-                      <span style={{
-                        display: "inline-block",
-                        padding: "4px 12px",
-                        borderRadius: "20px",
-                        fontSize: "13px",
-                        fontWeight: 600,
-                        backgroundColor: stockColor(s.stock).bg,
-                        color: stockColor(s.stock).color,
-                      }}>
-                        {s.stock} ud.
-                      </span>
-                    </td>
-                    <td style={{ padding: "12px 12px" }}>
-                      <input
-                        type="number"
-                        placeholder="0"
-                        value={entrada[s.id] ?? ""}
-                        onChange={(e) => setEntrada({ ...entrada, [s.id]: e.target.value === "" ? "" : Number(e.target.value) })}
-                        style={{
-                          padding: "7px 10px",
-                          borderRadius: "6px",
-                          border: `1px solid ${!hayAjuste ? "#ddd" : ajuste > 0 ? "#86efac" : ajuste < 0 ? "#fca5a5" : "#ddd"}`,
-                          fontSize: "14px",
-                          width: "90px",
-                          textAlign: "center",
-                          backgroundColor: !hayAjuste ? "#fff" : ajuste > 0 ? "#f0fdf4" : ajuste < 0 ? "#fff5f5" : "#fff",
-                        }}
-                      />
-                    </td>
-                    <td style={{ padding: "12px 12px" }}>
-                      {hayAjuste && ajuste !== 0 && (
-                        <span style={{ fontSize: "14px", fontWeight: 600, color: resultado < 0 ? "#dc2626" : "#111" }}>
-                          {resultado < 0 ? "⚠️ " : ""}{resultado} ud.
+          {/* Formulario añadir talla */}
+          {addingTalla && (
+            <div style={{
+              marginBottom: "16px", padding: "14px 16px",
+              backgroundColor: "#f0f9ff", border: "1px solid #bae6fd",
+              borderRadius: "8px",
+            }}>
+              <div style={{ fontSize: "12px", fontWeight: 600, color: "#0369a1", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                Nueva talla
+              </div>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                <input
+                  autoFocus
+                  value={newTallaInput}
+                  onChange={e => setNewTallaInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter") handleAddTalla()
+                    if (e.key === "Escape") { setAddingTalla(false); setNewTallaInput("") }
+                  }}
+                  placeholder="Ej: XL  o  S, M, L  (separa con comas)"
+                  style={{
+                    flex: 1, minWidth: "200px", padding: "8px 12px", borderRadius: "7px",
+                    border: "1px solid #7dd3fc", fontSize: "14px",
+                    backgroundColor: "#fff", outline: "none", boxSizing: "border-box",
+                  }}
+                />
+                <button
+                  onClick={handleAddTalla}
+                  style={{
+                    padding: "8px 18px", borderRadius: "7px", border: "none",
+                    backgroundColor: "#0284c7", color: "#fff",
+                    fontSize: "13px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+                  }}
+                >
+                  ✓ Añadir
+                </button>
+                <button
+                  onClick={() => { setAddingTalla(false); setNewTallaInput("") }}
+                  style={{
+                    padding: "8px 14px", borderRadius: "7px", border: "1px solid #ddd",
+                    backgroundColor: "#fff", color: "#666", fontSize: "13px", cursor: "pointer",
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+              <div style={{ fontSize: "12px", color: "#0369a1", marginTop: "7px", opacity: 0.8 }}>
+                Puedes añadir varias tallas a la vez separándolas con comas. Se crearán con stock 0.
+              </div>
+            </div>
+          )}
+
+          {/* Tabla de tallas */}
+          {sizes.length === 0 ? (
+            <div style={{
+              padding: "40px 20px", textAlign: "center", color: "#aaa", fontSize: "14px",
+              border: "1px dashed #e0e0e0", borderRadius: "8px",
+            }}>
+              Esta prenda no tiene tallas. Pulsa "+ Añadir talla" para empezar.
+            </div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid #f0f0f0" }}>
+                  <th style={thStyle}>Talla</th>
+                  <th style={thStyle}>Stock actual</th>
+                  <th style={thStyle}>Ajuste</th>
+                  <th style={thStyle}>Resultado</th>
+                  <th style={{ ...thStyle, textAlign: "right", width: "100px" }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {sizes.map((s: any) => {
+                  const ajuste = Number(entrada[s.id] ?? 0)
+                  const resultado = s.stock + ajuste
+                  const hayAjuste = entrada[s.id] !== undefined && entrada[s.id] !== ""
+                  return (
+                    <tr
+                      key={s.id}
+                      style={{ borderBottom: "1px solid #f5f5f5" }}
+                      onMouseEnter={e => {
+                        const btn = e.currentTarget.querySelector<HTMLElement>(".del-talla-btn")
+                        if (btn) btn.style.opacity = "1"
+                      }}
+                      onMouseLeave={e => {
+                        const btn = e.currentTarget.querySelector<HTMLElement>(".del-talla-btn")
+                        if (btn) btn.style.opacity = "0"
+                      }}
+                    >
+                      <td style={{ padding: "12px 12px", fontWeight: 600, fontSize: "15px" }}>{s.talla}</td>
+                      <td style={{ padding: "12px 12px" }}>
+                        <span style={{
+                          display: "inline-block", padding: "4px 12px", borderRadius: "20px",
+                          fontSize: "13px", fontWeight: 600,
+                          backgroundColor: stockColor(s.stock).bg,
+                          color: stockColor(s.stock).color,
+                        }}>
+                          {s.stock} ud.
                         </span>
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                      </td>
+                      <td style={{ padding: "12px 12px" }}>
+                        <input
+                          type="number"
+                          placeholder="0"
+                          value={entrada[s.id] ?? ""}
+                          onChange={(e) => setEntrada({ ...entrada, [s.id]: e.target.value === "" ? "" : Number(e.target.value) })}
+                          style={{
+                            padding: "7px 10px", borderRadius: "6px",
+                            border: `1px solid ${!hayAjuste ? "#ddd" : ajuste > 0 ? "#86efac" : ajuste < 0 ? "#fca5a5" : "#ddd"}`,
+                            fontSize: "14px", width: "90px", textAlign: "center",
+                            backgroundColor: !hayAjuste ? "#fff" : ajuste > 0 ? "#f0fdf4" : ajuste < 0 ? "#fff5f5" : "#fff",
+                          }}
+                        />
+                      </td>
+                      <td style={{ padding: "12px 12px" }}>
+                        {hayAjuste && ajuste !== 0 && (
+                          <span style={{ fontSize: "14px", fontWeight: 600, color: resultado < 0 ? "#dc2626" : "#111" }}>
+                            {resultado < 0 ? "⚠️ " : ""}{resultado} ud.
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ padding: "12px 12px", textAlign: "right" }}>
+                        <button
+                          className="del-talla-btn"
+                          onClick={() => handleDeleteTalla(s)}
+                          title={`Eliminar talla ${s.talla}`}
+                          style={{
+                            opacity: 0,
+                            transition: "opacity 0.15s",
+                            background: "none",
+                            border: "1px solid #fca5a5",
+                            color: "#dc2626",
+                            borderRadius: "6px",
+                            padding: "4px 10px",
+                            fontSize: "12px",
+                            cursor: "pointer",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          ✕ Eliminar
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
 
-          <div style={{ marginTop: "20px", paddingTop: "16px", borderTop: "1px solid #f0f0f0", display: "flex", alignItems: "center", gap: "16px" }}>
-            <button
-              onClick={async () => {
-                for (const tallaId in entrada) {
-                  const ajuste = Number(entrada[tallaId])
-                  if (!ajuste) continue
-                  const talla = sizes.find((s: any) => s.id === Number(tallaId))
-                  if (talla && talla.stock + ajuste < 0) {
-                    await confirm(
-                      `La talla ${talla.talla} no tiene suficiente stock (stock actual: ${talla.stock}, intentas restar: ${Math.abs(ajuste)})`,
-                      { confirmLabel: "Entendido", danger: false }
-                    )
-                    return
+          {/* Botón aplicar ajuste */}
+          {sizes.length > 0 && (
+            <div style={{ marginTop: "20px", paddingTop: "16px", borderTop: "1px solid #f0f0f0", display: "flex", alignItems: "center", gap: "16px" }}>
+              <button
+                onClick={async () => {
+                  for (const tallaId in entrada) {
+                    const ajuste = Number(entrada[tallaId])
+                    if (!ajuste) continue
+                    const talla = sizes.find((s: any) => s.id === Number(tallaId))
+                    if (talla && talla.stock + ajuste < 0) {
+                      await confirm(
+                        `La talla ${talla.talla} no tiene suficiente stock (stock actual: ${talla.stock}, intentas restar: ${Math.abs(ajuste)})`,
+                        { confirmLabel: "Entendido", danger: false }
+                      )
+                      return
+                    }
                   }
-                }
-                const ok = await confirm("¿Aplicar los cambios de stock?", { confirmLabel: "Aplicar" })
-                if (!ok) return
-                for (const tallaId in entrada) {
-                  const ajuste = Number(entrada[tallaId])
-                  if (!ajuste) continue
-                  await addStock(Number(tallaId), ajuste)
-                }
-                await reloadSizes()
-              }}
-              style={{
-                padding: "10px 24px",
-                backgroundColor: "#16a34a",
-                color: "#fff",
-                border: "none",
-                borderRadius: "7px",
-                fontSize: "14px",
-                fontWeight: 600,
-                cursor: "pointer",
-              }}
-            >
-              ✓ Aplicar ajuste de stock
-            </button>
-            <span style={{ fontSize: "12px", color: "#aaa" }}>
-              Usa números negativos para restar (ej: −3)
-            </span>
-          </div>
-        </div>
+                  const ok = await confirm("¿Aplicar los cambios de stock?", { confirmLabel: "Aplicar" })
+                  if (!ok) return
+                  for (const tallaId in entrada) {
+                    const ajuste = Number(entrada[tallaId])
+                    if (!ajuste) continue
+                    await addStock(Number(tallaId), ajuste)
+                  }
+                  await reloadSizes()
+                }}
+                style={{
+                  padding: "10px 24px", backgroundColor: "#16a34a", color: "#fff",
+                  border: "none", borderRadius: "7px", fontSize: "14px", fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                ✓ Aplicar ajuste de stock
+              </button>
+              <span style={{ fontSize: "12px", color: "#aaa" }}>
+                Usa números negativos para restar (ej: −3)
+              </span>
+            </div>
+          )}
 
+        </div>
       </main>
 
       {/* HISTORIAL DE MOVIMIENTOS */}
@@ -447,9 +592,7 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
                         backgroundColor: "#fff", fontSize: "13px", cursor: movementsPage === 0 ? "not-allowed" : "pointer",
                         color: movementsPage === 0 ? "#ccc" : "#333",
                       }}
-                    >
-                      ←
-                    </button>
+                    >←</button>
                     <button
                       onClick={() => loadMovementsPage(movementsPage + 1)}
                       disabled={(movementsPage + 1) * movementsPageSize >= movementsTotal}
@@ -459,9 +602,7 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
                         cursor: (movementsPage + 1) * movementsPageSize >= movementsTotal ? "not-allowed" : "pointer",
                         color: (movementsPage + 1) * movementsPageSize >= movementsTotal ? "#ccc" : "#333",
                       }}
-                    >
-                      →
-                    </button>
+                    >→</button>
                   </div>
                 )}
               </div>
