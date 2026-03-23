@@ -32,10 +32,6 @@ export const fieldInputStyle: React.CSSProperties = {
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
-type FieldChild =
-  | React.ReactElement   // custom input (ColorSelect, DepartmentSelect, textarea…)
-  | string               // valor de solo lectura cuando no se pasa children
-
 interface FieldProps {
   /** Etiqueta superior en versalitas */
   label: string

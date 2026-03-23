@@ -1,7 +1,6 @@
 import './App.css'
 import { useState, useEffect, useRef } from "react"
 import { importInventory } from "./importInventory"
-import { getImageUrlSync, invalidateImageCache, getImageUrl } from "./getImageUrl"
 import ProductDetail from "./ProductDetail"
 import { deleteProduct } from "./productService"
 import ProductForm from "./ProductForm"
@@ -28,7 +27,6 @@ import { backupDB, changeBackupDir } from "./backupService"
 import { useToast } from "./Toast"
 import { useSortableTable } from "./useSortableTable"
 import { useInventory } from "./useInventory"
-import { useDraft } from "./DraftContext"
 import { cardStyleLegacy, inputStyle, btnStyle, thStyle, tdStyle, helpSectionTitle, helpText, helpList, helpCode, stockBadgeColors } from "./styles"
 
 // ── Miniaturas ────────────────────────────────────────────────────────────────
@@ -85,7 +83,6 @@ function App() {
   const [backingUp, setBackingUp] = useState(false)
   const [stockThresholds, setStockThresholdsState] = useState<StockThresholds>({ red: 2, orange: 5 })
   const [thresholdInputs, setThresholdInputs] = useState({ red: "2", orange: "5" })
-  const { draftCount } = useDraft()
   const exportRef = useRef<HTMLDivElement>(null)
   const { confirm, dialog } = useConfirm()
   const toast = useToast()

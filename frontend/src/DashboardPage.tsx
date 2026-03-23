@@ -21,7 +21,6 @@ import {
 } from "./dashboardService"
 import AppHeader from "./AppHeader"
 import { usePagination } from "./usePagination"
-import { useDraft } from "./DraftContext"
 import { cardStyle, thStyle, tdStyle, sectionTitleStyle, sectionSubStyle, btnOutlineStyle, dateInputStyle } from "./styles"
 
 type RangePreset = "7d" | "1m" | "3m" | "year" | "all"
@@ -212,7 +211,6 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: any) 
   const [entradas, setEntradas] = useState<{ mes: string; departamento: string; total: number }[]>([])
   const [consumo, setConsumo] = useState<{ mes: string; departamento: string; total: number }[]>([])
   const [chartsLoading, setChartsLoading] = useState(false)
-  const { draftCount } = useDraft()
 
   // ── Paginación de movimientos via hook ──────────────────────────────────────
   const movPagination = usePagination<any>({

@@ -28,7 +28,7 @@ export default function OrderPage({ onNavigate }: {
   const toast = useToast()
 
   // Estado del borrador desde el contexto
-  const { draftItems, draftNotas, draftId, syncState, setDraft, flushSync, clearState, discard } = useDraft()
+  const { draftItems, draftNotas, syncState, setDraft, flushSync, clearState, discard } = useDraft()
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {

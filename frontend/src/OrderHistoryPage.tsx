@@ -17,7 +17,6 @@ import { resolveExportDir } from "./exportService"
 import { useToast } from "./Toast"
 import { useSortableTable } from "./useSortableTable"
 import { useAsyncAction } from "./useAsyncAction"
-import { useDraft } from "./DraftContext"
 import { thStyleSm, tdStyleSm, badgeStyle as badgeStyleBase } from "./styles"
 
 function formatDate(dateStr: string) {
@@ -103,7 +102,6 @@ export default function OrderHistoryPage({
   const [notesDraft, setNotesDraft] = useState("")
 
   const { confirm, dialog } = useConfirm()
-  const { draftCount } = useDraft()
   const toast = useToast()
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
