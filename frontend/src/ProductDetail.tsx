@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { getProductSizes, getProductMovements, getProductMovementsCount, updateProduct } from "./productService"
 import { pickAndSaveProductImage } from "./imageService"
-import { addStock, updateProductColor } from "./productService"
+import { addStockWithId, undoMovimientos, updateProductColor } from "./productService"
 import { useConfirm } from "./ConfirmDialog"
 import { ordenarTallas } from "./sortTallas"
 import ColorSelect from "./ColorSelect"
@@ -620,6 +620,7 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
             <div style={{ marginTop: "20px", paddingTop: "16px", borderTop: "1px solid #f0f0f0", display: "flex", alignItems: "center", gap: "16px" }}>
               <button
                 onClick={async () => {
+                  // Validar stock negativo
                   for (const tallaId in entrada) {
                     const ajuste = Number(entrada[Number(tallaId)])
                     if (!ajuste) continue
@@ -631,12 +632,36 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
                   }
                   const ok = await confirm("¿Aplicar los cambios de stock?", { confirmLabel: "Aplicar" })
                   if (!ok) return
+
+                  // Aplicar y recoger los IDs de movimientos creados
+                  const movimientoIds: number[] = []
+                  const lineas: string[] = []
                   for (const tallaId in entrada) {
                     const ajuste = Number(entrada[Number(tallaId)])
                     if (!ajuste) continue
-                    await addStock(Number(tallaId), ajuste)
+                    const talla = sizes.find((s: any) => s.id === Number(tallaId))
+                    const movId = await addStockWithId(Number(tallaId), ajuste)
+                    movimientoIds.push(movId)
+                    lineas.push(`${talla?.talla ?? tallaId}: ${ajuste > 0 ? "+" : ""}${ajuste} ud.`)
                   }
+
                   await reloadSizes()
+
+                  // Toast con undo (15 s)
+                  toast.push({
+                    type: "success",
+                    title: "Ajuste aplicado",
+                    detail: lineas.join(" · "),
+                    duration: 15000,
+                    action: {
+                      label: "↩ Deshacer",
+                      onClick: async () => {
+                        await undoMovimientos(movimientoIds)
+                        await reloadSizes()
+                        toast.push({ type: "info", title: "Ajuste revertido", duration: 3000 })
+                      },
+                    },
+                  })
                 }}
                 style={{ padding: "10px 24px", backgroundColor: "#16a34a", color: "#fff", border: "none", borderRadius: "7px", fontSize: "14px", fontWeight: 600, cursor: "pointer" }}
               >

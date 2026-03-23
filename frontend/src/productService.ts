@@ -64,6 +64,52 @@ export async function addStock(tallaId: number, cantidad: number, origen: "manua
   )
 }
 
+/**
+ * Igual que addStock pero devuelve el ID del movimiento creado.
+ * Usado para poder deshacer el ajuste inmediatamente después.
+ */
+export async function addStockWithId(
+  tallaId: number,
+  cantidad: number,
+  origen: "manual" | "pedido" = "manual"
+): Promise<number> {
+  const db = await getDB()
+  const row: any = await db.select("SELECT stock FROM tallas WHERE id = ?", [tallaId])
+  const nuevoStock = row[0].stock + cantidad
+  await db.execute("UPDATE tallas SET stock = ? WHERE id = ?", [nuevoStock, tallaId])
+  await db.execute(
+    "INSERT INTO movimientos (talla_id, cambio, origen) VALUES (?, ?, ?)",
+    [tallaId, cantidad, origen]
+  )
+  const idRow: any = await db.select("SELECT last_insert_rowid() as id")
+  return idRow[0].id as number
+}
+
+/**
+ * Deshace una lista de movimientos: borra los registros y revierte el stock.
+ * Solo debe llamarse con IDs de movimientos recién creados (undo inmediato).
+ */
+export async function undoMovimientos(movimientoIds: number[]): Promise<void> {
+  if (movimientoIds.length === 0) return
+  const db = await getDB()
+  for (const movId of movimientoIds) {
+    // Leer el movimiento para saber cuánto revertir y a qué talla
+    const rows: any = await db.select(
+      "SELECT talla_id, cambio FROM movimientos WHERE id = ?",
+      [movId]
+    )
+    if (!rows || rows.length === 0) continue
+    const { talla_id, cambio } = rows[0]
+    // Revertir el stock (invertir el cambio)
+    await db.execute(
+      "UPDATE tallas SET stock = stock - ? WHERE id = ?",
+      [cambio, talla_id]
+    )
+    // Borrar el movimiento
+    await db.execute("DELETE FROM movimientos WHERE id = ?", [movId])
+  }
+}
+
 export async function updateProduct(productId: number, fields: { nombre: string; codigo: string; departamento_id: number | null }) {
   const db = await getDB()
   await db.execute(
