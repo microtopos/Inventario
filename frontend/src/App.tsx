@@ -162,6 +162,10 @@ function App() {
         setSelectedProduct((prev: any) => ({ ...prev, ...changes }))
         await loadInventory()
       }}
+      onDraftChange={async () => {
+        const count = await getDraftProductCount()
+        setDraftCount(count)
+      }}
     />
   }
   if (showForm) {
@@ -446,23 +450,34 @@ function App() {
                     </span>
                   </td>
                   <td style={{ ...tdStyle, textAlign: "right" }}>
-                    <button
-                      onClick={async () => {
-                        const ok = await confirm(`¿Eliminar "${item.nombre}"?`, { confirmLabel: "Eliminar", danger: true })
-                        if (!ok) return
-                        try {
-                          await deleteProduct(item.id)
-                          await loadInventory()
-                          toast.success("Prenda eliminada", `"${item.nombre}" se eliminó del inventario`)
-                        } catch (e: any) {
-                          console.error(e)
-                          toast.error("No se pudo eliminar", e?.message ?? String(e))
-                        }
-                      }}
-                      style={{ background: "none", border: "1px solid #fca5a5", color: "#dc2626", borderRadius: "6px", padding: "5px 12px", fontSize: "13px", cursor: "pointer" }}
-                    >
-                      Eliminar
-                    </button>
+                    <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end", alignItems: "center" }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSelectedProduct({ ...item, autoOpenCart: true }) }}
+                        title="Añadir al pedido"
+                        style={{ background: "none", border: "1px solid #bfdbfe", color: "#2563eb", borderRadius: "6px", padding: "5px 10px", fontSize: "13px", cursor: "pointer" }}
+                        onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#eff6ff")}
+                        onMouseLeave={e => (e.currentTarget.style.backgroundColor = "transparent")}
+                      >
+                        🛒
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const ok = await confirm(`¿Eliminar "${item.nombre}"?`, { confirmLabel: "Eliminar", danger: true })
+                          if (!ok) return
+                          try {
+                            await deleteProduct(item.id)
+                            await loadInventory()
+                            toast.success("Prenda eliminada", `"${item.nombre}" se eliminó del inventario`)
+                          } catch (e: any) {
+                            console.error(e)
+                            toast.error("No se pudo eliminar", e?.message ?? String(e))
+                          }
+                        }}
+                        style={{ background: "none", border: "1px solid #fca5a5", color: "#dc2626", borderRadius: "6px", padding: "5px 12px", fontSize: "13px", cursor: "pointer" }}
+                      >
+                        Eliminar
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -518,25 +533,34 @@ function App() {
                     }}>
                       {item.stock} ud.
                     </span>
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation()
-                        const ok = await confirm(`¿Eliminar "${item.nombre}"?`, { confirmLabel: "Eliminar", danger: true })
-                        if (!ok) return
-                        try {
-                          await deleteProduct(item.id)
-                          await loadInventory()
-                          toast.success("Prenda eliminada", `"${item.nombre}" se eliminó del inventario`)
-                        } catch (err: any) {
-                          console.error(err)
-                          toast.error("No se pudo eliminar", err?.message ?? String(err))
-                        }
-                      }}
-                      style={{ background: "none", border: "none", color: "#dc2626", fontSize: "16px", cursor: "pointer", padding: "2px 4px", lineHeight: 1 }}
-                      title="Eliminar"
-                    >
-                      ✕
-                    </button>
+                    <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setSelectedProduct({ ...item, autoOpenCart: true }) }}
+                        title="Añadir al pedido"
+                        style={{ background: "none", border: "none", color: "#2563eb", fontSize: "15px", cursor: "pointer", padding: "2px 4px", lineHeight: 1 }}
+                      >
+                        🛒
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          const ok = await confirm(`¿Eliminar "${item.nombre}"?`, { confirmLabel: "Eliminar", danger: true })
+                          if (!ok) return
+                          try {
+                            await deleteProduct(item.id)
+                            await loadInventory()
+                            toast.success("Prenda eliminada", `"${item.nombre}" se eliminó del inventario`)
+                          } catch (err: any) {
+                            console.error(err)
+                            toast.error("No se pudo eliminar", err?.message ?? String(err))
+                          }
+                        }}
+                        style={{ background: "none", border: "none", color: "#dc2626", fontSize: "16px", cursor: "pointer", padding: "2px 4px", lineHeight: 1 }}
+                        title="Eliminar"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -301,7 +301,8 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
   const [uploadingImage, setUploadingImage] = useState(false)
   const [addingTalla, setAddingTalla] = useState(false)
   const [newTallaInput, setNewTallaInput] = useState("")
-  const [showCartModal, setShowCartModal] = useState(false)
+  // Open cart modal immediately if coming from the inventory quick-add button
+  const [showCartModal, setShowCartModal] = useState<boolean>(!!product.autoOpenCart)
 
   const { confirm, dialog } = useConfirm()
   const toast = useToast()
@@ -704,7 +705,7 @@ export default function ProductDetail({ product, onBack, onNavigate, onProductUp
                         {isEntrada ? "+" : ""}{m.cambio} ud.
                       </td>
                       <td style={tdStyle}>
-                        <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: 600, backgroundColor: isEntrada ? "#dcfce7" : "#fee2e2", color: isEntrada ? "#166534" : "#991b1b" }}>
+                        <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: 600, backgroundColor: isEntrada ? "#dcfce7" : "#fee2e2", color: isEntrada ? "#166634" : "#991b1b" }}>
                           {isEntrada ? "Entrada" : "Salida"}
                         </span>
                       </td>
