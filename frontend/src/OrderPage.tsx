@@ -10,29 +10,31 @@ import { ordenarTallas } from "./sortTallas"
 import { resolveExportDir } from "./exportService"
 import { backupDBSilent } from "./backupService"
 import { useToast } from "./Toast"
+import { getImageUrl } from "./getImageUrl"
 
 type SyncState = "idle" | "saving" | "saved" | "error"
 
-export default function OrderPage({ onNavigate, onDraftChange }: { onNavigate: (page: any) => void; onDraftChange?: (count: number) => void }) {
+export default function OrderPage({ onNavigate, onDraftChange }: {
+  onNavigate: (page: any) => void
+  onDraftChange?: (count: number) => void
+}) {
   const [products, setProducts] = useState<any[]>([])
   const [search, setSearch] = useState("")
   const [deptFilter, setDeptFilter] = useState<number | null>(null)
   const [selectedProduct, setSelectedProduct] = useState<any>(null)
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string>("")
   const [pedido, setPedido] = useState<Record<number, number>>({})
   const [notas, setNotas] = useState("")
   const [, setDraftId] = useState<number | null>(null)
-  // true una vez que la carga inicial desde DB ha terminado
   const [ready, setReady] = useState(false)
   const [syncState, setSyncState] = useState<SyncState>("idle")
   const syncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Ref que siempre apunta al draftId actual para usarlo dentro de callbacks/timers
   const draftIdRef = useRef<number | null>(null)
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const { confirm, alert, dialog } = useConfirm()
   const toast = useToast()
 
-  // Cierra el dropdown al hacer clic fuera
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
@@ -62,14 +64,17 @@ export default function OrderPage({ onNavigate, onDraftChange }: { onNavigate: (
     init()
   }, [])
 
+  // Carga imagen cuando cambia el producto seleccionado
+  useEffect(() => {
+    if (!selectedProduct) { setSelectedImageUrl(""); return }
+    getImageUrl(selectedProduct.id).then(url => setSelectedImageUrl(url))
+  }, [selectedProduct])
+
   // ── Sincronización con debounce ──────────────────────────────────────────────
-  // Solo corre después de que ready=true, para no sobreescribir la carga inicial.
   useEffect(() => {
     if (!ready) return
-
     if (syncTimer.current) clearTimeout(syncTimer.current)
     setSyncState("saving")
-
     syncTimer.current = setTimeout(async () => {
       try {
         const newId = await syncDraft(draftIdRef.current, pedido, notas)
@@ -81,20 +86,16 @@ export default function OrderPage({ onNavigate, onDraftChange }: { onNavigate: (
         setSyncState("error")
       }
     }, 600)
-
-    return () => {
-      if (syncTimer.current) clearTimeout(syncTimer.current)
-    }
+    return () => { if (syncTimer.current) clearTimeout(syncTimer.current) }
   }, [pedido, notas, ready])
 
-  // ── Notifica al padre el número de productos distintos en el borrador ────────
   useEffect(() => {
     if (!ready) return
     const count = construirPedido().length
     onDraftChange?.(count)
   }, [pedido, products, ready])
 
-  // ── Helpers de estado ────────────────────────────────────────────────────────
+  // ── Helpers ──────────────────────────────────────────────────────────────────
 
   function setCantidad(tallaId: number, value: number) {
     setPedido(prev => ({ ...prev, [tallaId]: value }))
@@ -128,7 +129,6 @@ export default function OrderPage({ onNavigate, onDraftChange }: { onNavigate: (
     return Object.values(map)
   }
 
-  // Descarta el borrador en DB y limpia el estado local
   async function resetPedido() {
     if (syncTimer.current) clearTimeout(syncTimer.current)
     const id = draftIdRef.current
@@ -143,49 +143,31 @@ export default function OrderPage({ onNavigate, onDraftChange }: { onNavigate: (
     setSyncState("idle")
   }
 
-  // Fuerza la sincronización inmediata (cancela el timer pendiente)
   async function flushSync(): Promise<number | null> {
-    if (syncTimer.current) {
-      clearTimeout(syncTimer.current)
-      syncTimer.current = null
-    }
+    if (syncTimer.current) { clearTimeout(syncTimer.current); syncTimer.current = null }
     const newId = await syncDraft(draftIdRef.current, pedido, notas)
     draftIdRef.current = newId
     setDraftId(newId)
     return newId
   }
 
-  // ── Confirmar sin PDF (acción secundaria) ────────────────────────────────────
-
   async function confirmOnly() {
     setDropdownOpen(false)
     try {
-      if (totalPedido() === 0) {
-        toast.info("Pedido vacío", "Añade al menos una prenda antes de confirmar.")
-        return
-      }
+      if (totalPedido() === 0) { toast.info("Pedido vacío", "Añade al menos una prenda antes de confirmar."); return }
       setSyncState("saving")
       const id = await flushSync()
       if (id === null) throw new Error("No se pudo crear el borrador")
-
       const confirmedId = await confirmDraft(id, notas)
-      draftIdRef.current = null
-      setDraftId(null)
-      setSyncState("idle")
-
+      draftIdRef.current = null; setDraftId(null); setSyncState("idle")
       toast.success("Pedido confirmado", `Pedido #${confirmedId} guardado en el historial.`)
-      // Backup silencioso (si hay carpeta configurada)
       backupDBSilent().catch(() => {})
-      setPedido({})
-      setNotas("")
-      setSelectedProduct(null)
+      setPedido({}); setNotas(""); setSelectedProduct(null)
     } catch (e: any) {
       setSyncState("error")
       await alert(e.message ?? "Error al confirmar el pedido", { confirmLabel: "Aceptar" })
     }
   }
-
-  // ── Exportar PDF ─────────────────────────────────────────────────────────────
 
   async function exportPDF() {
     try {
@@ -193,20 +175,16 @@ export default function OrderPage({ onNavigate, onDraftChange }: { onNavigate: (
       const id = await flushSync()
       if (id === null) throw new Error("El pedido está vacío")
 
-      // 1. Generar el PDF en memoria
       const items = construirPedido()
       const doc = new jsPDF()
       const PW = doc.internal.pageSize.getWidth()
       const PH = doc.internal.pageSize.getHeight()
-      const ML = 14
-      const MR = 14
-      const CW = PW - ML - MR
+      const ML = 14, MR = 14, CW = PW - ML - MR
 
       const fecha = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" })
       const totalUnidades = items.reduce((s, i) => s + i.total, 0)
       const totalLineas = items.length
 
-      // Paleta
       const negro:    [number,number,number] = [30,  30,  30]
       const gris:     [number,number,number] = [100, 100, 100]
       const grisClar: [number,number,number] = [160, 160, 160]
@@ -215,51 +193,26 @@ export default function OrderPage({ onNavigate, onDraftChange }: { onNavigate: (
       const fondoCab: [number,number,number] = [237, 237, 237]
 
       function drawHeader() {
-        doc.setDrawColor(...linea)
-        doc.setLineWidth(0.4)
-        doc.line(ML, 12, PW - MR, 12)
-
-        doc.setFont("helvetica", "bold")
-        doc.setFontSize(9)
-        doc.setTextColor(...negro)
+        doc.setDrawColor(...linea); doc.setLineWidth(0.4); doc.line(ML, 12, PW - MR, 12)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro)
         doc.text("Gestión de Ropa", ML, 9)
-
-        doc.setFont("helvetica", "normal")
-        doc.setFontSize(8.5)
-        doc.setTextColor(...gris)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris)
         doc.text(fecha, PW - MR, 9, { align: "right" })
-
-        doc.setFont("helvetica", "bold")
-        doc.setFontSize(14)
-        doc.setTextColor(...negro)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(...negro)
         doc.text("Pedido de ropa", ML, 22)
-
-        doc.setFont("helvetica", "normal")
-        doc.setFontSize(8.5)
-        doc.setTextColor(...gris)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris)
         doc.text(`${totalLineas} prenda${totalLineas !== 1 ? "s" : ""}  ·  ${totalUnidades} unidades`, ML, 28)
-
-        doc.setDrawColor(...linea)
-        doc.setLineWidth(0.3)
-        doc.line(ML, 31, PW - MR, 31)
+        doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(ML, 31, PW - MR, 31)
       }
 
       function addPage() {
         doc.addPage()
-        doc.setDrawColor(...linea)
-        doc.setLineWidth(0.4)
-        doc.line(ML, 12, PW - MR, 12)
-        doc.setFont("helvetica", "bold")
-        doc.setFontSize(9)
-        doc.setTextColor(...negro)
+        doc.setDrawColor(...linea); doc.setLineWidth(0.4); doc.line(ML, 12, PW - MR, 12)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro)
         doc.text("Gestión de Ropa", ML, 9)
-        doc.setFont("helvetica", "normal")
-        doc.setFontSize(8.5)
-        doc.setTextColor(...gris)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris)
         doc.text(fecha, PW - MR, 9, { align: "right" })
-        doc.setDrawColor(...linea)
-        doc.setLineWidth(0.3)
-        doc.line(ML, 14, PW - MR, 14)
+        doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(ML, 14, PW - MR, 14)
       }
 
       function checkPageBreak(y: number, needed: number): number {
@@ -270,49 +223,24 @@ export default function OrderPage({ onNavigate, onDraftChange }: { onNavigate: (
       drawHeader()
       let y = 35
 
-      // Bloque de notas (opcional)
       const notasText = (notas ?? "").trim()
       if (notasText) {
-        const labelH = 4
-        const lineH = 4.1
-        const boxPadY = 3
-        const boxPadX = 3
-        const maxWidth = CW - boxPadX * 2
-
-        doc.setFont("helvetica", "normal")
-        doc.setFontSize(8.5)
-        doc.setTextColor(...negro)
-        const lines = doc.splitTextToSize(notasText, maxWidth) as string[]
-
+        const labelH = 4, lineH = 4.1, boxPadY = 3, boxPadX = 3
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...negro)
+        const lines = doc.splitTextToSize(notasText, CW - boxPadX * 2) as string[]
         const boxH = labelH + boxPadY + lines.length * lineH + 4
         y = checkPageBreak(y, boxH + 4)
-
-        doc.setDrawColor(...linea)
-        doc.setLineWidth(0.3)
-        doc.rect(ML, y, CW, boxH, "S")
-
-        // Texto dentro del recuadro
-        doc.setFont("helvetica", "bold")
-        doc.setFontSize(7.5)
-        doc.setTextColor(...gris)
+        doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.rect(ML, y, CW, boxH, "S")
+        doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...gris)
         doc.text("NOTAS", ML + boxPadX, y + 6)
-
-        doc.setFont("helvetica", "normal")
-        doc.setFontSize(8.5)
-        doc.setTextColor(...negro)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...negro)
         doc.text(lines, ML + boxPadX, y + 11)
-
         y += boxH + 8
       }
 
-      // Cabecera tabla
-      doc.setFillColor(...fondoCab)
-      doc.rect(ML, y, CW, 7, "F")
-      doc.setFont("helvetica", "bold")
-      doc.setFontSize(7.5)
-      doc.setTextColor(...gris)
-      doc.text("PRENDA",   ML + 2,       y + 5)
-      doc.text("TOTAL",    PW - MR - 2,  y + 5, { align: "right" })
+      doc.setFillColor(...fondoCab); doc.rect(ML, y, CW, 7, "F")
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...gris)
+      doc.text("PRENDA", ML + 2, y + 5); doc.text("TOTAL", PW - MR - 2, y + 5, { align: "right" })
       y += 9
 
       const colW = 22
@@ -321,121 +249,61 @@ export default function OrderPage({ onNavigate, onDraftChange }: { onNavigate: (
       items.forEach((item, idx) => {
         const p = item.producto
         const tallas = [...item.tallas].sort((a, b) => ordenarTallas(a.talla, b.talla))
-
-        // Calcular altura: fila nombre (7) + fila código si existe (6) + filas tallas
         const hasMeta = !!(p.color || p.codigo)
         const filasTallas = Math.ceil(tallas.length / chipsPerRow)
         const blockH = 7 + (hasMeta ? 6 : 0) + filasTallas * 9 + 5
         y = checkPageBreak(y, blockH)
-
-        if (idx % 2 === 0) {
-          doc.setFillColor(...fondoFil)
-          doc.rect(ML, y - 1, CW, blockH + 1, "F")
-        }
-
-        // Línea 1: Nombre + total a la derecha
-        doc.setFont("helvetica", "bold")
-        doc.setFontSize(9)
-        doc.setTextColor(...negro)
+        if (idx % 2 === 0) { doc.setFillColor(...fondoFil); doc.rect(ML, y - 1, CW, blockH + 1, "F") }
+        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro)
         doc.text(p.nombre, ML + 2, y + 5)
-
         doc.text(`${item.total} ud.`, PW - MR - 2, y + 5, { align: "right" })
-
-        // Línea 2: código · color (si existe)
         let tallaStartY = y + 8
         if (hasMeta) {
-          doc.setFont("helvetica", "normal")
-          doc.setFontSize(7.5)
-          doc.setTextColor(...gris)
-          const meta = [p.codigo, p.color].filter(Boolean).join("  ·  ")
-          doc.text(meta, ML + 2, y + 11)
+          doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...gris)
+          doc.text([p.codigo, p.color].filter(Boolean).join("  ·  "), ML + 2, y + 11)
           tallaStartY = y + 14
         }
-
-        // Tallas: ocupan todo el ancho, alineadas a la izquierda
-        let tx = ML + 2
-        let ty = tallaStartY
-        let col = 0
-
+        let tx = ML + 2, ty = tallaStartY, col = 0
         for (const t of tallas) {
-          if (col >= chipsPerRow) {
-            col = 0
-            tx = ML + 2
-            ty += 9
-          }
-          doc.setDrawColor(...linea)
-          doc.setLineWidth(0.3)
-          doc.rect(tx, ty, colW - 2, 7.5, "S")
-
-          doc.setFont("helvetica", "bold")
-          doc.setFontSize(7)
-          doc.setTextColor(...negro)
+          if (col >= chipsPerRow) { col = 0; tx = ML + 2; ty += 9 }
+          doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.rect(tx, ty, colW - 2, 7.5, "S")
+          doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(...negro)
           doc.text(t.talla, tx + 2, ty + 3.5)
-
-          doc.setFont("helvetica", "normal")
-          doc.setTextColor(...gris)
+          doc.setFont("helvetica", "normal"); doc.setTextColor(...gris)
           doc.text(`${t.cantidad}ud`, tx + (colW - 2) - 2, ty + 3.5, { align: "right" })
-
-          tx += colW
-          col++
+          tx += colW; col++
         }
-
         y += blockH
-        doc.setDrawColor(...linea)
-        doc.setLineWidth(0.2)
-        doc.line(ML, y, PW - MR, y)
-        y += 1
+        doc.setDrawColor(...linea); doc.setLineWidth(0.2); doc.line(ML, y, PW - MR, y); y += 1
       })
 
-      // Total final
-      y = checkPageBreak(y, 14)
-      y += 5
-      doc.setDrawColor(...[180, 180, 180] as [number,number,number])
-      doc.setLineWidth(0.5)
+      y = checkPageBreak(y, 14); y += 5
+      doc.setDrawColor(...[180, 180, 180] as [number,number,number]); doc.setLineWidth(0.5)
       doc.line(ML, y - 2, PW - MR, y - 2)
-      doc.setFont("helvetica", "bold")
-      doc.setFontSize(10)
-      doc.setTextColor(...negro)
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...negro)
       doc.text("Total del pedido:", ML + 2, y + 4)
       doc.text(`${totalLineas} prendas  ·  ${totalUnidades} unidades`, PW - MR - 2, y + 4, { align: "right" })
 
-      // Pie de página
       const pages = doc.getNumberOfPages()
       for (let i = 1; i <= pages; i++) {
         doc.setPage(i)
-        doc.setDrawColor(...linea)
-        doc.setLineWidth(0.3)
-        doc.line(ML, 286, PW - MR, 286)
-        doc.setFont("helvetica", "normal")
-        doc.setFontSize(7.5)
-        doc.setTextColor(...grisClar)
+        doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(ML, 286, PW - MR, 286)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...grisClar)
         doc.text("Gestión de Ropa", ML, 290)
         doc.text(`Página ${i} de ${pages}`, PW - MR, 290, { align: "right" })
       }
 
-      // 2. Pedir carpeta (puede cancelar — el borrador sigue intacto)
       const pdfBytes = new Uint8Array(doc.output("arraybuffer"))
       const base = await resolveExportDir()
       const filePath = await join(base, `pedido_${new Date().toISOString().slice(0, 10)}.pdf`)
       await writeFile(filePath.replace(/\\/g, "/"), pdfBytes)
-
-      // 3. Solo confirmar el borrador si el fichero se guardó con éxito
       await confirmDraft(id, notas)
-      draftIdRef.current = null
-      setDraftId(null)
-      setSyncState("idle")
-
+      draftIdRef.current = null; setDraftId(null); setSyncState("idle")
       toast.success("PDF guardado", filePath)
-      // Backup silencioso (si hay carpeta configurada)
       backupDBSilent().catch(() => {})
-      setPedido({})
-      setNotas("")
-      setSelectedProduct(null)
+      setPedido({}); setNotas(""); setSelectedProduct(null)
     } catch (e: any) {
-      if (e?.message === "Selección cancelada") {
-        setSyncState("saved") // el borrador sigue ahí
-        return
-      }
+      if (e?.message === "Selección cancelada") { setSyncState("saved"); return }
       console.error("ERROR EXPORTANDO PDF:", e)
       setSyncState("error")
       await alert(e?.message ?? "Error al exportar el PDF", { confirmLabel: "Aceptar" })
@@ -457,6 +325,7 @@ export default function OrderPage({ onNavigate, onDraftChange }: { onNavigate: (
     const matchesDept = deptFilter === null || p.departamento_id === deptFilter
     return matchesSearch && matchesDept
   })
+
   const items = construirPedido()
   const total = totalPedido()
 
@@ -468,136 +337,82 @@ export default function OrderPage({ onNavigate, onDraftChange }: { onNavigate: (
       </span>
     )
     if (syncState === "saved") return (
-      <span style={badgeStyle("#f0fdf4", "#15803d", "#bbf7d0")}>
-        💾 Borrador guardado
-      </span>
+      <span style={badgeStyle("#f0fdf4", "#15803d", "#bbf7d0")}>💾 Borrador guardado</span>
     )
     if (syncState === "error") return (
-      <span style={badgeStyle("#fff5f5", "#dc2626", "#fecaca")}>
-        ⚠ Error al guardar
-      </span>
+      <span style={badgeStyle("#fff5f5", "#dc2626", "#fecaca")}>⚠ Error al guardar</span>
     )
     return null
   })()
 
+  // Tallas del producto seleccionado ordenadas
+  const tallasOrdenadas = selectedProduct
+    ? [...selectedProduct.tallas].sort((a: any, b: any) => ordenarTallas(a.talla, b.talla))
+    : []
+
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f5", fontFamily: "system-ui, sans-serif" }}>
+    <div style={{ minHeight: "100vh", backgroundColor: "#f0f2f5", fontFamily: "system-ui, sans-serif" }}>
 
       <AppHeader page="orders" onNavigate={onNavigate} draftCount={construirPedido().length} />
 
       {/* BARRA DE ACCIONES */}
       <div style={{
-        backgroundColor: "#fff",
-        borderBottom: "1px solid #e0e0e0",
-        padding: "0 32px",
-        display: "flex",
-        alignItems: "center",
-        height: "52px",
-        gap: "12px",
+        backgroundColor: "#fff", borderBottom: "1px solid #e0e0e0",
+        padding: "0 32px", display: "flex", alignItems: "center", height: "52px", gap: "12px",
       }}>
-        <span style={{ fontSize: "15px", fontWeight: 600, color: "#111" }}>
-          🛒 Nuevo pedido
-        </span>
-
+        <span style={{ fontSize: "15px", fontWeight: 600, color: "#111" }}>🛒 Nuevo pedido</span>
         {syncBadge}
-
         <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}>
           {total > 0 && (
             <button
               onClick={async () => {
-                const ok = await confirm("¿Descartar el borrador? Se perderán todos los cambios.", {
-                  confirmLabel: "Descartar",
-                  danger: true,
-                })
+                const ok = await confirm("¿Descartar el borrador? Se perderán todos los cambios.", { confirmLabel: "Descartar", danger: true })
                 if (ok) await resetPedido()
               }}
-              style={{
-                padding: "7px 14px",
-                backgroundColor: "#fff",
-                color: "#dc2626",
-                border: "1px solid #fca5a5",
-                borderRadius: "6px",
-                fontSize: "13px",
-                fontWeight: 500,
-                cursor: "pointer",
-              }}
+              style={{ padding: "7px 14px", backgroundColor: "#fff", color: "#dc2626", border: "1px solid #fca5a5", borderRadius: "6px", fontSize: "13px", fontWeight: 500, cursor: "pointer" }}
             >
               ✕ Descartar
             </button>
           )}
-          {/* BOTÓN SPLIT: acción principal + dropdown secundario */}
           <div ref={dropdownRef} style={{ position: "relative", display: "flex" }}>
-            {/* Parte principal */}
             <button
               onClick={exportPDF}
               disabled={total === 0 || syncState === "saving"}
               style={{
                 padding: "7px 18px",
                 backgroundColor: total > 0 && syncState !== "saving" ? "#2563eb" : "#ccc",
-                color: "#fff",
-                border: "none",
-                borderRadius: "6px 0 0 6px",
-                fontSize: "13px",
-                fontWeight: 600,
+                color: "#fff", border: "none", borderRadius: "6px 0 0 6px",
+                fontSize: "13px", fontWeight: 600,
                 cursor: total > 0 && syncState !== "saving" ? "pointer" : "not-allowed",
                 borderRight: "1px solid rgba(255,255,255,0.25)",
               }}
             >
               📄 Exportar PDF y confirmar
             </button>
-            {/* Flecha desplegable */}
             <button
               onClick={() => setDropdownOpen(o => !o)}
               disabled={total === 0 || syncState === "saving"}
-              title="Más opciones"
               style={{
                 padding: "7px 10px",
                 backgroundColor: total > 0 && syncState !== "saving" ? "#2563eb" : "#ccc",
-                color: "#fff",
-                border: "none",
-                borderRadius: "0 6px 6px 0",
-                fontSize: "11px",
-                cursor: total > 0 && syncState !== "saving" ? "pointer" : "not-allowed",
-                lineHeight: 1,
+                color: "#fff", border: "none", borderRadius: "0 6px 6px 0",
+                fontSize: "11px", cursor: total > 0 && syncState !== "saving" ? "pointer" : "not-allowed",
               }}
-            >
-              ▾
-            </button>
-            {/* Dropdown */}
+            >▾</button>
             {dropdownOpen && (
               <div style={{
-                position: "absolute",
-                top: "calc(100% + 6px)",
-                right: 0,
-                backgroundColor: "#fff",
-                border: "1px solid #e0e0e0",
-                borderRadius: "8px",
-                boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
-                minWidth: "220px",
-                zIndex: 100,
-                overflow: "hidden",
+                position: "absolute", top: "calc(100% + 6px)", right: 0,
+                backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "8px",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.10)", minWidth: "220px", zIndex: 100, overflow: "hidden",
               }}>
                 <button
                   onClick={confirmOnly}
-                  style={{
-                    display: "block",
-                    width: "100%",
-                    padding: "12px 16px",
-                    background: "none",
-                    border: "none",
-                    textAlign: "left",
-                    fontSize: "13px",
-                    color: "#333",
-                    cursor: "pointer",
-                    lineHeight: 1.4,
-                  }}
+                  style={{ display: "block", width: "100%", padding: "12px 16px", background: "none", border: "none", textAlign: "left", fontSize: "13px", color: "#333", cursor: "pointer", lineHeight: 1.4 }}
                   onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#f5f5f5")}
                   onMouseLeave={e => (e.currentTarget.style.backgroundColor = "")}
                 >
                   <div style={{ fontWeight: 600 }}>✓ Confirmar sin exportar</div>
-                  <div style={{ fontSize: "12px", color: "#888", marginTop: "2px" }}>
-                    Guarda el pedido sin generar PDF
-                  </div>
+                  <div style={{ fontSize: "12px", color: "#888", marginTop: "2px" }}>Guarda el pedido sin generar PDF</div>
                 </button>
               </div>
             )}
@@ -605,221 +420,357 @@ export default function OrderPage({ onNavigate, onDraftChange }: { onNavigate: (
         </div>
       </div>
 
-      <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "28px 24px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "20px" }}>
+      {/* CONTENIDO PRINCIPAL */}
+      <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "24px 24px", display: "grid", gridTemplateColumns: "260px 1fr 300px", gap: "16px", alignItems: "start" }}>
 
-          {/* COLUMNA 1: LISTA DE PRODUCTOS */}
-          <div>
-            <div style={{ fontSize: "13px", fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: "10px" }}>
-              Productos
-            </div>
-            <input
-              placeholder="🔍 Buscar producto..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
+        {/* ── COLUMNA 1: LISTA DE PRODUCTOS ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div style={{ fontSize: "11px", fontWeight: 700, color: "#888", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+            Productos
+          </div>
+          <input
+            placeholder="🔍 Buscar producto..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{
+              width: "100%", padding: "9px 12px", borderRadius: "8px",
+              border: "1px solid #e0e0e0", fontSize: "13px",
+              boxSizing: "border-box", backgroundColor: "#fff", outline: "none",
+            }}
+          />
+          {departments.length > 0 && (
+            <select
+              value={deptFilter ?? ""}
+              onChange={e => setDeptFilter(e.target.value ? Number(e.target.value) : null)}
               style={{
-                width: "100%", padding: "9px 14px", borderRadius: "6px",
-                border: "1px solid #ddd", fontSize: "14px", marginBottom: "8px",
-                boxSizing: "border-box",
+                width: "100%", padding: "8px 12px", borderRadius: "8px",
+                border: `1px solid ${deptFilter ? "#2563eb" : "#e0e0e0"}`,
+                fontSize: "13px", boxSizing: "border-box",
+                backgroundColor: deptFilter ? "#eff6ff" : "#fff",
+                cursor: "pointer", color: deptFilter ? "#1d4ed8" : "#888",
+                fontWeight: deptFilter ? 600 : 400,
               }}
-            />
-            {departments.length > 0 && (
-              <select
-                value={deptFilter ?? ""}
-                onChange={e => setDeptFilter(e.target.value ? Number(e.target.value) : null)}
-                style={{
-                  width: "100%", padding: "8px 12px", borderRadius: "6px",
-                  border: `1px solid ${deptFilter ? "#2563eb" : "#ddd"}`,
-                  fontSize: "13px", marginBottom: "10px",
-                  boxSizing: "border-box", backgroundColor: deptFilter ? "#eff6ff" : "#fff",
-                  cursor: "pointer", color: deptFilter ? "#1d4ed8" : "#888",
-                  fontWeight: deptFilter ? 600 : 400,
-                }}
-              >
-                <option value="">Todos los departamentos</option>
-                {departments.map(([id, nombre]) => (
-                  <option key={id} value={id}>{nombre}</option>
-                ))}
-              </select>
+            >
+              <option value="">Todos los departamentos</option>
+              {departments.map(([id, nombre]) => (
+                <option key={id} value={id}>{nombre}</option>
+              ))}
+            </select>
+          )}
+          <div style={{
+            backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px",
+            overflow: "hidden", maxHeight: "calc(100vh - 260px)", overflowY: "auto",
+          }}>
+            {filtered.length === 0 && (
+              <div style={{ padding: "32px 16px", textAlign: "center", color: "#bbb", fontSize: "13px" }}>
+                Sin resultados
+              </div>
             )}
-            <div style={{
-              border: "1px solid #e0e0e0", borderRadius: "8px", overflow: "hidden",
-              backgroundColor: "#fff", maxHeight: "520px", overflowY: "auto",
-            }}>
-              {filtered.map(p => (
+            {filtered.map(p => {
+              const enPedido = p.tallas?.some((t: any) => (pedido[t.id] || 0) > 0)
+              const isSelected = selectedProduct?.id === p.id
+              return (
                 <div
                   key={p.id}
                   onClick={() => setSelectedProduct(p)}
                   style={{
-                    padding: "12px 14px", borderBottom: "1px solid #f0f0f0", cursor: "pointer",
-                    fontSize: "14px",
-                    backgroundColor: selectedProduct?.id === p.id ? "#eff6ff" : "#fff",
-                    color: selectedProduct?.id === p.id ? "#1d4ed8" : "#333",
-                    fontWeight: selectedProduct?.id === p.id ? 600 : 400,
+                    padding: "10px 14px", borderBottom: "1px solid #f0f0f0", cursor: "pointer",
+                    backgroundColor: isSelected ? "#eff6ff" : "#fff",
                     transition: "background 0.1s",
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px",
                   }}
-                  onMouseEnter={e => { if (selectedProduct?.id !== p.id) e.currentTarget.style.backgroundColor = "#f9f9f9" }}
-                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = selectedProduct?.id === p.id ? "#eff6ff" : "#fff" }}
+                  onMouseEnter={e => { if (!isSelected) e.currentTarget.style.backgroundColor = "#f9f9f9" }}
+                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = isSelected ? "#eff6ff" : "#fff" }}
                 >
-                  <div>{p.nombre}</div>
-                  {p.color && <div style={{ fontSize: "12px", color: "#888", marginTop: "2px" }}>{p.color}</div>}
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{
+                      fontSize: "13px", fontWeight: isSelected ? 600 : 500,
+                      color: isSelected ? "#1d4ed8" : "#333",
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                    }}>
+                      {p.nombre}
+                    </div>
+                    {p.color && (
+                      <div style={{ fontSize: "11px", color: "#aaa", marginTop: "2px" }}>{p.color}</div>
+                    )}
+                  </div>
+                  {enPedido && (
+                    <span style={{
+                      flexShrink: 0, width: "8px", height: "8px", borderRadius: "50%",
+                      backgroundColor: "#2563eb", display: "inline-block",
+                    }} />
+                  )}
                 </div>
-              ))}
-            </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* ── COLUMNA 2: FICHA DE PRODUCTO ── */}
+        <div>
+          <div style={{ fontSize: "11px", fontWeight: 700, color: "#888", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "10px" }}>
+            Cantidades por talla
           </div>
 
-          {/* COLUMNA 2: EDITOR DE TALLAS */}
-          <div>
-            <div style={{ fontSize: "13px", fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: "10px" }}>
-              Cantidades por talla
+          {!selectedProduct ? (
+            <div style={{
+              backgroundColor: "#fff", border: "1px dashed #d1d5db", borderRadius: "12px",
+              padding: "60px 40px", textAlign: "center", color: "#bbb",
+            }}>
+              <div style={{ fontSize: "40px", marginBottom: "12px" }}>👗</div>
+              <div style={{ fontSize: "14px", fontWeight: 500 }}>Selecciona un producto de la lista</div>
+              <div style={{ fontSize: "12px", marginTop: "4px", color: "#d1d5db" }}>para añadirlo al pedido</div>
             </div>
-            {selectedProduct ? (
-              <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "8px", padding: "18px" }}>
-                <div style={{ fontWeight: 600, fontSize: "15px", marginBottom: "4px" }}>{selectedProduct.nombre}</div>
-                {selectedProduct.color && (
-                  <div style={{ fontSize: "13px", color: "#888", marginBottom: "16px" }}>{selectedProduct.color}</div>
-                )}
-                {[...selectedProduct.tallas].sort((a: any, b: any) => ordenarTallas(a.talla, b.talla)).map((t: any) => (
-                  <div key={t.id} style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px" }}>
-                    <div style={{ width: "40px", fontWeight: 600, fontSize: "14px" }}>{t.talla}</div>
-                    <div style={{ width: "80px", fontSize: "12px", color: "#aaa" }}>stock: {t.stock}</div>
-                    <input
-                      type="number"
-                      min="0"
-                      placeholder="0"
-                      value={pedido[t.id] ?? ""}
-                      onChange={e => setCantidad(t.id, Number(e.target.value))}
-                      style={{
-                        width: "70px", padding: "7px 10px", border: "1px solid #ddd",
-                        borderRadius: "6px", fontSize: "14px", textAlign: "center",
-                      }}
+          ) : (
+            <div style={{
+              backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "12px",
+              overflow: "hidden",
+            }}>
+              {/* Imagen + info del producto */}
+              <div style={{ display: "flex", gap: "0", borderBottom: "1px solid #f0f0f0" }}>
+
+                {/* Imagen */}
+                <div style={{
+                  width: "160px", flexShrink: 0, backgroundColor: "#f5f5f5",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  minHeight: "160px",
+                }}>
+                  {selectedImageUrl ? (
+                    <img
+                      src={selectedImageUrl}
+                      style={{ width: "160px", height: "160px", objectFit: "cover", display: "block" }}
                     />
+                  ) : (
+                    <span style={{ fontSize: "56px", opacity: 0.25 }}>👕</span>
+                  )}
+                </div>
+
+                {/* Info */}
+                <div style={{ flex: 1, padding: "20px 22px", display: "flex", flexDirection: "column", justifyContent: "center", gap: "6px" }}>
+                  <div style={{ fontSize: "17px", fontWeight: 700, color: "#111", lineHeight: 1.3 }}>
+                    {selectedProduct.nombre}
                   </div>
-                ))}
+                  {selectedProduct.color && (
+                    <div style={{
+                      display: "inline-flex", alignItems: "center", gap: "6px",
+                      fontSize: "12px", color: "#6b7280",
+                    }}>
+                      <span style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#9ca3af", display: "inline-block" }} />
+                      {selectedProduct.color}
+                    </div>
+                  )}
+                  {selectedProduct.codigo && (
+                    <div style={{ fontSize: "12px", color: "#9ca3af", fontFamily: "monospace" }}>
+                      {selectedProduct.codigo}
+                    </div>
+                  )}
+                  {selectedProduct.departamento && (
+                    <div style={{
+                      marginTop: "4px", display: "inline-block",
+                      fontSize: "11px", fontWeight: 600, color: "#2563eb",
+                      backgroundColor: "#eff6ff", padding: "3px 8px", borderRadius: "20px",
+                      alignSelf: "flex-start",
+                    }}>
+                      {selectedProduct.departamento}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Tallas */}
+              <div style={{ padding: "20px 22px" }}>
+                <div style={{ fontSize: "11px", fontWeight: 700, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "14px" }}>
+                  Unidades a pedir
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  {tallasOrdenadas.map((t: any) => {
+                    const qty = pedido[t.id] || 0
+                    const hasQty = qty > 0
+                    return (
+                      <div
+                        key={t.id}
+                        style={{
+                          display: "flex", alignItems: "center", gap: "12px",
+                          padding: "10px 14px", borderRadius: "8px",
+                          backgroundColor: hasQty ? "#eff6ff" : "#fafafa",
+                          border: `1px solid ${hasQty ? "#bfdbfe" : "#f0f0f0"}`,
+                          transition: "background-color 0.15s, border-color 0.15s",
+                        }}
+                      >
+                        {/* Talla */}
+                        <div style={{
+                          width: "44px", flexShrink: 0,
+                          fontWeight: 700, fontSize: "15px",
+                          color: hasQty ? "#1d4ed8" : "#374151",
+                        }}>
+                          {t.talla}
+                        </div>
+
+                        {/* Stock actual */}
+                        <div style={{ flex: 1, fontSize: "12px", color: "#9ca3af" }}>
+                          stock: <span style={{ fontWeight: 600, color: "#6b7280" }}>{t.stock}</span>
+                        </div>
+
+                        {/* Control cantidad */}
+                        <div style={{ display: "flex", alignItems: "center", gap: "0" }}>
+                          <button
+                            onClick={() => setCantidad(t.id, Math.max(0, qty - 1))}
+                            style={{
+                              width: "32px", height: "32px", borderRadius: "8px 0 0 8px",
+                              border: "1px solid #e0e0e0", borderRight: "none",
+                              backgroundColor: "#fff", color: "#374151",
+                              fontSize: "16px", fontWeight: 600, cursor: "pointer", lineHeight: 1,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                            }}
+                          >−</button>
+                          <input
+                            type="number"
+                            min="0"
+                            value={qty === 0 ? "" : qty}
+                            placeholder="0"
+                            onChange={e => setCantidad(t.id, Math.max(0, Number(e.target.value) || 0))}
+                            style={{
+                              width: "52px", height: "32px",
+                              border: "1px solid #e0e0e0",
+                              fontSize: "14px", fontWeight: hasQty ? 700 : 400,
+                              textAlign: "center",
+                              color: hasQty ? "#1d4ed8" : "#374151",
+                              backgroundColor: hasQty ? "#eff6ff" : "#fff",
+                              outline: "none",
+                              // remove number spinners
+                              MozAppearance: "textfield" as any,
+                            }}
+                          />
+                          <button
+                            onClick={() => setCantidad(t.id, qty + 1)}
+                            style={{
+                              width: "32px", height: "32px", borderRadius: "0 8px 8px 0",
+                              border: "1px solid #e0e0e0", borderLeft: "none",
+                              backgroundColor: "#fff", color: "#374151",
+                              fontSize: "16px", fontWeight: 600, cursor: "pointer", lineHeight: 1,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                            }}
+                          >+</button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── COLUMNA 3: RESUMEN ── */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div style={{ fontSize: "11px", fontWeight: 700, color: "#888", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+            Resumen del pedido
+          </div>
+          <div style={{
+            backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px",
+            overflow: "hidden", maxHeight: "calc(100vh - 230px)", overflowY: "auto",
+          }}>
+            {/* Notas */}
+            <div style={{ padding: "14px 16px", borderBottom: "1px solid #f0f0f0" }}>
+              <div style={{ fontSize: "11px", fontWeight: 700, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>
+                Notas
+              </div>
+              <textarea
+                value={notas}
+                onChange={e => setNotas(e.target.value)}
+                placeholder="Proveedor, albarán, condiciones de entrega…"
+                rows={4}
+                style={{
+                  width: "100%", resize: "vertical", padding: "9px 12px", borderRadius: "7px",
+                  border: "1px solid #ddd", fontSize: "13px", boxSizing: "border-box", outline: "none",
+                }}
+              />
+              <div style={{ fontSize: "11px", color: "#aaa", marginTop: "6px" }}>
+                Se guardan con el borrador y quedan visibles en el historial.
+              </div>
+            </div>
+
+            {items.length === 0 ? (
+              <div style={{ padding: "40px 20px", textAlign: "center", color: "#bbb", fontSize: "13px" }}>
+                Sin productos en el pedido
               </div>
             ) : (
-              <div style={{
-                backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "8px",
-                padding: "40px 20px", textAlign: "center", color: "#aaa", fontSize: "14px",
-              }}>
-                Selecciona un producto de la lista para añadirlo al pedido
-              </div>
-            )}
-          </div>
-
-          {/* COLUMNA 3: RESUMEN */}
-          <div>
-            <div style={{ fontSize: "13px", fontWeight: 600, color: "#888", textTransform: "uppercase", marginBottom: "10px" }}>
-              Resumen del pedido
-            </div>
-            <div style={{
-              backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "8px",
-              maxHeight: "520px", overflowY: "auto",
-            }}>
-              {/* NOTAS */}
-              <div style={{ padding: "14px 16px", borderBottom: "1px solid #f0f0f0" }}>
-                <div style={{ fontSize: "11px", fontWeight: 700, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>
-                  Notas
-                </div>
-                <textarea
-                  value={notas}
-                  onChange={e => setNotas(e.target.value)}
-                  placeholder="Proveedor, albarán, condiciones de entrega…"
-                  rows={4}
-                  style={{
-                    width: "100%",
-                    resize: "vertical",
-                    padding: "9px 12px",
-                    borderRadius: "7px",
-                    border: "1px solid #ddd",
-                    fontSize: "13px",
-                    boxSizing: "border-box",
-                    outline: "none",
-                  }}
-                />
-                <div style={{ fontSize: "11px", color: "#aaa", marginTop: "6px" }}>
-                  Se guardan con el borrador y quedan visibles en el historial.
-                </div>
-              </div>
-              {items.length === 0 ? (
-                <div style={{ padding: "40px 20px", textAlign: "center", color: "#aaa", fontSize: "14px" }}>
-                  Sin productos en el pedido
-                </div>
-              ) : (
-                <>
-                  {items.map(item => {
-                    const tallas = [...item.tallas].sort((a, b) => ordenarTallas(a.talla, b.talla))
-                    return (
-                      <div key={item.producto.id} style={{ padding: "14px 16px", borderBottom: "1px solid #f0f0f0" }}>
-                        <div style={{ fontWeight: 600, fontSize: "14px", marginBottom: "8px" }}>
-                          {item.producto.nombre}
-                          {item.producto.color && (
-                            <span style={{ fontWeight: 400, color: "#888", marginLeft: "6px" }}>({item.producto.color})</span>
-                          )}
-                        </div>
+              <>
+                {items.map(item => {
+                  const tallas = [...item.tallas].sort((a, b) => ordenarTallas(a.talla, b.talla))
+                  return (
+                    <div key={item.producto.id} style={{ padding: "12px 14px", borderBottom: "1px solid #f0f0f0" }}>
+                      <div style={{ fontWeight: 600, fontSize: "13px", marginBottom: "8px", color: "#111" }}>
+                        {item.producto.nombre}
+                        {item.producto.color && (
+                          <span style={{ fontWeight: 400, color: "#888", marginLeft: "6px", fontSize: "12px" }}>
+                            ({item.producto.color})
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
                         {tallas.map((t: any) => (
-                          <div key={t.tallaId} style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px", paddingLeft: "8px" }}>
-                            <span style={{ width: "36px", fontSize: "13px", color: "#555" }}>{t.talla}</span>
+                          <div
+                            key={t.tallaId}
+                            style={{
+                              display: "flex", alignItems: "center", gap: "5px",
+                              padding: "3px 10px", borderRadius: "20px",
+                              backgroundColor: "#eff6ff", border: "1px solid #bfdbfe",
+                              fontSize: "12px",
+                            }}
+                          >
+                            <span style={{ fontWeight: 700, color: "#1d4ed8" }}>{t.talla}</span>
+                            <span style={{ color: "#6b7280" }}>·</span>
                             <input
                               type="number"
                               min="0"
                               value={t.cantidad}
                               onChange={e => setCantidad(t.tallaId, Number(e.target.value))}
-                              style={{ width: "60px", padding: "4px 8px", border: "1px solid #ddd", borderRadius: "4px", fontSize: "13px", textAlign: "center" }}
+                              style={{
+                                width: "36px", padding: "0", border: "none",
+                                fontSize: "12px", fontWeight: 600, textAlign: "center",
+                                color: "#1d4ed8", backgroundColor: "transparent", outline: "none",
+                              }}
                             />
-                            <span style={{ fontSize: "12px", color: "#aaa" }}>ud.</span>
                             <button
                               onClick={() => eliminarTalla(t.tallaId)}
-                              style={{ background: "none", border: "none", color: "#dc2626", cursor: "pointer", fontSize: "14px", marginLeft: "auto" }}
-                            >
-                              ✕
-                            </button>
+                              style={{ background: "none", border: "none", color: "#93c5fd", cursor: "pointer", fontSize: "11px", lineHeight: 1, padding: "0 0 0 2px" }}
+                            >✕</button>
                           </div>
                         ))}
-                        <div style={{ fontSize: "12px", fontWeight: 600, color: "#555", paddingLeft: "8px", marginTop: "4px" }}>
-                          Subtotal: {item.total} ud.
-                        </div>
                       </div>
-                    )
-                  })}
-                  <div style={{ padding: "14px 16px", backgroundColor: "#f9f9f9", fontWeight: 700, fontSize: "15px" }}>
-                    Total pedido: {total} unidades
-                  </div>
-                </>
-              )}
-            </div>
+                      <div style={{ fontSize: "11px", fontWeight: 600, color: "#6b7280", marginTop: "8px" }}>
+                        Subtotal: {item.total} ud.
+                      </div>
+                    </div>
+                  )
+                })}
+                <div style={{ padding: "14px 16px", backgroundColor: "#f9fafb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "13px", color: "#6b7280", fontWeight: 500 }}>Total pedido</span>
+                  <span style={{ fontSize: "16px", fontWeight: 800, color: "#111" }}>{total} ud.</span>
+                </div>
+              </>
+            )}
           </div>
-
         </div>
+
       </main>
       {dialog}
     </div>
   )
 }
 
-// ── Estilos auxiliares ─────────────────────────────────────────────────────────
-
 function badgeStyle(bg: string, color: string, border: string): React.CSSProperties {
   return {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "6px",
-    fontSize: "12px",
-    color,
-    backgroundColor: bg,
-    border: `1px solid ${border}`,
-    borderRadius: "20px",
-    padding: "3px 10px",
-    fontWeight: 500,
+    display: "inline-flex", alignItems: "center", gap: "6px",
+    fontSize: "12px", color, backgroundColor: bg,
+    border: `1px solid ${border}`, borderRadius: "20px",
+    padding: "3px 10px", fontWeight: 500,
   }
 }
 
 const spinnerStyle: React.CSSProperties = {
-  display: "inline-block",
-  width: "10px",
-  height: "10px",
-  border: "2px solid #bae6fd",
-  borderTopColor: "#0369a1",
-  borderRadius: "50%",
-  animation: "spin 0.7s linear infinite",
+  display: "inline-block", width: "10px", height: "10px",
+  border: "2px solid #bae6fd", borderTopColor: "#0369a1",
+  borderRadius: "50%", animation: "spin 0.7s linear infinite",
 }
