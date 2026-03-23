@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { getProductSizes, getProductMovements, getProductMovementsCount, duplicateProduct, updateProduct } from "./productService"
+import { getProductSizes, getProductMovements, getProductMovementsCount, updateProduct } from "./productService"
 import { pickAndSaveProductImage } from "./imageService"
 import { addStock, updateProductColor } from "./productService"
 import { useConfirm } from "./ConfirmDialog"
@@ -10,7 +10,7 @@ import { getImageUrl, invalidateImageCache } from "./getImageUrl"
 import AppHeader from "./AppHeader"
 import type { StockThresholds } from "./settingsService"
 
-export default function ProductDetail({ product, onBack, onNavigate, onDuplicated, onProductUpdated, stockThresholds, draftCount }: any) {
+export default function ProductDetail({ product, onBack, onNavigate, onProductUpdated, stockThresholds, draftCount }: any) {
   const [sizes, setSizes] = useState<any[]>([])
   const [entrada, setEntrada] = useState<any>({})
   const [movements, setMovements] = useState<any[]>([])
@@ -24,13 +24,9 @@ export default function ProductDetail({ product, onBack, onNavigate, onDuplicate
   const [editDepartamentoId, setEditDepartamentoId] = useState<number | null>(product.departamento_id ?? null)
   const [editDepartamentoNombre, setEditDepartamentoNombre] = useState<string>(product.departamento ?? "")
   const [infoSaved, setInfoSaved] = useState(false)
-  // Estado de visualización — se actualiza tras guardar sin necesidad de recargar la página
   const [displayNombre, setDisplayNombre] = useState(product.nombre ?? "")
   const [displayCodigo, setDisplayCodigo] = useState(product.codigo ?? "")
   const [displayDepartamento, setDisplayDepartamento] = useState(product.departamento ?? "")
-  const [duplicating, setDuplicating] = useState(false)
-  const [dupNombre, setDupNombre] = useState("")
-  const [dupCodigo, setDupCodigo] = useState("")
   const [imageError, setImageError] = useState(false)
   const [imageUrl, setImageUrl] = useState<string>(product.imageUrl ?? "")
   const [uploadingImage, setUploadingImage] = useState(false)
@@ -73,29 +69,12 @@ export default function ProductDetail({ product, onBack, onNavigate, onDuplicate
     setImageError(false)
     setImageUrl(product.imageUrl ?? "")
     reloadSizes()
-    // Siempre refresca la imagen desde caché/disco al montar, ignorando el valor del objeto padre
     getImageUrl(product.id).then(url => {
       setImageUrl(url)
     })
   }, [product])
 
   const totalEntrada = Object.values(entrada).reduce((s: any, v: any) => s + (Number(v) || 0), 0) as number
-
-  const duplicarBtn = (
-    <button
-      onClick={() => {
-        setDupNombre(`${product.nombre} (copia)`)
-        setDupCodigo(product.codigo ?? "")
-        setDuplicating(true)
-      }}
-      style={{
-        background: "none", border: "1px solid #ddd", borderRadius: "6px",
-        padding: "6px 14px", fontSize: "14px", cursor: "pointer", color: "#555",
-      }}
-    >
-      ⧉ Duplicar prenda
-    </button>
-  )
 
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f5", fontFamily: "system-ui, sans-serif" }}>
@@ -105,91 +84,8 @@ export default function ProductDetail({ product, onBack, onNavigate, onDuplicate
         onNavigate={onNavigate}
         onBack={onBack}
         title={product.nombre}
-        actions={duplicarBtn}
         draftCount={draftCount}
       />
-
-      {/* MODAL DUPLICAR */}
-      {duplicating && (
-        <div style={{
-          position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)",
-          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200,
-        }}>
-          <div style={{
-            backgroundColor: "#fff", borderRadius: "14px", width: "420px",
-            boxShadow: "0 16px 48px rgba(0,0,0,0.18)", overflow: "hidden",
-          }}>
-            <div style={{ height: "4px", backgroundColor: "#111" }} />
-            <div style={{ padding: "28px" }}>
-              <h2 style={{ fontSize: "16px", fontWeight: 700, margin: "0 0 6px" }}>Duplicar prenda</h2>
-              <p style={{ fontSize: "13px", color: "#888", margin: "0 0 22px" }}>
-                Se copiarán las tallas sin stock. Edita el nombre y código antes de crear.
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-                <div>
-                  <div style={{ fontSize: "11px", fontWeight: 600, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>Nombre</div>
-                  <input
-                    autoFocus
-                    value={dupNombre}
-                    onChange={e => setDupNombre(e.target.value)}
-                    style={{
-                      width: "100%", padding: "9px 12px", borderRadius: "7px",
-                      border: "1px solid #ddd", fontSize: "14px", boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-                <div>
-                  <div style={{ fontSize: "11px", fontWeight: 600, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "6px" }}>Código</div>
-                  <input
-                    value={dupCodigo}
-                    onChange={e => setDupCodigo(e.target.value)}
-                    placeholder="Opcional"
-                    onKeyDown={async e => {
-                      if (e.key === "Enter") {
-                        if (!dupNombre.trim()) return
-                        const newId = await duplicateProduct(product.id, dupNombre.trim(), dupCodigo.trim())
-                        setDuplicating(false)
-                        onDuplicated?.(newId)
-                      }
-                      if (e.key === "Escape") setDuplicating(false)
-                    }}
-                    style={{
-                      width: "100%", padding: "9px 12px", borderRadius: "7px",
-                      border: "1px solid #ddd", fontSize: "14px", boxSizing: "border-box",
-                    }}
-                  />
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end", marginTop: "24px" }}>
-                <button
-                  onClick={() => setDuplicating(false)}
-                  style={{
-                    padding: "9px 20px", borderRadius: "8px", border: "1px solid #e0e0e0",
-                    backgroundColor: "#fff", color: "#555", fontSize: "14px", cursor: "pointer", minWidth: "90px",
-                  }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={async () => {
-                    if (!dupNombre.trim()) return
-                    const newId = await duplicateProduct(product.id, dupNombre.trim(), dupCodigo.trim())
-                    setDuplicating(false)
-                    onDuplicated?.(newId)
-                  }}
-                  style={{
-                    padding: "9px 20px", borderRadius: "8px", border: "none",
-                    backgroundColor: "#111", color: "#fff", fontSize: "14px",
-                    fontWeight: 600, cursor: "pointer", minWidth: "90px",
-                  }}
-                >
-                  ⧉ Crear copia
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "28px 24px", display: "grid", gridTemplateColumns: "320px 1fr", gap: "20px", alignItems: "start" }}>
 
@@ -245,7 +141,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onDuplicate
           {/* INFO */}
           <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "12px", padding: "24px" }}>
 
-            {/* Cabecera del card: título + botón editar/guardar */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
               <span style={{ fontSize: "11px", fontWeight: 600, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                 Información
@@ -331,10 +226,8 @@ export default function ProductDetail({ product, onBack, onNavigate, onDuplicate
               </div>
             </div>
 
-            {/* Filas de campos — siempre la misma estructura, cambia solo el contenido */}
             <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
 
-              {/* Nombre */}
               <div>
                 <div style={fieldLabelStyle}>Nombre</div>
                 {editingInfo ? (
@@ -344,7 +237,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onDuplicate
                 )}
               </div>
 
-              {/* Código */}
               <div>
                 <div style={fieldLabelStyle}>Código</div>
                 {editingInfo ? (
@@ -356,7 +248,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onDuplicate
                 )}
               </div>
 
-              {/* Departamento */}
               <div>
                 <div style={fieldLabelStyle}>Departamento</div>
                 {editingInfo ? (
@@ -374,7 +265,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onDuplicate
                 )}
               </div>
 
-              {/* Color */}
               <div>
                 <div style={fieldLabelStyle}>Color</div>
                 {editingInfo ? (
@@ -510,7 +400,7 @@ export default function ProductDetail({ product, onBack, onNavigate, onDuplicate
 
       </main>
 
-      {/* HISTORIAL DE MOVIMIENTOS — ancho completo debajo de las columnas */}
+      {/* HISTORIAL DE MOVIMIENTOS */}
       {(movements.length > 0 || movementsTotal > 0) && (
         <div style={{ maxWidth: "1100px", margin: "0 auto", padding: "0 24px 32px" }}>
           <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "12px", overflow: "hidden" }}>
@@ -633,8 +523,6 @@ export default function ProductDetail({ product, onBack, onNavigate, onDuplicate
                 })}
               </tbody>
             </table>
-
-
 
           </div>
         </div>

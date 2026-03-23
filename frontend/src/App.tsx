@@ -86,7 +86,6 @@ function App() {
   const { confirm, dialog } = useConfirm()
   const toast = useToast()
 
-  // Carga la carpeta de exportación guardada al arrancar
   useEffect(() => {
     getExportDir().then(setExportDirState)
     getBackupDir().then(setBackupDirState)
@@ -97,7 +96,6 @@ function App() {
     getDraftProductCount().then(setDraftCount)
   }, [])
 
-  // Cierra el menú al hacer clic fuera
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
@@ -110,9 +108,7 @@ function App() {
 
   async function loadInventory() {
     const data = await getInventory()
-    // Precargamos todas las imágenes en paralelo (una sola tanda de IPCs)
     await preloadImages(data.map((p: any) => p.id))
-    // Ahora la asignación es síncrona desde caché
     data.forEach((item: any) => {
       item.imageUrl = getImageUrlSync(item.id)
     })
@@ -162,16 +158,8 @@ function App() {
       draftCount={draftCount}
       onBack={() => setSelectedProduct(null)}
       onNavigate={(p: string) => { setSelectedProduct(null); setPage(p) }}
-      onDuplicated={async (newId: number) => {
-        const data = await loadInventory()               // ← usa lo que ya devuelve
-        const copy = data?.find((p: any) => p.id === newId)
-        if (copy) setSelectedProduct(copy)
-      }}
       onProductUpdated={async (changes: any) => {
-        // Actualiza el objeto selectedProduct en memoria para que el header
-        // y el breadcrumb reflejen el nuevo nombre sin parpadeo
         setSelectedProduct((prev: any) => ({ ...prev, ...changes }))
-        // Refresca el array inventory para que la tabla/cuadrícula esté al día
         await loadInventory()
       }}
     />
@@ -514,10 +502,7 @@ function App() {
                   ;(e.currentTarget as HTMLElement).style.transform = ""
                 }}
               >
-                {/* FOTO */}
                 <GridImageCell imageUrl={item.imageUrl} />
-
-                {/* INFO */}
                 <div style={{ padding: "12px" }}>
                   <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {item.nombre}
@@ -608,7 +593,6 @@ function App() {
                 </div>
               </div>
 
-              {/* BACKUP AUTOMÁTICO */}
               <div style={{ marginBottom: "20px" }}>
                 <div style={{ fontSize: "12px", fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>
                   Copias de seguridad
@@ -667,7 +651,6 @@ function App() {
                 </div>
               </div>
 
-              {/* UMBRALES DE COLOR DE TALLAS */}
               <div style={{ marginBottom: "24px" }}>
                 <div style={{ fontSize: "12px", fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "12px" }}>
                   Umbrales de color por talla
@@ -676,7 +659,6 @@ function App() {
                   Define cuántas unidades marcan el límite entre verde, naranja y rojo en el stock de cada talla.
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                  {/* ROJO */}
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
                       <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: "#dc2626", display: "inline-block" }} />
@@ -693,7 +675,6 @@ function App() {
                       <span style={{ fontSize: "12px", color: "#aaa" }}>unidades</span>
                     </div>
                   </div>
-                  {/* NARANJA */}
                   <div>
                     <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
                       <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: "#f97316", display: "inline-block" }} />
@@ -711,7 +692,6 @@ function App() {
                     </div>
                   </div>
                 </div>
-                {/* Preview de los colores */}
                 <div style={{ marginTop: "14px", display: "flex", gap: "8px", alignItems: "center" }}>
                   <span style={{ fontSize: "11px", color: "#aaa", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Preview:</span>
                   <span style={{ padding: "3px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: 600, backgroundColor: "#fee2e2", color: "#991b1b" }}>
@@ -768,7 +748,6 @@ function App() {
 
             <div style={{ padding: "24px 28px 28px", overflowY: "auto" }}>
 
-              {/* BLOQUE: cómo funciona */}
               <section style={{ marginBottom: "24px" }}>
                 <div style={helpSectionTitle}>¿Qué es una copia de seguridad?</div>
                 <p style={helpText}>
@@ -776,7 +755,6 @@ function App() {
                 </p>
               </section>
 
-              {/* BLOQUE: cuándo se crea */}
               <section style={{ marginBottom: "24px" }}>
                 <div style={helpSectionTitle}>¿Cuándo se crean las copias?</div>
                 <p style={helpText}>Las copias se crean en dos momentos:</p>
@@ -789,7 +767,6 @@ function App() {
                 </p>
               </section>
 
-              {/* BLOQUE: cómo recuperar */}
               <section style={{ marginBottom: "24px" }}>
                 <div style={helpSectionTitle}>¿Cómo recupero los datos si algo va mal?</div>
                 <p style={helpText}>Si la base de datos se corrompe o pierdes datos accidentalmente, sigue estos pasos:</p>
@@ -809,7 +786,6 @@ function App() {
                 </ol>
               </section>
 
-              {/* BLOQUE: recomendación */}
               <section style={{ padding: "14px 16px", backgroundColor: "#eff6ff", borderRadius: "8px", border: "1px solid #bfdbfe" }}>
                 <div style={{ fontSize: "13px", fontWeight: 600, color: "#1d4ed8", marginBottom: "6px" }}>💡 Recomendación</div>
                 <p style={{ ...helpText, margin: 0, color: "#1e40af" }}>

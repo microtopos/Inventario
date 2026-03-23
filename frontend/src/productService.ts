@@ -32,7 +32,6 @@ export async function createProduct(nombre: string, codigo: string, departamento
 export async function deleteProduct(productId: number) {
   const db = await getDB()
   await deleteProductImage(productId).catch((e) => console.error("Error borrando imagen:", e))
-  // Borrar movimientos antes que tallas (FK: movimientos.talla_id → tallas.id)
   await db.execute(
     "DELETE FROM movimientos WHERE talla_id IN (SELECT id FROM tallas WHERE producto_id = ?)",
     [productId]
@@ -116,33 +115,4 @@ export async function getProductMovements(productId: number, limit = 50, offset 
     LIMIT ? OFFSET ?
   `, [productId, limit, offset])
   return rows
-}
-
-export async function duplicateProduct(productId: number, nombre?: string, codigo?: string): Promise<number> {
-  const db = await getDB()
-
-  const original: any = await db.select(
-    "SELECT codigo, nombre, departamento_id, color FROM productos WHERE id = ?",
-    [productId]
-  )
-  const p = original[0]
-  await db.execute(
-    "INSERT INTO productos (codigo, nombre, departamento_id, color) VALUES (?, ?, ?, ?)",
-    [codigo ?? p.codigo ?? null, nombre ?? `${p.nombre} (copia)`, p.departamento_id, p.color || null]
-  )
-  const row: any = await db.select("SELECT last_insert_rowid() as id")
-  const newId = row[0].id
-
-  const tallas: any = await db.select(
-    "SELECT talla FROM tallas WHERE producto_id = ?",
-    [productId]
-  )
-  for (const t of tallas) {
-    await db.execute(
-      "INSERT INTO tallas (producto_id, talla, stock) VALUES (?, ?, 0)",
-      [newId, t.talla]
-    )
-  }
-
-  return newId
 }
