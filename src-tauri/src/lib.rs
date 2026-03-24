@@ -227,6 +227,60 @@ pub fn run() {
                             ",
                             kind: MigrationKind::Up,
                         },
+                        Migration {
+                            version: 5,
+                            description: "modulos gasolina y productos",
+                            sql: "
+                                -- GASOLINA
+                                CREATE TABLE IF NOT EXISTS vehiculos (
+                                    id        INTEGER PRIMARY KEY,
+                                    matricula TEXT NOT NULL,
+                                    nombre    TEXT NOT NULL,
+                                    activo    INTEGER NOT NULL DEFAULT 1
+                                );
+                        
+                                CREATE TABLE IF NOT EXISTS repostajes (
+                                    id          INTEGER PRIMARY KEY,
+                                    vehiculo_id INTEGER NOT NULL REFERENCES vehiculos(id),
+                                    fecha       TEXT    NOT NULL,
+                                    coste       REAL    NOT NULL,
+                                    notas       TEXT
+                                );
+                        
+                                -- PRODUCTOS
+                                CREATE TABLE IF NOT EXISTS categorias_producto (
+                                    id     INTEGER PRIMARY KEY,
+                                    nombre TEXT NOT NULL UNIQUE
+                                );
+                        
+                                CREATE TABLE IF NOT EXISTS productos_almacen (
+                                    id           INTEGER PRIMARY KEY,
+                                    referencia   TEXT NOT NULL,
+                                    nombre       TEXT NOT NULL,
+                                    categoria_id INTEGER NOT NULL REFERENCES categorias_producto(id),
+                                    unidad_medida TEXT NOT NULL,
+                                    activo       INTEGER NOT NULL DEFAULT 1
+                                );
+                        
+                                CREATE TABLE IF NOT EXISTS departamentos_prod (
+                                    id     INTEGER PRIMARY KEY,
+                                    nombre TEXT NOT NULL UNIQUE
+                                );
+                        
+                                CREATE TABLE IF NOT EXISTS salidas_productos (
+                                    id               INTEGER PRIMARY KEY,
+                                    producto_id      INTEGER NOT NULL REFERENCES productos_almacen(id),
+                                    departamento_id  INTEGER NOT NULL REFERENCES departamentos_prod(id),
+                                    cantidad         INTEGER NOT NULL DEFAULT 0,
+                                    mes              INTEGER NOT NULL CHECK(mes BETWEEN 1 AND 12),
+                                    anio             INTEGER NOT NULL
+                                );
+                        
+                                CREATE UNIQUE INDEX IF NOT EXISTS idx_salidas_unica
+                                    ON salidas_productos(producto_id, departamento_id, mes, anio);
+                            ",
+                            kind: MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),
