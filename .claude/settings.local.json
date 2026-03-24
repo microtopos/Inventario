@@ -1,7 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(grep:*)",
+      "Bash(ls -la *.xlsx)",
+      "Bash(node:*)",
+      "Bash(ls -la *.db)",
+      "Bash(where sqlite3:*)",
+      "Bash(echo:*)",
+      "Read(//c/Users/dan.pirlitu/Desktop/Inventario Ropa/$APPDATA/**)",
+      "Read(//c/Users/dan.pirlitu/Desktop/Inventario Ropa/$LOCALAPPDATA/**)",
+      "Bash(sqlite3 \"$APPDATA/Inventario/inventario.db\" \".tables\")",
+      "Bash(ls -la *.sqlite)",
+      "Bash(ls -la *.sqlite3)"
     ]
   }
 }

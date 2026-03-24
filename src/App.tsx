@@ -10,6 +10,7 @@ import AppHeader from "./AppHeader"
 import StatisticsPage from "./StatisticsPage"
 import { useConfirm } from "./ConfirmDialog"
 import GasolinaPage from "./GasolinaPage"
+import ProductsPage from "./ProductsPage"
 // orderService imports moved — draft state now via DraftContext
 import {
   exportInventarioPDF, exportInventarioXLSX,
@@ -160,6 +161,9 @@ function App() {
   }
   if (page === "gasolina") {
     return <GasolinaPage onNavigate={setPage} />
+  }
+  if (page === "productos") {
+    return <ProductsPage onNavigate={setPage} />
   }
 
   // ── Vista de inventario ───────────────────────────────────────────────────
