@@ -7,22 +7,12 @@ import {
   getVehiculos, crearVehiculo, actualizarVehiculo,
   desactivarVehiculo, reactivarVehiculo,
   getRepostajes, crearRepostaje, actualizarRepostaje, eliminarRepostaje,
-  getGastoMensual, getResumenPorVehiculo,
   type Vehiculo, type Repostaje, type FiltrosRepostaje,
 } from "./gasolinaService"
-import {
-  LineChart, Line, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-} from "recharts"
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-type SubPage = "repostajes" | "vehiculos" | "estadisticas"
-
-const MESES = [
-  "Ene", "Feb", "Mar", "Abr", "May", "Jun",
-  "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
-]
+type SubPage = "repostajes" | "vehiculos"
 
 const COLORES_VEHICULO = [
   "#ea580c", "#2563eb", "#16a34a", "#9333ea",
@@ -39,9 +29,6 @@ function fechaHoy() {
   return new Date().toISOString().slice(0, 10)
 }
 
-function anioActual() {
-  return new Date().getFullYear()
-}
 
 // ─── Subcomponente: Modal de Vehículo ─────────────────────────────────────────
 
@@ -518,7 +505,7 @@ function VistaRepostajes({ vehiculos }: { vehiculos: Vehiculo[] }) {
               </tr>
             </thead>
             <tbody>
-              {repostajes.map((r, i) => (
+              {repostajes.map((r) => (
                 <tr
                   key={r.id}
                   style={{ borderBottom: "1px solid #f5f5f5" }}
@@ -579,158 +566,6 @@ function VistaRepostajes({ vehiculos }: { vehiculos: Vehiculo[] }) {
   )
 }
 
-// ─── Vista: Estadísticas ──────────────────────────────────────────────────────
-
-function VistaEstadisticas({ vehiculos }: { vehiculos: Vehiculo[] }) {
-  const [anio, setAnio] = useState(anioActual())
-  const [gastoMensual, setGastoMensual] = useState<any[]>([])
-  const [resumenes, setResumenes] = useState<any[]>([])
-
-  useEffect(() => {
-    const desde = `${anio}-01-01`
-    const hasta = `${anio}-12-31`
-
-    Promise.all([
-      getGastoMensual({ fecha_desde: desde, fecha_hasta: hasta }),
-      getResumenPorVehiculo({ fecha_desde: desde, fecha_hasta: hasta }),
-    ]).then(([gasto, res]) => {
-      // Pivota los datos de gasto mensual para Recharts
-      const porMes: Record<number, any> = {}
-      for (let m = 1; m <= 12; m++) {
-        porMes[m] = { mes: MESES[m - 1] }
-      }
-      for (const row of gasto) {
-        porMes[row.mes][row.vehiculo_nombre] = row.total
-      }
-      setGastoMensual(Object.values(porMes))
-      setResumenes(res)
-    })
-  }, [anio])
-
-  const aniosPosibles = Array.from({ length: 5 }, (_, i) => anioActual() - i)
-  const gastoTotal = resumenes.reduce((s, r) => s + (r.gasto_total ?? 0), 0)
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
-
-      {/* Selector de año */}
-      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-        <span style={{ fontSize: "13px", color: "#888", fontWeight: 500 }}>Año:</span>
-        {aniosPosibles.map(a => (
-          <button
-            key={a}
-            onClick={() => setAnio(a)}
-            style={{ padding: "6px 14px", borderRadius: "7px", border: `1px solid ${anio === a ? "#ea580c" : "#e0e0e0"}`, backgroundColor: anio === a ? "#fff7ed" : "#fff", color: anio === a ? "#ea580c" : "#666", fontSize: "13px", fontWeight: anio === a ? 700 : 400, cursor: "pointer" }}
-          >
-            {a}
-          </button>
-        ))}
-      </div>
-
-      {/* Tarjetas resumen */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
-        {[
-          { label: "Gasto total", value: formatEuro(gastoTotal) },
-          { label: "Vehículos activos", value: vehiculos.filter(v => v.activo === 1).length },
-          { label: "Media mensual", value: formatEuro(gastoTotal / 12) },
-        ].map(card => (
-          <div key={card.label} style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px", padding: "20px" }}>
-            <div style={{ fontSize: "12px", color: "#888", marginBottom: "4px" }}>{card.label}</div>
-            <div style={{ fontSize: "24px", fontWeight: 700, color: "#111" }}>{card.value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Gráfico líneas */}
-      <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px", padding: "20px" }}>
-        <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "16px" }}>
-          Evolución mensual del gasto — {anio}
-        </div>
-        <ResponsiveContainer width="100%" height={260}>
-          <LineChart data={gastoMensual} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#888" }} />
-            <YAxis tickFormatter={v => `${v}€`} tick={{ fontSize: 12, fill: "#888" }} />
-            <Tooltip formatter={(v: number) => formatEuro(v)} />
-            <Legend />
-            {vehiculos.map((v, i) => (
-              <Line
-                key={v.id}
-                type="monotone"
-                dataKey={v.nombre}
-                stroke={COLORES_VEHICULO[i % COLORES_VEHICULO.length]}
-                strokeWidth={2}
-                dot={{ r: 3 }}
-                connectNulls
-              />
-            ))}
-          </LineChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Gráfico barras */}
-      <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px", padding: "20px" }}>
-        <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "16px" }}>
-          Gasto total por vehículo — {anio}
-        </div>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart
-            data={resumenes.filter(r => r.gasto_total > 0)}
-            margin={{ top: 4, right: 16, bottom: 0, left: 0 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-            <XAxis dataKey="vehiculo_nombre" tick={{ fontSize: 12, fill: "#888" }} />
-            <YAxis tickFormatter={v => `${v}€`} tick={{ fontSize: 12, fill: "#888" }} />
-            <Tooltip formatter={(v: number) => formatEuro(v)} />
-            <Bar dataKey="gasto_total" name="Gasto total" radius={[4, 4, 0, 0]}>
-              {resumenes.filter(r => r.gasto_total > 0).map((_, i) => (
-                <rect key={i} fill={COLORES_VEHICULO[i % COLORES_VEHICULO.length]} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Tabla resumen */}
-      {resumenes.length > 0 && (
-        <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px", overflow: "hidden" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ backgroundColor: "#fafafa", borderBottom: "1px solid #e0e0e0" }}>
-                {["Vehículo", "Matrícula", "Repostajes", "Gasto total", "Media/repostaje", "Último repostaje"].map(h => (
-                  <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: "11px", fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {resumenes.map((r, i) => (
-                <tr key={r.vehiculo_id} style={{ borderBottom: "1px solid #f5f5f5" }}>
-                  <td style={{ padding: "12px 16px" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "14px", fontWeight: 600, color: "#111" }}>
-                      <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: COLORES_VEHICULO[i % COLORES_VEHICULO.length], flexShrink: 0 }} />
-                      {r.vehiculo_nombre}
-                    </span>
-                  </td>
-                  <td style={{ padding: "12px 16px", fontSize: "13px", color: "#888", fontFamily: "monospace" }}>{r.vehiculo_matricula}</td>
-                  <td style={{ padding: "12px 16px", fontSize: "14px", color: "#555" }}>{r.total_repostajes ?? 0}</td>
-                  <td style={{ padding: "12px 16px", fontSize: "15px", fontWeight: 700, color: "#ea580c" }}>{formatEuro(r.gasto_total ?? 0)}</td>
-                  <td style={{ padding: "12px 16px", fontSize: "13px", color: "#555" }}>{r.total_repostajes > 0 ? formatEuro(r.gasto_medio ?? 0) : "—"}</td>
-                  <td style={{ padding: "12px 16px", fontSize: "13px", color: "#888" }}>
-                    {r.ultimo_repostaje
-                      ? new Date(r.ultimo_repostaje + "T00:00:00").toLocaleDateString("es-ES")
-                      : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 
@@ -745,7 +580,6 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
   const SUB_TABS: { key: SubPage; label: string }[] = [
     { key: "repostajes",   label: "⛽ Repostajes" },
     { key: "vehiculos",    label: "🚗 Vehículos" },
-    { key: "estadisticas", label: "📊 Estadísticas" },
   ]
 
   return (
@@ -778,9 +612,8 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
       </div>
 
       <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "28px 24px" }}>
-        {subPage === "repostajes"   && <VistaRepostajes   vehiculos={vehiculos} />}
-        {subPage === "vehiculos"    && <VistaVehiculos />}
-        {subPage === "estadisticas" && <VistaEstadisticas vehiculos={vehiculos} />}
+        {subPage === "repostajes" && <VistaRepostajes vehiculos={vehiculos} />}
+        {subPage === "vehiculos" && <VistaVehiculos />}
       </main>
     </div>
   )

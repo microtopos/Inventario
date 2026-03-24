@@ -25,13 +25,6 @@ const NAV_ITEMS: { key: Page; label: string; group: "ropa" | "gasolina" | "produ
   { key: "productos",    label: "🧴 Productos",    group: "productos" },
 ]
 
-const GROUP_LABELS: Record<string, string> = {
-  ropa:      "Ropa",
-  gasolina:  "Gasolina",
-  productos: "Productos",
-}
-
-// Color de acento por grupo
 const GROUP_ACCENT: Record<string, string> = {
   ropa:      "#2563eb",
   gasolina:  "#ea580c",
@@ -40,9 +33,6 @@ const GROUP_ACCENT: Record<string, string> = {
 
 export default function AppHeader({ page, onNavigate, onBack, title, actions }: AppHeaderProps) {
   const { draftCount } = useDraft()
-
-  const currentGroup = NAV_ITEMS.find(i => i.key === page)?.group ?? "ropa"
-  const accent = GROUP_ACCENT[currentGroup]
 
   return (
     <header style={{
@@ -102,14 +92,13 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions }: 
       </div>
 
       {/* LADO DERECHO */}
-      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0" }}>
         {actions}
 
         {/* Separador visual entre grupos */}
         {(["ropa", "gasolina", "productos"] as const).map((group, gi) => {
           const items = NAV_ITEMS.filter(i => i.group === group)
           const groupAccent = GROUP_ACCENT[group]
-          const isActiveGroup = currentGroup === group
 
           return (
             <div
@@ -118,26 +107,11 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions }: 
                 display: "flex",
                 alignItems: "center",
                 gap: "0px",
-                marginLeft: gi === 0 ? "0" : "4px",
-                paddingLeft: gi === 0 ? "0" : "8px",
+                marginLeft: gi === 0 ? "0" : "12px",
+                paddingLeft: gi === 0 ? "0" : "12px",
                 borderLeft: gi === 0 ? "none" : "1px solid #e5e7eb",
               }}
             >
-              {/* Etiqueta de grupo — solo visible cuando el grupo está activo */}
-              {isActiveGroup && (
-                <span style={{
-                  fontSize: "10px",
-                  fontWeight: 700,
-                  color: groupAccent,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.07em",
-                  marginRight: "6px",
-                  opacity: 0.7,
-                }}>
-                  {GROUP_LABELS[group]}
-                </span>
-              )}
-
               {items.map(({ key, label }) => {
                 const isActive = page === key
                 return (
@@ -149,21 +123,25 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions }: 
                       padding: "8px 14px",
                       borderRadius: "6px",
                       border: "none",
-                      backgroundColor: "transparent",
+                      backgroundColor: isActive ? `${groupAccent}08` : "transparent",
                       color: isActive ? groupAccent : "#666",
                       fontWeight: isActive ? 600 : 500,
                       fontSize: "14px",
                       cursor: "pointer",
-                      transition: "color 0.15s, background-color 0.15s",
+                      transition: "all 0.15s ease",
                       display: "flex",
                       alignItems: "center",
                       gap: "6px",
                     }}
                     onMouseEnter={e => {
-                      if (!isActive) e.currentTarget.style.backgroundColor = "#f5f7ff"
+                      if (!isActive) {
+                        e.currentTarget.style.backgroundColor = `${groupAccent}08`
+                      }
                     }}
                     onMouseLeave={e => {
-                      if (!isActive) e.currentTarget.style.backgroundColor = "transparent"
+                      if (!isActive) {
+                        e.currentTarget.style.backgroundColor = "transparent"
+                      }
                     }}
                   >
                     {label}
@@ -171,11 +149,18 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions }: 
                     {/* Badge de borrador en pedidos */}
                     {key === "orders" && draftCount > 0 && (
                       <span style={{
-                        display: "inline-flex", alignItems: "center", justifyContent: "center",
-                        minWidth: "18px", height: "18px", padding: "0 5px", borderRadius: "999px",
-                        backgroundColor: isActive ? groupAccent : "#e0e7ff",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        minWidth: "18px",
+                        height: "18px",
+                        padding: "0 5px",
+                        borderRadius: "999px",
+                        backgroundColor: isActive ? groupAccent : `${groupAccent}20`,
                         color: isActive ? "#fff" : groupAccent,
-                        fontSize: "11px", fontWeight: 700, lineHeight: 1,
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        lineHeight: 1,
                       }}>
                         {draftCount}
                       </span>
@@ -185,12 +170,12 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions }: 
                     {isActive && (
                       <span style={{
                         position: "absolute",
-                        bottom: "2px",
+                        bottom: "0",
                         left: "14px",
                         right: "14px",
-                        height: "2px",
+                        height: "3px",
                         backgroundColor: groupAccent,
-                        borderRadius: "2px",
+                        borderRadius: "3px 3px 0 0",
                       }} />
                     )}
                   </button>

@@ -76,6 +76,9 @@ export async function crearCategoria(nombre: string): Promise<number> {
     "INSERT INTO categorias_producto (nombre) VALUES (?)",
     [nombre.trim()]
   );
+  if (result.lastInsertId === undefined) {
+    throw new Error("No se pudo crear la categoría");
+  }
   return result.lastInsertId;
 }
 
@@ -150,6 +153,9 @@ export async function crearProducto(
     "INSERT INTO productos_almacen (referencia, nombre, categoria_id, unidad_medida) VALUES (?, ?, ?, ?)",
     [referencia.trim(), nombre.trim(), categoria_id, unidad_medida.trim()]
   );
+  if (result.lastInsertId === undefined) {
+    throw new Error("No se pudo crear el producto");
+  }
   return result.lastInsertId;
 }
 
@@ -201,6 +207,9 @@ export async function crearDepartamentoProd(nombre: string): Promise<number> {
     "INSERT INTO departamentos_prod (nombre) VALUES (?)",
     [nombre.trim()]
   );
+  if (result.lastInsertId === undefined) {
+    throw new Error("No se pudo crear el departamento");
+  }
   return result.lastInsertId;
 }
 

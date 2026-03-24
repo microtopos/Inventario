@@ -58,6 +58,9 @@ export async function crearVehiculo(
     "INSERT INTO vehiculos (matricula, nombre) VALUES (?, ?)",
     [matricula.trim().toUpperCase(), nombre.trim()]
   );
+  if (result.lastInsertId === undefined) {
+    throw new Error("No se pudo crear el vehículo");
+  }
   return result.lastInsertId;
 }
 
@@ -128,6 +131,9 @@ export async function crearRepostaje(datos: NuevoRepostaje): Promise<number> {
     "INSERT INTO repostajes (vehiculo_id, fecha, coste, notas) VALUES (?, ?, ?, ?)",
     [datos.vehiculo_id, datos.fecha, datos.coste, datos.notas ?? null]
   );
+  if (result.lastInsertId === undefined) {
+    throw new Error("No se pudo crear el repostaje");
+  }
   return result.lastInsertId;
 }
 

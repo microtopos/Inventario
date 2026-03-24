@@ -7,7 +7,7 @@ import ProductForm from "./ProductForm"
 import OrderPage from "./OrderPage"
 import OrderHistoryPage from "./OrderHistoryPage"
 import AppHeader from "./AppHeader"
-import DashboardPage from "./DashboardPage"
+import StatisticsPage from "./StatisticsPage"
 import { useConfirm } from "./ConfirmDialog"
 import GasolinaPage from "./GasolinaPage"
 // orderService imports moved — draft state now via DraftContext
@@ -156,7 +156,7 @@ function App() {
     return <OrderHistoryPage onNavigate={setPage} />
   }
   if (page === "dashboard") {
-    return <DashboardPage onNavigate={setPage as any} />
+    return <StatisticsPage onNavigate={setPage as any} />
   }
   if (page === "gasolina") {
     return <GasolinaPage onNavigate={setPage} />
