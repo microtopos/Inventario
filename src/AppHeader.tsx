@@ -1,6 +1,12 @@
 import { useDraft } from "./DraftContext"
 
-type Page = "inventory" | "dashboard" | "orders" | "orderHistory"
+export type Page =
+  | "inventory"
+  | "dashboard"
+  | "orders"
+  | "orderHistory"
+  | "gasolina"
+  | "productos"
 
 interface AppHeaderProps {
   page: Page
@@ -8,11 +14,35 @@ interface AppHeaderProps {
   onBack?: () => void
   title?: string
   actions?: React.ReactNode
-  // draftCount ya no es necesario como prop — lo lee del contexto
+}
+
+const NAV_ITEMS: { key: Page; label: string; group: "ropa" | "gasolina" | "productos" }[] = [
+  { key: "inventory",    label: "📦 Inventario",  group: "ropa" },
+  { key: "dashboard",    label: "📊 Estadísticas", group: "ropa" },
+  { key: "orders",       label: "🛒 Pedidos",      group: "ropa" },
+  { key: "orderHistory", label: "📋 Historial",    group: "ropa" },
+  { key: "gasolina",     label: "⛽ Gasolina",     group: "gasolina" },
+  { key: "productos",    label: "🧴 Productos",    group: "productos" },
+]
+
+const GROUP_LABELS: Record<string, string> = {
+  ropa:      "Ropa",
+  gasolina:  "Gasolina",
+  productos: "Productos",
+}
+
+// Color de acento por grupo
+const GROUP_ACCENT: Record<string, string> = {
+  ropa:      "#2563eb",
+  gasolina:  "#ea580c",
+  productos: "#16a34a",
 }
 
 export default function AppHeader({ page, onNavigate, onBack, title, actions }: AppHeaderProps) {
   const { draftCount } = useDraft()
+
+  const currentGroup = NAV_ITEMS.find(i => i.key === page)?.group ?? "ropa"
+  const accent = GROUP_ACCENT[currentGroup]
 
   return (
     <header style={{
@@ -27,6 +57,7 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions }: 
       top: 0,
       zIndex: 100,
     }}>
+
       {/* LADO IZQUIERDO */}
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         {onBack && (
@@ -59,7 +90,7 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions }: 
             fontSize: "18px", fontWeight: 700, color: "#111",
             margin: 0, letterSpacing: "-0.3px", whiteSpace: "nowrap",
           }}>
-            Gestión de Ropa
+            Gestión de Almacén
           </h1>
           {title && (
             <div style={{ display: "flex", alignItems: "center", marginLeft: "12px" }}>
@@ -71,49 +102,103 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions }: 
       </div>
 
       {/* LADO DERECHO */}
-      <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
         {actions}
-        {([
-          { key: "inventory",    label: "📦 Inventario" },
-          { key: "dashboard",    label: "📊 Estadísticas" },
-          { key: "orders",       label: "🛒 Pedidos" },
-          { key: "orderHistory", label: "📋 Historial" },
-        ] as { key: Page; label: string }[]).map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => onNavigate(key)}
-            style={{
-              position: "relative", padding: "8px 14px", borderRadius: "6px",
-              border: "none", backgroundColor: "transparent",
-              color: page === key ? "#2563eb" : "#666",
-              fontWeight: page === key ? 600 : 500,
-              fontSize: "14px", cursor: "pointer",
-              transition: "color 0.15s, background-color 0.15s",
-              display: "flex", alignItems: "center", gap: "6px",
-            }}
-            onMouseEnter={e => { if (page !== key) e.currentTarget.style.backgroundColor = "#f5f7ff" }}
-            onMouseLeave={e => { if (page !== key) e.currentTarget.style.backgroundColor = "transparent" }}
-          >
-            {label}
-            {key === "orders" && draftCount > 0 && (
-              <span style={{
-                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                minWidth: "18px", height: "18px", padding: "0 5px", borderRadius: "999px",
-                backgroundColor: page === "orders" ? "#2563eb" : "#e0e7ff",
-                color: page === "orders" ? "#fff" : "#2563eb",
-                fontSize: "11px", fontWeight: 700, lineHeight: 1,
-              }}>
-                {draftCount}
-              </span>
-            )}
-            {page === key && (
-              <span style={{
-                position: "absolute", bottom: "2px", left: "14px", right: "14px",
-                height: "2px", backgroundColor: "#2563eb", borderRadius: "2px",
-              }} />
-            )}
-          </button>
-        ))}
+
+        {/* Separador visual entre grupos */}
+        {(["ropa", "gasolina", "productos"] as const).map((group, gi) => {
+          const items = NAV_ITEMS.filter(i => i.group === group)
+          const groupAccent = GROUP_ACCENT[group]
+          const isActiveGroup = currentGroup === group
+
+          return (
+            <div
+              key={group}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "0px",
+                marginLeft: gi === 0 ? "0" : "4px",
+                paddingLeft: gi === 0 ? "0" : "8px",
+                borderLeft: gi === 0 ? "none" : "1px solid #e5e7eb",
+              }}
+            >
+              {/* Etiqueta de grupo — solo visible cuando el grupo está activo */}
+              {isActiveGroup && (
+                <span style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  color: groupAccent,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.07em",
+                  marginRight: "6px",
+                  opacity: 0.7,
+                }}>
+                  {GROUP_LABELS[group]}
+                </span>
+              )}
+
+              {items.map(({ key, label }) => {
+                const isActive = page === key
+                return (
+                  <button
+                    key={key}
+                    onClick={() => onNavigate(key)}
+                    style={{
+                      position: "relative",
+                      padding: "8px 14px",
+                      borderRadius: "6px",
+                      border: "none",
+                      backgroundColor: "transparent",
+                      color: isActive ? groupAccent : "#666",
+                      fontWeight: isActive ? 600 : 500,
+                      fontSize: "14px",
+                      cursor: "pointer",
+                      transition: "color 0.15s, background-color 0.15s",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                    }}
+                    onMouseEnter={e => {
+                      if (!isActive) e.currentTarget.style.backgroundColor = "#f5f7ff"
+                    }}
+                    onMouseLeave={e => {
+                      if (!isActive) e.currentTarget.style.backgroundColor = "transparent"
+                    }}
+                  >
+                    {label}
+
+                    {/* Badge de borrador en pedidos */}
+                    {key === "orders" && draftCount > 0 && (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        minWidth: "18px", height: "18px", padding: "0 5px", borderRadius: "999px",
+                        backgroundColor: isActive ? groupAccent : "#e0e7ff",
+                        color: isActive ? "#fff" : groupAccent,
+                        fontSize: "11px", fontWeight: 700, lineHeight: 1,
+                      }}>
+                        {draftCount}
+                      </span>
+                    )}
+
+                    {/* Indicador activo */}
+                    {isActive && (
+                      <span style={{
+                        position: "absolute",
+                        bottom: "2px",
+                        left: "14px",
+                        right: "14px",
+                        height: "2px",
+                        backgroundColor: groupAccent,
+                        borderRadius: "2px",
+                      }} />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )
+        })}
       </div>
     </header>
   )
