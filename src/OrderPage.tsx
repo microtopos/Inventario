@@ -13,9 +13,19 @@ import { useToast } from "./Toast"
 import { getImageUrl } from "./getImageUrl"
 import { useDraft } from "./DraftContext"
 
+// Importamos OrderHistoryPage para embebido
+import OrderHistoryPage from "./OrderHistoryPage"
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+
+type SubView = "new" | "history"
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function OrderPage({ onNavigate }: {
   onNavigate: (page: any) => void
 }) {
+  const [subView, setSubView] = useState<SubView>("new")
   const [products, setProducts] = useState<any[]>([])
   const [search, setSearch] = useState("")
   const [deptFilter, setDeptFilter] = useState<number | null>(null)
@@ -27,7 +37,6 @@ export default function OrderPage({ onNavigate }: {
   const { confirm, alert, dialog } = useConfirm()
   const toast = useToast()
 
-  // Estado del borrador desde el contexto
   const { draftItems, draftNotas, syncState, setDraft, flushSync, clearState, discard } = useDraft()
 
   useEffect(() => {
@@ -56,7 +65,6 @@ export default function OrderPage({ onNavigate }: {
 
   function setCantidad(tallaId: number, value: number) {
     const next = { ...draftItems, [tallaId]: value }
-    // Si la cantidad es 0, eliminar la entrada
     if (value <= 0) delete next[tallaId]
     setDraft(next, draftNotas)
   }
@@ -261,7 +269,18 @@ export default function OrderPage({ onNavigate }: {
     }
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ── Render — vista historial embebida ─────────────────────────────────────
+
+  if (subView === "history") {
+    return (
+      <OrderHistoryPage
+        onNavigate={onNavigate}
+        onBack={() => setSubView("new")}
+      />
+    )
+  }
+
+  // ── Render — nuevo pedido ────────────────────────────────────────────────
 
   const departments = Array.from(
     new Map(
@@ -307,36 +326,117 @@ export default function OrderPage({ onNavigate }: {
       <AppHeader page="orders" onNavigate={onNavigate} />
 
       {/* BARRA DE ACCIONES */}
-      <div style={{ backgroundColor: "#fff", borderBottom: "1px solid #e0e0e0", padding: "0 32px", display: "flex", alignItems: "center", height: "52px", gap: "12px" }}>
+      <div style={{
+        backgroundColor: "#fff",
+        borderBottom: "1px solid #e0e0e0",
+        padding: "0 32px",
+        display: "flex",
+        alignItems: "center",
+        height: "52px",
+        gap: "12px",
+      }}>
         <span style={{ fontSize: "15px", fontWeight: 600, color: "#111" }}>🛒 Nuevo pedido</span>
         {syncBadge}
+
         <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}>
+          {/* Botón Historial */}
+          <button
+            onClick={() => setSubView("history")}
+            style={{
+              padding: "7px 14px",
+              backgroundColor: "#fff",
+              color: "#555",
+              border: "1px solid #e0e0e0",
+              borderRadius: "6px",
+              fontSize: "13px",
+              fontWeight: 500,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              transition: "border-color 0.15s, background-color 0.15s",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.borderColor = "#aaa"
+              e.currentTarget.style.backgroundColor = "#fafafa"
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = "#e0e0e0"
+              e.currentTarget.style.backgroundColor = "#fff"
+            }}
+          >
+            📋 Historial
+          </button>
+
           {total > 0 && (
             <button
               onClick={handleDiscard}
-              style={{ padding: "7px 14px", backgroundColor: "#fff", color: "#dc2626", border: "1px solid #fca5a5", borderRadius: "6px", fontSize: "13px", fontWeight: 500, cursor: "pointer" }}
+              style={{
+                padding: "7px 14px",
+                backgroundColor: "#fff",
+                color: "#dc2626",
+                border: "1px solid #fca5a5",
+                borderRadius: "6px",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
             >
               ✕ Descartar
             </button>
           )}
+
           <div ref={dropdownRef} style={{ position: "relative", display: "flex" }}>
             <button
               onClick={exportPDF}
               disabled={total === 0 || isSaving}
-              style={{ padding: "7px 18px", backgroundColor: total > 0 && !isSaving ? "#2563eb" : "#ccc", color: "#fff", border: "none", borderRadius: "6px 0 0 6px", fontSize: "13px", fontWeight: 600, cursor: total > 0 && !isSaving ? "pointer" : "not-allowed", borderRight: "1px solid rgba(255,255,255,0.25)" }}
+              style={{
+                padding: "7px 18px",
+                backgroundColor: total > 0 && !isSaving ? "#2563eb" : "#ccc",
+                color: "#fff",
+                border: "none",
+                borderRadius: "6px 0 0 6px",
+                fontSize: "13px",
+                fontWeight: 600,
+                cursor: total > 0 && !isSaving ? "pointer" : "not-allowed",
+                borderRight: "1px solid rgba(255,255,255,0.25)",
+              }}
             >
               📄 Exportar PDF y confirmar
             </button>
             <button
               onClick={() => setDropdownOpen(o => !o)}
               disabled={total === 0 || isSaving}
-              style={{ padding: "7px 10px", backgroundColor: total > 0 && !isSaving ? "#2563eb" : "#ccc", color: "#fff", border: "none", borderRadius: "0 6px 6px 0", fontSize: "11px", cursor: total > 0 && !isSaving ? "pointer" : "not-allowed" }}
+              style={{
+                padding: "7px 10px",
+                backgroundColor: total > 0 && !isSaving ? "#2563eb" : "#ccc",
+                color: "#fff",
+                border: "none",
+                borderRadius: "0 6px 6px 0",
+                fontSize: "11px",
+                cursor: total > 0 && !isSaving ? "pointer" : "not-allowed",
+              }}
             >▾</button>
             {dropdownOpen && (
-              <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "8px", boxShadow: "0 8px 24px rgba(0,0,0,0.10)", minWidth: "220px", zIndex: 100, overflow: "hidden" }}>
+              <div style={{
+                position: "absolute",
+                top: "calc(100% + 6px)",
+                right: 0,
+                backgroundColor: "#fff",
+                border: "1px solid #e0e0e0",
+                borderRadius: "8px",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
+                minWidth: "220px",
+                zIndex: 100,
+                overflow: "hidden",
+              }}>
                 <button
                   onClick={confirmOnly}
-                  style={{ display: "block", width: "100%", padding: "12px 16px", background: "none", border: "none", textAlign: "left", fontSize: "13px", color: "#333", cursor: "pointer", lineHeight: 1.4 }}
+                  style={{
+                    display: "block", width: "100%", padding: "12px 16px",
+                    background: "none", border: "none", textAlign: "left",
+                    fontSize: "13px", color: "#333", cursor: "pointer", lineHeight: 1.4,
+                  }}
                   onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#f5f5f5")}
                   onMouseLeave={e => (e.currentTarget.style.backgroundColor = "")}
                 >
@@ -350,7 +450,15 @@ export default function OrderPage({ onNavigate }: {
       </div>
 
       {/* CONTENIDO */}
-      <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "24px", display: "grid", gridTemplateColumns: "260px 1fr 300px", gap: "16px", alignItems: "start" }}>
+      <main style={{
+        maxWidth: "1200px",
+        margin: "0 auto",
+        padding: "24px",
+        display: "grid",
+        gridTemplateColumns: "260px 1fr 300px",
+        gap: "16px",
+        alignItems: "start",
+      }}>
 
         {/* COLUMNA 1: LISTA DE PRODUCTOS */}
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -365,7 +473,15 @@ export default function OrderPage({ onNavigate }: {
             <select
               value={deptFilter ?? ""}
               onChange={e => setDeptFilter(e.target.value ? Number(e.target.value) : null)}
-              style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: `1px solid ${deptFilter ? "#2563eb" : "#e0e0e0"}`, fontSize: "13px", boxSizing: "border-box", backgroundColor: deptFilter ? "#eff6ff" : "#fff", cursor: "pointer", color: deptFilter ? "#1d4ed8" : "#888", fontWeight: deptFilter ? 600 : 400 }}
+              style={{
+                width: "100%", padding: "8px 12px", borderRadius: "8px",
+                border: `1px solid ${deptFilter ? "#2563eb" : "#e0e0e0"}`,
+                fontSize: "13px", boxSizing: "border-box",
+                backgroundColor: deptFilter ? "#eff6ff" : "#fff",
+                cursor: "pointer",
+                color: deptFilter ? "#1d4ed8" : "#888",
+                fontWeight: deptFilter ? 600 : 400,
+              }}
             >
               <option value="">Todos los departamentos</option>
               {departments.map(([id, nombre]) => (
@@ -384,12 +500,22 @@ export default function OrderPage({ onNavigate }: {
                 <div
                   key={p.id}
                   onClick={() => setSelectedProduct(p)}
-                  style={{ padding: "10px 14px", borderBottom: "1px solid #f0f0f0", cursor: "pointer", backgroundColor: isSelected ? "#eff6ff" : "#fff", transition: "background 0.1s", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}
+                  style={{
+                    padding: "10px 14px", borderBottom: "1px solid #f0f0f0",
+                    cursor: "pointer",
+                    backgroundColor: isSelected ? "#eff6ff" : "#fff",
+                    transition: "background 0.1s",
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px",
+                  }}
                   onMouseEnter={e => { if (!isSelected) e.currentTarget.style.backgroundColor = "#f9f9f9" }}
                   onMouseLeave={e => { e.currentTarget.style.backgroundColor = isSelected ? "#eff6ff" : "#fff" }}
                 >
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: "13px", fontWeight: isSelected ? 600 : 500, color: isSelected ? "#1d4ed8" : "#333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div style={{
+                      fontSize: "13px", fontWeight: isSelected ? 600 : 500,
+                      color: isSelected ? "#1d4ed8" : "#333",
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                    }}>
                       {p.nombre}
                     </div>
                     {p.color && <div style={{ fontSize: "11px", color: "#aaa", marginTop: "2px" }}>{p.color}</div>}
@@ -443,7 +569,12 @@ export default function OrderPage({ onNavigate }: {
                     const qty = draftItems[t.id] || 0
                     const hasQty = qty > 0
                     return (
-                      <div key={t.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px", borderRadius: "8px", backgroundColor: hasQty ? "#eff6ff" : "#fafafa", border: `1px solid ${hasQty ? "#bfdbfe" : "#f0f0f0"}`, transition: "background-color 0.15s, border-color 0.15s" }}>
+                      <div key={t.id} style={{
+                        display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px", borderRadius: "8px",
+                        backgroundColor: hasQty ? "#eff6ff" : "#fafafa",
+                        border: `1px solid ${hasQty ? "#bfdbfe" : "#f0f0f0"}`,
+                        transition: "background-color 0.15s, border-color 0.15s",
+                      }}>
                         <div style={{ width: "44px", flexShrink: 0, fontWeight: 700, fontSize: "15px", color: hasQty ? "#1d4ed8" : "#374151" }}>{t.talla}</div>
                         <div style={{ flex: 1, fontSize: "12px", color: "#9ca3af" }}>
                           stock: <span style={{ fontWeight: 600, color: "#6b7280" }}>{t.stock}</span>
@@ -530,7 +661,12 @@ export default function OrderPage({ onNavigate }: {
 }
 
 function badgeStyle(bg: string, color: string, border: string): React.CSSProperties {
-  return { display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color, backgroundColor: bg, border: `1px solid ${border}`, borderRadius: "20px", padding: "3px 10px", fontWeight: 500 }
+  return {
+    display: "inline-flex", alignItems: "center", gap: "6px",
+    fontSize: "12px", color, backgroundColor: bg,
+    border: `1px solid ${border}`, borderRadius: "20px",
+    padding: "3px 10px", fontWeight: 500,
+  }
 }
 
 const spinnerStyle: React.CSSProperties = {

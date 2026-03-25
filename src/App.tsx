@@ -11,7 +11,6 @@ import StatisticsPage from "./StatisticsPage"
 import { useConfirm } from "./ConfirmDialog"
 import GasolinaPage from "./GasolinaPage"
 import ProductsPage from "./ProductsPage"
-// orderService imports moved — draft state now via DraftContext
 import {
   exportInventarioPDF, exportInventarioXLSX,
   exportTallasPDF, exportTallasXLSX,
@@ -89,7 +88,6 @@ function App() {
   const { confirm, dialog } = useConfirm()
   const toast = useToast()
 
-  // ── Inventario delegado al hook ───────────────────────────────────────────
   const inv = useInventory({ stockThresholds })
 
   const invSort = useSortableTable<any, "nombre" | "codigo" | "departamento" | "stock">(
@@ -109,7 +107,6 @@ function App() {
       setStockThresholdsState(t)
       setThresholdInputs({ red: String(t.red), orange: String(t.orange) })
     })
-    // Importa el inventario inicial si la BD está vacía
     importInventory()
   }, [])
 
@@ -153,9 +150,14 @@ function App() {
   if (page === "orders") {
     return <OrderPage onNavigate={setPage} />
   }
+
+  // orderHistory ya no se renderiza desde App — OrderPage lo gestiona internamente.
+  // Mantenemos el case por si algún onNavigate externo lo invoca directamente;
+  // en ese caso simplemente abrimos OrderPage (que arrancará en vista "new").
   if (page === "orderHistory") {
-    return <OrderHistoryPage onNavigate={setPage} />
+    return <OrderPage onNavigate={setPage} />
   }
+
   if (page === "dashboard") {
     return <StatisticsPage onNavigate={setPage as any} />
   }
@@ -336,7 +338,7 @@ function App() {
                   {(["codigo", "nombre", "departamento", "stock"] as const).map(col => (
                     <th
                       key={col}
-                      style={{ ...thStyle, cursor: col !== "codigo" || true ? "pointer" : "default", userSelect: "none" }}
+                      style={{ ...thStyle, cursor: "pointer", userSelect: "none" }}
                       onClick={() => invSort.toggleSort(col)}
                     >
                       {{ codigo: "Código", nombre: "Prenda", departamento: "Departamento", stock: "Stock" }[col]}
@@ -662,7 +664,5 @@ function App() {
     </div>
   )
 }
-
-// ── Styles — ver styles.ts ──────────────────────────────────────────────────────
 
 export default App

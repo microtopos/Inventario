@@ -16,13 +16,14 @@ interface AppHeaderProps {
   actions?: React.ReactNode
 }
 
+// orderHistory ya no aparece como ítem independiente en la nav.
+// Se accede desde dentro de OrderPage.
 const NAV_ITEMS: { key: Page; label: string; group: "ropa" | "gasolina" | "productos" }[] = [
-  { key: "inventory",    label: "📦 Inventario",  group: "ropa" },
-  { key: "dashboard",    label: "📊 Estadísticas", group: "ropa" },
-  { key: "orders",       label: "🛒 Pedidos",      group: "ropa" },
-  { key: "orderHistory", label: "📋 Historial",    group: "ropa" },
-  { key: "gasolina",     label: "⛽ Gasolina",     group: "gasolina" },
-  { key: "productos",    label: "🧴 Productos",    group: "productos" },
+  { key: "inventory", label: "📦 Inventario",  group: "ropa" },
+  { key: "dashboard", label: "📊 Estadísticas", group: "ropa" },
+  { key: "orders",    label: "🛒 Pedidos",      group: "ropa" },
+  { key: "gasolina",  label: "⛽ Gasolina",     group: "gasolina" },
+  { key: "productos", label: "🧴 Productos",    group: "productos" },
 ]
 
 const GROUP_ACCENT: Record<string, string> = {
@@ -33,6 +34,9 @@ const GROUP_ACCENT: Record<string, string> = {
 
 export default function AppHeader({ page, onNavigate, onBack, title, actions }: AppHeaderProps) {
   const { draftCount } = useDraft()
+
+  // "orderHistory" se considera parte del grupo "ropa" / página "orders" a efectos visuales
+  const activePage = page === "orderHistory" ? "orders" : page
 
   return (
     <header style={{
@@ -95,7 +99,6 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions }: 
       <div style={{ display: "flex", alignItems: "center", gap: "0" }}>
         {actions}
 
-        {/* Separador visual entre grupos */}
         {(["ropa", "gasolina", "productos"] as const).map((group, gi) => {
           const items = NAV_ITEMS.filter(i => i.group === group)
           const groupAccent = GROUP_ACCENT[group]
@@ -113,7 +116,7 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions }: 
               }}
             >
               {items.map(({ key, label }) => {
-                const isActive = page === key
+                const isActive = activePage === key
                 return (
                   <button
                     key={key}
