@@ -13,7 +13,7 @@ import {
   getMovimientosCount,
   getStockPorDepartamento,
 } from "./dashboardService"
-import { cardStyle, dateInputStyle, sectionTitleStyle, thStyle, tdStyle } from "./styles"
+import { cardStyleLegacy, inputStyle, btnStyle, thStyle, tdStyle } from "./styles"
 
 
 // ============================================================================
@@ -207,7 +207,7 @@ function RopaStats() {
       {/* HEADER ROW */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
         <div>
-          <h2 style={{ fontSize: "17px", fontWeight: 700, margin: 0, color: "#111", letterSpacing: "-0.2px" }}>
+          <h2 style={{ fontSize: "18px", fontWeight: 700, margin: 0, color: "#111", letterSpacing: "-0.3px" }}>
             Estadísticas
           </h2>
           <div style={{ fontSize: "13px", color: "#888", marginTop: "3px" }}>
@@ -222,15 +222,11 @@ function RopaStats() {
               key={p.key}
               onClick={() => applyPreset(p.key)}
               style={{
-                padding: "6px 14px",
-                borderRadius: "7px",
-                border: `1px solid ${preset === p.key ? "#2563eb" : "#e0e0e0"}`,
+                ...btnStyle,
+                border: `1px solid ${preset === p.key ? "#2563eb" : "#d1d5db"}`,
                 backgroundColor: preset === p.key ? "#eff6ff" : "#fff",
-                color: preset === p.key ? "#2563eb" : "#666",
-                fontSize: "13px",
-                fontWeight: preset === p.key ? 700 : 400,
-                cursor: "pointer",
-                transition: "all 0.15s ease",
+                color: preset === p.key ? "#2563eb" : "#374151",
+                fontWeight: preset === p.key ? 600 : 500,
               }}
             >
               {p.label}
@@ -242,7 +238,7 @@ function RopaStats() {
               type="date"
               value={desde}
               onChange={e => setDesde(e.target.value)}
-              style={dateInputStyle}
+              style={{ ...inputStyle, minWidth: "auto" }}
             />
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
@@ -251,7 +247,7 @@ function RopaStats() {
               type="date"
               value={hasta}
               onChange={e => setHasta(e.target.value)}
-              style={dateInputStyle}
+              style={{ ...inputStyle, minWidth: "auto" }}
             />
           </div>
         </div>
@@ -271,8 +267,8 @@ function RopaStats() {
       {/* CHARTS GRID */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "16px", marginBottom: "24px" }}>
         {/* Stock por Departamento */}
-        <div style={{ ...cardStyle, gridColumn: "span 1" }}>
-          <div style={sectionTitleStyle}>Stock por Departamento</div>
+        <div style={{ ...cardStyleLegacy, gridColumn: "span 1" }}>
+          <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>Stock por Departamento</h3>
           <div style={{ height: "240px", marginTop: "12px" }}>
             {stock.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
@@ -311,15 +307,15 @@ function RopaStats() {
         </div>
 
         {/* Entradas por Departamento */}
-        <div style={{ ...cardStyle, gridColumn: "span 1" }}>
-          <div style={sectionTitleStyle}>Entradas por Departamento</div>
+        <div style={{ ...cardStyleLegacy, gridColumn: "span 1" }}>
+          <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>Entradas por Departamento</h3>
           <div style={{ height: "240px", marginTop: "12px" }}>
             {entradasPivot.data.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={entradasPivot.data} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                  <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#888" }} />
-                  <YAxis tickFormatter={v => v.toLocaleString()} tick={{ fontSize: 12, fill: "#888" }} />
+                  <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#666" }} />
+                  <YAxis tickFormatter={v => v.toLocaleString()} tick={{ fontSize: 12, fill: "#666" }} />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar dataKey="total" name="Entradas" radius={[4, 4, 0, 0]}>
                     {entradasPivot.departments.map((dept, i) => (
@@ -340,15 +336,15 @@ function RopaStats() {
         </div>
 
         {/* Consumo por Departamento */}
-        <div style={{ ...cardStyle, gridColumn: "span 1" }}>
-          <div style={sectionTitleStyle}>Consumo por Departamento</div>
+        <div style={{ ...cardStyleLegacy, gridColumn: "span 1" }}>
+          <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>Consumo por Departamento</h3>
           <div style={{ height: "240px", marginTop: "12px" }}>
             {consumoPivot.data.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={consumoPivot.data} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                  <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#888" }} />
-                  <YAxis tickFormatter={v => v.toLocaleString()} tick={{ fontSize: 12, fill: "#888" }} />
+                  <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#666" }} />
+                  <YAxis tickFormatter={v => v.toLocaleString()} tick={{ fontSize: 12, fill: "#666" }} />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar dataKey="total" name="Consumo" radius={[4, 4, 0, 0]}>
                     {consumoPivot.departments.map((dept, i) => (
@@ -371,7 +367,7 @@ function RopaStats() {
         {/* Leyenda de colores por departamento */}
         <div style={{ gridColumn: "span 1", display: "flex", alignItems: "center", justifyContent: "center", flexWrap: "wrap", gap: "12px" }}>
           {entradasPivot.departments.map((dept, i) => (
-            <div key={dept} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#555" }}>
+            <div key={dept} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "#555" }}>
               <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: COLORS[i % COLORS.length] }} />
               {dept}
             </div>
@@ -380,8 +376,8 @@ function RopaStats() {
       </div>
 
       {/* MOVIMIENTOS RECIENTES */}
-      <div style={cardStyle}>
-        <div style={sectionTitleStyle}>Movimientos Recientes</div>
+      <div style={{ ...cardStyleLegacy, padding: "20px 24px" }}>
+        <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>Movimientos Recientes</h3>
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", marginTop: "12px" }}>
             <thead>
@@ -456,7 +452,7 @@ function RopaStats() {
 export default function StatisticsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   return (
     <div style={{ minHeight: "calc(100vh - 64px)", backgroundColor: "#f5f5f5" }}>
-      <AppHeader page="dashboard" onNavigate={onNavigate} />
+      <AppHeader page="dashboard" onNavigate={onNavigate} onBack={() => onNavigate("inventory")} />
       <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "28px 24px" }}>
         <RopaStats />
       </main>

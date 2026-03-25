@@ -199,7 +199,7 @@ function App() {
       <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "32px 24px" }}>
 
         {/* TARJETAS RESUMEN */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px", marginBottom: "28px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr) 180px", gap: "16px", marginBottom: "28px" }}>
           <div style={cardStyleLegacy}>
             <div style={{ fontSize: "13px", color: "#888", marginBottom: "6px" }}>Total prendas</div>
             <div style={{ fontSize: "32px", fontWeight: 700, color: "#111" }}>{inv.inventory.length}</div>
@@ -213,6 +213,16 @@ function App() {
             <div style={{ fontSize: "32px", fontWeight: 700, color: inv.lowStockCount > 0 ? "#d97706" : "#111" }}>
               {inv.lowStockCount}
             </div>
+          </div>
+          <div
+            onClick={() => setPage("dashboard")}
+            style={{ ...cardStyleLegacy, cursor: "pointer", transition: "all 0.15s", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", textAlign: "center", padding: "24px 16px" }}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f0f7ff"; e.currentTarget.style.borderColor = "#2563eb"; }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff"; e.currentTarget.style.borderColor = "#e0e0e0"; }}
+          >
+            <div style={{ fontSize: "13px", color: "#888", marginBottom: "8px" }}>Panel de</div>
+            <div style={{ fontSize: "15px", fontWeight: 700, color: "#2563eb", marginBottom: "auto" }}>Estadísticas</div>
+            <div style={{ fontSize: "24px", marginTop: "12px" }}>📊</div>
           </div>
         </div>
 
