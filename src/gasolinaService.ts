@@ -125,6 +125,55 @@ export async function getRepostajes(
   );
 }
 
+export async function getRepostajesPaginados(
+  filtros: FiltrosRepostaje = {},
+  pageSize: number,
+  offset: number
+): Promise<[Repostaje[], number]> {
+  const db = await getDb();
+
+  const condiciones: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (filtros.vehiculo_id) {
+    condiciones.push("r.vehiculo_id = ?");
+    params.push(filtros.vehiculo_id);
+  }
+  if (filtros.fecha_desde) {
+    condiciones.push("r.fecha >= ?");
+    params.push(filtros.fecha_desde);
+  }
+  if (filtros.fecha_hasta) {
+    condiciones.push("r.fecha <= ?");
+    params.push(filtros.fecha_hasta);
+  }
+
+  const where =
+    condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : "";
+
+  // Obtener count total y datos en una sola consulta usando ventana
+  const query = `
+    SELECT
+      r.id, r.vehiculo_id, r.fecha, r.coste, r.notas,
+      v.nombre AS vehiculo_nombre,
+      v.matricula AS vehiculo_matricula,
+      COUNT(*) OVER() as total_count
+    FROM repostajes r
+    JOIN vehiculos v ON v.id = r.vehiculo_id
+    ${where}
+    ORDER BY r.fecha DESC
+    LIMIT ? OFFSET ?
+  `;
+
+  params.push(pageSize, offset);
+  const results = await db.select<Array<Repostaje & { total_count: number }>>(query, params);
+
+  const total = results.length > 0 ? results[0].total_count : 0;
+  const repostajes = results.map(({ total_count, ...rest }) => rest) as Repostaje[];
+
+  return [repostajes, total];
+}
+
 export async function crearRepostaje(datos: NuevoRepostaje): Promise<number> {
   const db = await getDb();
   const result = await db.execute(
