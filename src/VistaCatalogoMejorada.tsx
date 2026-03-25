@@ -9,6 +9,7 @@ import {
   crearProducto,
   deleteProduct,
   upsertSalida,
+  crearDepartamentoProd,
   type CategoriaProducto,
   type ProductoAlmacen,
   type DepartamentoProd,
@@ -23,7 +24,7 @@ const MESES = [
 ]
 
 // Componente principal
-export default function VistaCatalogoMejorada() {
+export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepartamentoCreado?: () => void }) {
   const toast = useToast()
   const { confirm } = useConfirm()
 
@@ -39,6 +40,8 @@ export default function VistaCatalogoMejorada() {
   const [showImportModal, setShowImportModal] = useState(false)
   const [loading, setLoading] = useState(true)
   const [savingCell, setSavingCell] = useState<{ productoId: number; mes: number } | null>(null)
+  const [showNewDeptInput, setShowNewDeptInput] = useState(false)
+  const [newDeptName, setNewDeptName] = useState("")
 
   // Mapa de salidas: producto_id -> mes -> cantidad
   const [salidasMap, setSalidasMap] = useState<Map<number, Map<number, number>>>(new Map())
@@ -54,6 +57,20 @@ export default function VistaCatalogoMejorada() {
       loadSalidas()
     }
   }, [departamentoId, year])
+
+  // Recargar lista de departamentos desde BD
+  const handleDepartamentoCreado = async () => {
+    try {
+      const depts = await getDepartamentosProd()
+      setDepartamentos(depts)
+      // Notificar al padre si existe callback
+      if (onDepartamentoCreado) {
+        onDepartamentoCreado()
+      }
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }
 
   async function loadInitialData() {
     setLoading(true)
@@ -211,16 +228,77 @@ export default function VistaCatalogoMejorada() {
             style={{ padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", fontSize: "14px", minWidth: "220px" }}
           />
           {/* Filtro departamento */}
-          <select
-            value={departamentoId}
-            onChange={e => setDepartamentoId(e.target.value === "" ? "" : Number(e.target.value))}
-            style={{ padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", fontSize: "14px" }}
-          >
-            <option value="">-- Todos los departamentos --</option>
-            {departamentos.map(dep => (
-              <option key={dep.id} value={dep.id}>{dep.nombre}</option>
-            ))}
-          </select>
+          {showNewDeptInput ? (
+            <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+              <input
+                type="text"
+                placeholder="Nuevo departamento"
+                value={newDeptName}
+                onChange={e => setNewDeptName(e.target.value)}
+                style={{ padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", fontSize: "14px", minWidth: "180px" }}
+                autoFocus
+              />
+              <button
+                onClick={async () => {
+                  if (!newDeptName.trim()) {
+                    toast.error("Error", "Ingresa un nombre para el departamento")
+                    return
+                  }
+                  try {
+                    const nuevoId = await crearDepartamentoProd(newDeptName.trim())
+                    setDepartamentoId(nuevoId)
+                    setNewDeptName("")
+                    setShowNewDeptInput(false)
+                    // Recargar lista de departamentos
+                    await handleDepartamentoCreado()
+                    toast.success("Departamento creado")
+                  } catch (err: any) {
+                    toast.error("Error", err.message || "No se pudo crear el departamento")
+                  }
+                }}
+                disabled={!newDeptName.trim()}
+                style={{
+                  padding: "8px 12px",
+                  border: "none",
+                  borderRadius: "8px",
+                  backgroundColor: (!newDeptName.trim()) ? "#ccc" : "#16a34a",
+                  color: "#fff",
+                  fontSize: "14px",
+                  cursor: (!newDeptName.trim()) ? "not-allowed" : "pointer"
+                }}
+              >
+                ✓ Crear
+              </button>
+              <button
+                onClick={() => {
+                  setShowNewDeptInput(false)
+                  setNewDeptName("")
+                }}
+                style={{ padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", backgroundColor: "#fff", fontSize: "14px", cursor: "pointer" }}
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <select
+              value={departamentoId}
+              onChange={e => {
+                const val = e.target.value
+                if (val === "nuevo") {
+                  setShowNewDeptInput(true)
+                } else {
+                  setDepartamentoId(val === "" ? "" : Number(val))
+                }
+              }}
+              style={{ padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", fontSize: "14px" }}
+            >
+              <option value="">-- Todos los departamentos --</option>
+              {departamentos.map(dep => (
+                <option key={dep.id} value={dep.id}>{dep.nombre}</option>
+              ))}
+              <option value="nuevo">➕ Crear nuevo departamento...</option>
+            </select>
+          )}
           {/* Selector año */}
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <label style={{ fontSize: "14px", color: "#666" }}>Año:</label>
@@ -421,6 +499,7 @@ export default function VistaCatalogoMejorada() {
             setShowImportModal(false)
             toast.success("Importación completada")
           }}
+          onDepartamentoCreado={handleDepartamentoCreado}
           departamentos={departamentos}
         />
       )}

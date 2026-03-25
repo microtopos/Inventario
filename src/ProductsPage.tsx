@@ -11,6 +11,7 @@ import {
   getMatrizConsumo,
   getResumenPorDepartamento,
   getSalidas,
+  crearDepartamentoProd,
   type CategoriaProducto,
   type ProductoAlmacen,
   type DepartamentoProd,
@@ -184,6 +185,8 @@ function VistaRegistrarSalida() {
   const [cantidad, setCantidad] = useState<string>("")
   const [mes, setMes] = useState<number>(hoy().getMonth() + 1)
   const [anio, setAnio] = useState<number>(hoy().getFullYear())
+  const [showNewDeptInput, setShowNewDeptInput] = useState(false)
+  const [newDeptName, setNewDeptName] = useState("")
 
   useEffect(() => {
     loadInitialData()
@@ -204,6 +207,15 @@ function VistaRegistrarSalida() {
       toast.error("Error", e?.message ?? String(e))
     } finally {
       setLoadingData(false)
+    }
+  }
+
+  const recargarDepartamentos = async () => {
+    try {
+      const depts = await getDepartamentosProd()
+      setDepartamentos(depts)
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
     }
   }
 
@@ -260,15 +272,76 @@ function VistaRegistrarSalida() {
           {/* Departamento */}
           <div>
             <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", marginBottom: "6px", display: "block" }}>Departamento</label>
-            <select
-              value={departamentoId}
-              onChange={e => setDepartamentoId(Number(e.target.value))}
-              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-            >
-              {departamentos.map(d => (
-                <option key={d.id} value={d.id}>{d.nombre}</option>
-              ))}
-            </select>
+            {showNewDeptInput ? (
+              <div style={{ display: "flex", gap: "6px" }}>
+                <input
+                  type="text"
+                  placeholder="Nuevo departamento"
+                  value={newDeptName}
+                  onChange={e => setNewDeptName(e.target.value)}
+                  style={{ ...inputStyle, flex: 1 }}
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!newDeptName.trim()) {
+                      toast.error("Error", "Ingresa un nombre para el departamento")
+                      return
+                    }
+                    try {
+                      const nuevoId = await crearDepartamentoProd(newDeptName.trim())
+                      setDepartamentoId(nuevoId)
+                      setNewDeptName("")
+                      setShowNewDeptInput(false)
+                      // Recargar lista de departamentos
+                      await recargarDepartamentos()
+                      toast.success("Departamento creado")
+                    } catch (err: any) {
+                      toast.error("Error", err.message || "No se pudo crear el departamento")
+                    }
+                  }}
+                  disabled={!newDeptName.trim()}
+                  style={{
+                    ...btnStyle,
+                    padding: "8px 12px",
+                    backgroundColor: (!newDeptName.trim()) ? "#ccc" : "#16a34a",
+                    color: "#fff",
+                    border: "none"
+                  }}
+                >
+                  ✓
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNewDeptInput(false)
+                    setNewDeptName("")
+                  }}
+                  style={{ ...btnStyle, padding: "8px 12px" }}
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <select
+                value={departamentoId}
+                onChange={e => {
+                  const val = e.target.value
+                  if (val === "nuevo") {
+                    setShowNewDeptInput(true)
+                  } else {
+                    setDepartamentoId(Number(val))
+                  }
+                }}
+                style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+              >
+                {departamentos.map(d => (
+                  <option key={d.id} value={d.id}>{d.nombre}</option>
+                ))}
+                <option value="nuevo">➕ Crear nuevo departamento...</option>
+              </select>
+            )}
           </div>
 
           {/* Cantidad */}
@@ -343,6 +416,8 @@ function VistaEstadisticas() {
   const [resumen, setResumen] = useState<ResumenDepartamento[]>([])
   const [salidasFiltradas, setSalidasFiltradas] = useState<SalidaProducto[]>([])
   const [loading, setLoading] = useState(false)
+  const [showNewDeptInput, setShowNewDeptInput] = useState(false)
+  const [newDeptName, setNewDeptName] = useState("")
 
   useEffect(() => {
     Promise.all([getDepartamentosProd(), getCategorias()]).then(([depts, cats]) => {
@@ -379,6 +454,15 @@ function VistaEstadisticas() {
       toast.error("Error", e?.message ?? String(e))
     } finally {
       setLoading(false)
+    }
+  }
+
+  const recargarDepartamentos = async () => {
+    try {
+      const depts = await getDepartamentosProd()
+      setDepartamentos(depts)
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
     }
   }
 
@@ -447,10 +531,69 @@ function VistaEstadisticas() {
           </div>
           <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
             <label style={{ fontSize: "13px", color: "#666" }}>Departamento:</label>
-            <select value={departamentoFiltro} onChange={e => setDepartamentoFiltro(e.target.value === "" ? "" : Number(e.target.value))} style={{ ...inputStyle, width: "180px" }}>
-              <option value="">Todos</option>
-              {departamentos.map(dep => <option key={dep.id} value={dep.id}>{dep.nombre}</option>)}
-            </select>
+            {showNewDeptInput ? (
+              <div style={{ display: "flex", gap: "6px" }}>
+                <input
+                  type="text"
+                  placeholder="Nuevo departamento"
+                  value={newDeptName}
+                  onChange={e => setNewDeptName(e.target.value)}
+                  style={{ ...inputStyle, width: "140px" }}
+                  autoFocus
+                />
+                <button
+                  onClick={async () => {
+                    if (!newDeptName.trim()) {
+                      toast.error("Error", "Ingresa un nombre para el departamento")
+                      return
+                    }
+                    try {
+                      const nuevoId = await crearDepartamentoProd(newDeptName.trim())
+                      setDepartamentoFiltro(nuevoId)
+                      setNewDeptName("")
+                      setShowNewDeptInput(false)
+                      // Recargar lista de departamentos
+                      await recargarDepartamentos()
+                      toast.success("Departamento creado")
+                    } catch (err: any) {
+                      toast.error("Error", err.message || "No se pudo crear el departamento")
+                    }
+                  }}
+                  disabled={!newDeptName.trim()}
+                  style={{
+                    ...btnStyle,
+                    padding: "6px 12px",
+                    backgroundColor: (!newDeptName.trim()) ? "#ccc" : "#16a34a",
+                    color: "#fff",
+                    border: "none"
+                  }}
+                >
+                  ✓
+                </button>
+                <button
+                  onClick={() => {
+                    setShowNewDeptInput(false)
+                    setNewDeptName("")
+                  }}
+                  style={{ ...btnStyle, padding: "6px 12px" }}
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <select value={departamentoFiltro} onChange={e => {
+                const val = e.target.value
+                if (val === "nuevo") {
+                  setShowNewDeptInput(true)
+                } else {
+                  setDepartamentoFiltro(val === "" ? "" : Number(val))
+                }
+              }} style={{ ...inputStyle, width: "180px" }}>
+                <option value="">Todos</option>
+                {departamentos.map(dep => <option key={dep.id} value={dep.id}>{dep.nombre}</option>)}
+                <option value="nuevo">➕ Crear nuevo...</option>
+              </select>
+            )}
           </div>
           <button onClick={loadStats} style={{ ...btnStyle, backgroundColor: "#16a34a", color: "#fff", border: "none", fontSize: "13px" }}>
             ↻ Actualizar

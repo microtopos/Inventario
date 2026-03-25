@@ -8,6 +8,7 @@ import {
   ensureProduct,
   upsertSalida,
   crearCategoria,
+  crearDepartamentoProd,
   type CategoriaProducto,
   type DepartamentoProd,
 } from "./productosService"
@@ -15,6 +16,7 @@ import {
 interface ImportarProductosModalProps {
   onClose: () => void
   onImported: () => void
+  onDepartamentoCreado?: () => void
   departamentos: DepartamentoProd[]
 }
 
@@ -58,16 +60,30 @@ const btnStyle: React.CSSProperties = {
   transition: "all 0.15s",
 }
 
-export default function ImportarProductosModal({ onClose, onImported, departamentos }: ImportarProductosModalProps) {
+export default function ImportarProductosModal({ onClose, onImported, onDepartamentoCreado, departamentos }: ImportarProductosModalProps) {
   const toast = useToast()
   const { confirm } = useConfirm()
 
   const [departamentoId, setDepartamentoId] = useState<number>(0)
+  const [prevDepartamentoId, setPrevDepartamentoId] = useState<number | null>(null)
   const [year, setYear] = useState(new Date().getFullYear())
   const [previewData, setPreviewData] = useState<any[] | null>(null)
   const [categoriasDetectadas, setCategoriasDetectadas] = useState<string[]>([])
   const [processing, setProcessing] = useState(false)
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload")
+  const [showNewDeptInput, setShowNewDeptInput] = useState(false)
+  const [newDeptName, setNewDeptName] = useState("")
+
+  // Establecer departamento automáticamente cuando se cargan los departamentos
+  useEffect(() => {
+    if (departamentos.length > 0) {
+      const ids = departamentos.map(d => d.id)
+      // No sobrescribir si departamentoId es -1 (creando nuevo) o si ya está en la lista
+      if (departamentoId !== -1 && !ids.includes(departamentoId)) {
+        setDepartamentoId(departamentos[0].id)
+      }
+    }
+  }, [departamentos])
 
   // Cargar archivo
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -85,7 +101,8 @@ export default function ImportarProductosModal({ onClose, onImported, departamen
       const monthNames = Object.keys(monthMap)
       let headerRowIndex = -1
       for (let i = 0; i < Math.min(10, data.length); i++) {
-        const rowStr = row.map(c => String(c || '')).join(' ').toUpperCase()
+        const currentRow = data[i] || []
+        const rowStr = currentRow.map(c => String(c || '')).join(' ').toUpperCase()
         if (monthNames.some(m => rowStr.includes(m))) {
           headerRowIndex = i
           break
@@ -180,8 +197,8 @@ export default function ImportarProductosModal({ onClose, onImported, departamen
   }
 
   const handleImport = async () => {
-    if (!departamentoId) {
-      toast.error("Error", "Selecciona un departamento")
+    if (departamentoId <= 0) {
+      toast.error("Error", "Selecciona un departamento válido")
       return
     }
     if (!previewData || previewData.length === 0) {
@@ -280,16 +297,86 @@ export default function ImportarProductosModal({ onClose, onImported, departamen
                   <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>
                     Departamento
                   </label>
-                  <select
-                    value={departamentoId}
-                    onChange={e => setDepartamentoId(Number(e.target.value))}
-                    style={{ ...inputStyle }}
-                  >
-                    <option value="">Selecciona un departamento</option>
-                    {departamentos.map(dep => (
-                      <option key={dep.id} value={dep.id}>{dep.nombre}</option>
-                    ))}
-                  </select>
+                  {showNewDeptInput ? (
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <input
+                        type="text"
+                        placeholder="Nombre del nuevo departamento"
+                        value={newDeptName}
+                        onChange={e => setNewDeptName(e.target.value)}
+                        style={{ ...inputStyle, flex: 1 }}
+                        autoFocus
+                      />
+                      <button
+                        onClick={async () => {
+                          if (!newDeptName.trim()) {
+                            toast.error("Error", "Ingresa un nombre para el departamento")
+                            return
+                          }
+                          try {
+                            const nuevoId = await crearDepartamentoProd(newDeptName.trim())
+                            setDepartamentoId(nuevoId)
+                            setPrevDepartamentoId(null)
+                            setNewDeptName("")
+                            setShowNewDeptInput(false)
+                            toast.success("Departamento creado")
+                            // Notificar al padre para que recargue la lista
+                            onDepartamentoCreado?.()
+                          } catch (err: any) {
+                            toast.error("Error", err.message || "No se pudo crear el departamento")
+                          }
+                        }}
+                        disabled={!newDeptName.trim()}
+                        style={{
+                          ...btnStyle,
+                          padding: "8px 12px",
+                          backgroundColor: (!newDeptName.trim()) ? "#ccc" : "#16a34a",
+                          color: "#fff",
+                          border: "none"
+                        }}
+                      >
+                        ✓
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowNewDeptInput(false)
+                          setNewDeptName("")
+                          // Restaurar el departamento anterior si existe, si no, resetear a 0
+                          if (prevDepartamentoId !== null) {
+                            setDepartamentoId(prevDepartamentoId)
+                            setPrevDepartamentoId(null)
+                          } else {
+                            setDepartamentoId(0)
+                          }
+                        }}
+                        style={{ ...btnStyle, padding: "8px 12px" }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={departamentoId}
+                      onChange={e => {
+                        const val = Number(e.target.value)
+                        if (val === -1) {
+                          setPrevDepartamentoId(departamentoId) // guardar el departamento actual
+                          setShowNewDeptInput(true)
+                          setDepartamentoId(-1)
+                        } else {
+                          setDepartamentoId(val)
+                          setShowNewDeptInput(false)
+                        }
+                      }}
+                      style={{ ...inputStyle }}
+                    >
+                      <option value={0}>Selecciona un departamento</option>
+                      {departamentos.map(dep => (
+                        <option key={dep.id} value={dep.id}>{dep.nombre}</option>
+                      ))}
+                      <option value={-1}>➕ Crear nuevo departamento...</option>
+                    </select>
+                  )}
                 </div>
 
                 <div>
@@ -356,8 +443,8 @@ export default function ImportarProductosModal({ onClose, onImported, departamen
                 </button>
                 <button
                   onClick={handleImport}
-                  disabled={!departamentoId || processing}
-                  style={{ ...btnStyle, backgroundColor: (!departamentoId || processing) ? "#ccc" : "#16a34a", color: "#fff", border: "none" }}
+                  disabled={departamentoId <= 0 || processing}
+                  style={{ ...btnStyle, backgroundColor: (departamentoId <= 0 || processing) ? "#ccc" : "#16a34a", color: "#fff", border: "none" }}
                 >
                   {processing ? "Importando..." : "✓ Importar"}
                 </button>

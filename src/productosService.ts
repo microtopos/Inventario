@@ -25,51 +25,51 @@ export interface ProductoAlmacen {
  * Reintenta la operación hasta 3 veces con espera progresiva
  */
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
-  let lastError: Error | null = null
+  let lastError: Error | null = null;
 
   for (let i = 0; i < maxRetries; i++) {
     try {
-      return await fn()
+      return await fn();
     } catch (error: any) {
-      lastError = error
+      lastError = error;
 
       // Verificar si es un error de bloqueo (SQLITE_BUSY, SQLITE_LOCKED)
-      const errorMsg = error?.message || String(error)
+      const errorMsg = error?.message || String(error);
       const isLockError =
         errorMsg.includes("database is locked") ||
         errorMsg.includes("SQLITE_BUSY") ||
         errorMsg.includes("SQLITE_LOCKED") ||
-        error?.code === 5 // SQLITE_BUSY código 5
+        error?.code === 5; // SQLITE_BUSY código 5
 
       if (!isLockError || i === maxRetries - 1) {
-        throw error
+        throw error;
       }
 
       // Esperar antes de reintentar (backoff exponencial: 200ms, 400ms, 800ms)
-      const delay = 200 * Math.pow(2, i)
-      await new Promise(resolve => setTimeout(resolve, delay))
+      const delay = 200 * Math.pow(2, i);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
-  throw lastError
+  throw lastError;
 }
 
 async function getDb(): Promise<Database> {
-  const db = await Database.load("sqlite:inventario.db")
+  const db = await Database.load("sqlite:inventario.db");
   // Configurar busy_timeout para manejar bloqueos
   try {
-    await db.execute("PRAGMA busy_timeout = 10000")
+    await db.execute("PRAGMA busy_timeout = 10000");
     // Asegurar modo WAL para permitir lecturas concurrentes
-    await db.execute("PRAGMA journal_mode = WAL")
+    await db.execute("PRAGMA journal_mode = WAL");
   } catch (e) {
     // Ignorar errores al configurar pragmas
   }
-  return db
+  return db;
 }
 
 // Wrapper con retry para operaciones que pueden encontrar locked DB
 async function getDbWithRetry(): Promise<Database> {
-  return withRetry(getDb)
+  return withRetry(getDb);
 }
 
 export interface DepartamentoProd {
@@ -113,14 +113,14 @@ export interface FiltrosSalida {
 // ─── Categorías ───────────────────────────────────────────────────────────────
 
 export async function getCategorias(): Promise<CategoriaProducto[]> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   return db.select<CategoriaProducto[]>(
     "SELECT * FROM categorias_producto ORDER BY nombre ASC"
   );
 }
 
 export async function crearCategoria(nombre: string): Promise<number> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   const result = await db.execute(
     "INSERT INTO categorias_producto (nombre) VALUES (?)",
     [nombre.trim()]
@@ -135,7 +135,7 @@ export async function actualizarCategoria(
   id: number,
   nombre: string
 ): Promise<void> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   await db.execute(
     "UPDATE categorias_producto SET nombre = ? WHERE id = ?",
     [nombre.trim(), id]
@@ -144,7 +144,7 @@ export async function actualizarCategoria(
 
 export async function eliminarCategoria(id: number): Promise<void> {
   // Solo se puede eliminar si no tiene productos asociados
-  const db = await getDb();
+  const db = await getDbWithRetry();
   const rows = await db.select<{ total: number }[]>(
     "SELECT COUNT(*) AS total FROM productos_almacen WHERE categoria_id = ? AND activo = 1",
     [id]
@@ -158,7 +158,7 @@ export async function eliminarCategoria(id: number): Promise<void> {
 // ─── Productos ────────────────────────────────────────────────────────────────
 
 export async function getProductos(soloActivos = true): Promise<ProductoAlmacen[]> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   const where = soloActivos ? "WHERE p.activo = 1" : "";
   return db.select<ProductoAlmacen[]>(
     `SELECT
@@ -176,7 +176,7 @@ export async function getProductosPorCategoria(
   categoria_id: number,
   soloActivos = true
 ): Promise<ProductoAlmacen[]> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   const condActivo = soloActivos ? "AND p.activo = 1" : "";
   return db.select<ProductoAlmacen[]>(
     `SELECT
@@ -198,7 +198,7 @@ export async function crearProducto(
   unidad_medida: string,
   precio?: number | null
 ): Promise<number> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   const result = await db.execute(
     "INSERT INTO productos_almacen (referencia, nombre, categoria_id, unidad_medida, precio) VALUES (?, ?, ?, ?, ?)",
     [referencia.trim(), nombre.trim(), categoria_id, unidad_medida.trim(), precio]
@@ -213,7 +213,7 @@ export async function actualizarProducto(
   id: number,
   datos: Partial<Pick<ProductoAlmacen, "referencia" | "nombre" | "categoria_id" | "unidad_medida" | "precio">>
 ): Promise<void> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
 
   const campos: string[] = [];
   const params: (string | number | null)[] = [];
@@ -234,26 +234,26 @@ export async function actualizarProducto(
 }
 
 export async function desactivarProducto(id: number): Promise<void> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   await db.execute("UPDATE productos_almacen SET activo = 0 WHERE id = ?", [id]);
 }
 
 export async function reactivarProducto(id: number): Promise<void> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   await db.execute("UPDATE productos_almacen SET activo = 1 WHERE id = ?", [id]);
 }
 
 // ─── Departamentos ────────────────────────────────────────────────────────────
 
 export async function getDepartamentosProd(): Promise<DepartamentoProd[]> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   return db.select<DepartamentoProd[]>(
     "SELECT * FROM departamentos_prod ORDER BY nombre ASC"
   );
 }
 
 export async function crearDepartamentoProd(nombre: string): Promise<number> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   const result = await db.execute(
     "INSERT INTO departamentos_prod (nombre) VALUES (?)",
     [nombre.trim()]
@@ -268,7 +268,7 @@ export async function actualizarDepartamentoProd(
   id: number,
   nombre: string
 ): Promise<void> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   await db.execute(
     "UPDATE departamentos_prod SET nombre = ? WHERE id = ?",
     [nombre.trim(), id]
@@ -276,7 +276,7 @@ export async function actualizarDepartamentoProd(
 }
 
 export async function eliminarDepartamentoProd(id: number): Promise<void> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   const rows = await db.select<{ total: number }[]>(
     "SELECT COUNT(*) AS total FROM salidas_productos WHERE departamento_id = ?",
     [id]
@@ -292,7 +292,7 @@ export async function eliminarDepartamentoProd(id: number): Promise<void> {
 export async function getSalidas(
   filtros: FiltrosSalida = {}
 ): Promise<SalidaProducto[]> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
 
   const condiciones: string[] = [];
   const params: (string | number)[] = [];
@@ -331,7 +331,7 @@ export async function getSalidas(
  * Si cantidad = 0, elimina el registro para no acumular basura.
  */
 export async function upsertSalida(datos: NuevaSalida): Promise<void> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
 
   if (datos.cantidad === 0) {
     await db.execute(
@@ -352,7 +352,7 @@ export async function upsertSalida(datos: NuevaSalida): Promise<void> {
 }
 
 export async function eliminarSalida(id: number): Promise<void> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   await db.execute("DELETE FROM salidas_productos WHERE id = ?", [id]);
 }
 
@@ -370,7 +370,7 @@ export interface ConsumoMensualDepartamento {
 export async function getConsumoMensualPorDepartamento(
   filtros: FiltrosSalida = {}
 ): Promise<ConsumoMensualDepartamento[]> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
 
   const condiciones: string[] = [];
   const params: (string | number)[] = [];
@@ -418,7 +418,7 @@ export async function getMatrizConsumo(
   mes: number,
   categoria_id?: number
 ): Promise<{ matriz: MatrizConsumo[]; departamentos: DepartamentoProd[] }> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
 
   const departamentos = await getDepartamentosProd();
 
@@ -482,7 +482,7 @@ export interface ResumenDepartamento {
 export async function getResumenPorDepartamento(
   filtros: FiltrosSalida = {}
 ): Promise<ResumenDepartamento[]> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
 
   const condiciones: string[] = [];
   const params: (string | number)[] = [];
@@ -517,7 +517,7 @@ export async function getResumenPorDepartamento(
  * Elimina un producto y todas sus salidas asociadas.
  */
 export async function deleteProduct(productId: number): Promise<void> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
   await db.execute("DELETE FROM salidas_productos WHERE producto_id = ?", [productId]);
   await db.execute("DELETE FROM productos_almacen WHERE id = ?", [productId]);
 }
@@ -530,7 +530,7 @@ export async function getSalidasByYear(
   year: number,
   departamentoId?: number
 ): Promise<Map<number, Map<number, number>>> {
-  const db = await getDb();
+  const db = await getDbWithRetry();
 
   let condiciones: string[] = ["s.anio = ?"];
   const params: (number | undefined)[] = [year];
@@ -571,6 +571,8 @@ export async function getSalidasByYear(
 /**
  * Función de utilidad para importar/actualizar productos desde Excel.
  * Crea o actualiza un producto y devuelve su ID.
+ * NOTA: El precio solo se establece al crear un producto nuevo. Al actualizar,
+ * se preserva el precio existente para no sobrescribir datos manuales.
  */
 export async function ensureProduct(
   referencia: string,
@@ -579,21 +581,23 @@ export async function ensureProduct(
   unidadMedida: string,
   precio?: number | null
 ): Promise<number> {
+  const db = await getDbWithRetry();
+
   // Buscar si ya existe
-  const db = await getDb();
-  const existente = await db.select<{ id: number }[]>(
-    "SELECT id FROM productos_almacen WHERE referencia = ?",
+  const existente = await db.select<{ id: number; precio?: number | null }[]>(
+    "SELECT id, precio FROM productos_almacen WHERE referencia = ?",
     [referencia.trim()]
   );
 
   if (existente.length > 0) {
-    // Actualizar
+    // Actualizar: NO sobrescribir precio si ya existe (mantener valor manual)
     const producto = existente[0];
     await actualizarProducto(producto.id, {
       nombre: nombre.trim(),
       categoria_id: categoriaId,
       unidad_medida: unidadMedida.trim(),
-      precio: precio,
+      // Solo actualizar precio si se proporciona explícitamente un valor no nulo
+      ...(precio !== undefined && precio !== null && { precio }),
     });
     return producto.id;
   } else {
