@@ -989,7 +989,7 @@ export default function ProductsPage({ onNavigate }: { onNavigate: (page: Page) 
   ]
 
   return (
-    <div style={{ minHeight: "calc(100vh - 64px)", backgroundColor: "#f5f5f5" }}>
+    <div style={{ minHeight: "calc(100vh - 64px)", backgroundColor: "#f5f5f5", fontFamily: "system-ui, sans-serif" }}>
       <AppHeader page="productos" onNavigate={onNavigate} />
 
       {/* Sub-navegación */}

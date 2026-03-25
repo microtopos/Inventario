@@ -3,7 +3,7 @@ import AppHeader from "./AppHeader"
 import type { Page } from "./AppHeader"
 import { usePagination } from "./usePagination"
 import {
-  Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Cell, Pie, PieChart, ResponsiveContainer, Tooltip
 } from "recharts"
 import { endOfYear, format, startOfYear, subDays, subMonths } from "date-fns"
 import {
@@ -11,7 +11,6 @@ import {
   getEntradasPorDepartamento,
   getMovimientos,
   getMovimientosCount,
-  getStockPorDepartamento,
 } from "./dashboardService"
 import { cardStyleLegacy, inputStyle, btnStyle, thStyle, tdStyle } from "./styles"
 
@@ -61,27 +60,6 @@ const COLORS = [
   "#ea580c", "#0891b2", "#4ade80", "#f59e0b",
 ]
 
-function ChartTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{
-      backgroundColor: "#fff",
-      border: "1px solid #e0e0e0",
-      borderRadius: "8px",
-      padding: "10px 12px",
-      boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-      fontSize: "12px",
-    }}>
-      <p style={{ margin: "0 0 4px", fontWeight: 600, color: "#111" }}>{label}</p>
-      {payload.map((entry: any, i: number) => (
-        <p key={i} style={{ margin: 0, color: entry.color }}>
-          {entry.name}: <strong>{entry.value.toLocaleString()}</strong>
-        </p>
-      ))}
-    </div>
-  )
-}
-
 function PieTooltip({ active, payload }: any) {
   const p = payload[0]
   if (!active || !p) return null
@@ -121,12 +99,21 @@ function sumPivot(pivot: ReturnType<typeof pivotByMes>): number {
   return Object.values(sumByDepartamento(pivot)).reduce((a, b) => a + b, 0)
 }
 
+function pivotToDonutData(pivot: ReturnType<typeof pivotByMes>) {
+  const totals = sumByDepartamento(pivot)
+  const total = Object.values(totals).reduce((a, b) => a + b, 0)
+  return pivot.departments.map(dept => ({
+    name: dept,
+    value: totals[dept] || 0,
+    pct: total > 0 ? ((totals[dept] || 0) / total * 100).toFixed(1) : "0"
+  }))
+}
+
 function RopaStats() {
   const [desde, setDesde] = useState<string>("")
   const [hasta, setHasta] = useState<string>("")
   const [preset, setPreset] = useState<RangePreset>("all")
 
-  const [stock, setStock] = useState<{ departamento: string; stock: number }[]>([])
   const [entradas, setEntradas] = useState<{ mes: string; departamento: string; total: number }[]>([])
   const [consumo, setConsumo] = useState<{ mes: string; departamento: string; total: number }[]>([])
   const [chartsLoading, setChartsLoading] = useState(false)
@@ -169,12 +156,10 @@ function RopaStats() {
       try {
         const d = desde?.trim() || undefined
         const h = hasta?.trim() || undefined
-        const [s, e, c] = await Promise.all([
-          getStockPorDepartamento(),
+        const [e, c] = await Promise.all([
           getEntradasPorDepartamento(d, h),
           getConsumoPorDepartamento(d, h),
         ])
-        setStock(s)
         setEntradas(e)
         setConsumo(c)
       } finally {
@@ -187,7 +172,6 @@ function RopaStats() {
   const entradasPivot = useMemo(() => pivotByMes(entradas), [entradas])
   const consumoPivot = useMemo(() => pivotByMes(consumo), [consumo])
 
-  const totalStock = useMemo(() => stock.reduce((a, r) => a + r.stock, 0), [stock])
   const totalConsumo = useMemo(() => sumPivot(consumoPivot), [consumoPivot])
   const totalEntradas = useMemo(() => sumPivot(entradasPivot), [entradasPivot])
 
@@ -266,19 +250,15 @@ function RopaStats() {
 
       {/* CHARTS GRID */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "16px", marginBottom: "24px" }}>
-        {/* Stock por Departamento */}
+        {/* Entradas por Departamento */}
         <div style={{ ...cardStyleLegacy, gridColumn: "span 1" }}>
-          <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>Stock por Departamento</h3>
-          <div style={{ height: "240px", marginTop: "12px" }}>
-            {stock.length > 0 ? (
+          <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>Entradas por Departamento</h3>
+          <div style={{ height: "240px", marginTop: "12px", display: "flex", justifyContent: "center", alignItems: "center" }}>
+            {entradasPivot.data.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={stock.map((s) => ({
-                      name: s.departamento,
-                      value: s.stock,
-                      pct: ((s.stock / totalStock) * 100).toFixed(1),
-                    }))}
+                    data={pivotToDonutData(entradasPivot)}
                     dataKey="value"
                     nameKey="name"
                     cx="50%"
@@ -288,7 +268,7 @@ function RopaStats() {
                     label={({ name, pct }) => `${name} (${pct}%)`}
                     labelLine={false}
                   >
-                    {stock.map((_, i) => (
+                    {entradasPivot.departments.map((_, i) => (
                       <Cell key={i} fill={COLORS[i % COLORS.length]} />
                     ))}
                   </Pie>
@@ -296,38 +276,7 @@ function RopaStats() {
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#999" }}>
-                No hay datos
-              </div>
-            )}
-          </div>
-          <div style={{ fontSize: "13px", color: "#888", textAlign: "center", marginTop: "8px" }}>
-            Total: <strong style={{ color: "#111" }}>{totalStock.toLocaleString()}</strong> prendas
-          </div>
-        </div>
-
-        {/* Entradas por Departamento */}
-        <div style={{ ...cardStyleLegacy, gridColumn: "span 1" }}>
-          <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>Entradas por Departamento</h3>
-          <div style={{ height: "240px", marginTop: "12px" }}>
-            {entradasPivot.data.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={entradasPivot.data} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                  <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#666" }} />
-                  <YAxis tickFormatter={v => v.toLocaleString()} tick={{ fontSize: 12, fill: "#666" }} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="total" name="Entradas" radius={[4, 4, 0, 0]}>
-                    {entradasPivot.departments.map((dept, i) => (
-                      <Cell key={dept} fill={COLORS[i % COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#999" }}>
-                No hay datos
-              </div>
+              <div style={{ color: "#999" }}>No hay datos</div>
             )}
           </div>
           <div style={{ fontSize: "13px", color: "#888", textAlign: "center", marginTop: "8px" }}>
@@ -338,40 +287,35 @@ function RopaStats() {
         {/* Consumo por Departamento */}
         <div style={{ ...cardStyleLegacy, gridColumn: "span 1" }}>
           <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>Consumo por Departamento</h3>
-          <div style={{ height: "240px", marginTop: "12px" }}>
+          <div style={{ height: "240px", marginTop: "12px", display: "flex", justifyContent: "center", alignItems: "center" }}>
             {consumoPivot.data.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={consumoPivot.data} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                  <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#666" }} />
-                  <YAxis tickFormatter={v => v.toLocaleString()} tick={{ fontSize: 12, fill: "#666" }} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="total" name="Consumo" radius={[4, 4, 0, 0]}>
-                    {consumoPivot.departments.map((dept, i) => (
-                      <Cell key={dept} fill={COLORS[i % COLORS.length]} />
+                <PieChart>
+                  <Pie
+                    data={pivotToDonutData(consumoPivot)}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={80}
+                    innerRadius={40}
+                    label={({ name, pct }) => `${name} (${pct}%)`}
+                    labelLine={false}
+                  >
+                    {consumoPivot.departments.map((_, i) => (
+                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
                     ))}
-                  </Bar>
-                </BarChart>
+                  </Pie>
+                  <Tooltip content={<PieTooltip />} />
+                </PieChart>
               </ResponsiveContainer>
             ) : (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#999" }}>
-                No hay datos
-              </div>
+              <div style={{ color: "#999" }}>No hay datos</div>
             )}
           </div>
           <div style={{ fontSize: "13px", color: "#888", textAlign: "center", marginTop: "8px" }}>
             Total: <strong style={{ color: "#111" }}>{totalConsumo.toLocaleString()}</strong> consumos
           </div>
-        </div>
-
-        {/* Leyenda de colores por departamento */}
-        <div style={{ gridColumn: "span 1", display: "flex", alignItems: "center", justifyContent: "center", flexWrap: "wrap", gap: "12px" }}>
-          {entradasPivot.departments.map((dept, i) => (
-            <div key={dept} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "#555" }}>
-              <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: COLORS[i % COLORS.length] }} />
-              {dept}
-            </div>
-          ))}
         </div>
       </div>
 
@@ -451,7 +395,7 @@ function RopaStats() {
 
 export default function StatisticsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   return (
-    <div style={{ minHeight: "calc(100vh - 64px)", backgroundColor: "#f5f5f5" }}>
+    <div style={{ minHeight: "calc(100vh - 64px)", backgroundColor: "#f5f5f5", fontFamily: "system-ui, sans-serif" }}>
       <AppHeader page="dashboard" onNavigate={onNavigate} onBack={() => onNavigate("inventory")} />
       <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "28px 24px" }}>
         <RopaStats />
