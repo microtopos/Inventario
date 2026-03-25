@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(ls -la *.tsx)"
+      "Bash(ls -la *.tsx)",
+      "Bash(ls -la *.mjs)",
+      "Bash(cd:*)",
+      "Bash(grep -E \"\\\\.\\(mjs|ts|tsx|md|rs\\)$\")",
+      "Bash(grep -E \"\\\\.\\(mjs|ts|tsx|md\\)$\")",
+      "Bash(grep \"\\\\.mjs$\")",
+      "Bash(find /c/Users/dan.pirlitu/Desktop/\"Inventario Ropa\" -maxdepth 1 -type f ! -name \".gitignore\" -exec git status --porcelain {})"
     ]
   }
 }

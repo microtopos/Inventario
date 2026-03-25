@@ -15,6 +15,61 @@ export interface ProductoAlmacen {
   categoria_nombre?: string; // viene del JOIN
   unidad_medida: string;
   activo: number; // 1 | 0
+  precio?: number | null;
+}
+
+// ─── Utilidades ───────────────────────────────────────────────────────────────
+
+/**
+ * Retry logic para manejar "database is locked"
+ * Reintenta la operación hasta 3 veces con espera progresiva
+ */
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let lastError: Error | null = null
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await fn()
+    } catch (error: any) {
+      lastError = error
+
+      // Verificar si es un error de bloqueo (SQLITE_BUSY, SQLITE_LOCKED)
+      const errorMsg = error?.message || String(error)
+      const isLockError =
+        errorMsg.includes("database is locked") ||
+        errorMsg.includes("SQLITE_BUSY") ||
+        errorMsg.includes("SQLITE_LOCKED") ||
+        error?.code === 5 // SQLITE_BUSY código 5
+
+      if (!isLockError || i === maxRetries - 1) {
+        throw error
+      }
+
+      // Esperar antes de reintentar (backoff exponencial: 200ms, 400ms, 800ms)
+      const delay = 200 * Math.pow(2, i)
+      await new Promise(resolve => setTimeout(resolve, delay))
+    }
+  }
+
+  throw lastError
+}
+
+async function getDb(): Promise<Database> {
+  const db = await Database.load("sqlite:inventario.db")
+  // Configurar busy_timeout para manejar bloqueos
+  try {
+    await db.execute("PRAGMA busy_timeout = 10000")
+    // Asegurar modo WAL para permitir lecturas concurrentes
+    await db.execute("PRAGMA journal_mode = WAL")
+  } catch (e) {
+    // Ignorar errores al configurar pragmas
+  }
+  return db
+}
+
+// Wrapper con retry para operaciones que pueden encontrar locked DB
+async function getDbWithRetry(): Promise<Database> {
+  return withRetry(getDb)
 }
 
 export interface DepartamentoProd {
@@ -53,12 +108,6 @@ export interface FiltrosSalida {
   anio?: number;
   anio_desde?: number;
   anio_hasta?: number;
-}
-
-// ─── Conexión ─────────────────────────────────────────────────────────────────
-
-async function getDb(): Promise<Database> {
-  return Database.load("sqlite:inventario.db");
 }
 
 // ─── Categorías ───────────────────────────────────────────────────────────────
@@ -115,7 +164,7 @@ export async function getProductos(soloActivos = true): Promise<ProductoAlmacen[
     `SELECT
        p.id, p.referencia, p.nombre, p.categoria_id,
        c.nombre AS categoria_nombre,
-       p.unidad_medida, p.activo
+       p.unidad_medida, p.activo, p.precio
      FROM productos_almacen p
      JOIN categorias_producto c ON c.id = p.categoria_id
      ${where}
@@ -133,7 +182,7 @@ export async function getProductosPorCategoria(
     `SELECT
        p.id, p.referencia, p.nombre, p.categoria_id,
        c.nombre AS categoria_nombre,
-       p.unidad_medida, p.activo
+       p.unidad_medida, p.activo, p.precio
      FROM productos_almacen p
      JOIN categorias_producto c ON c.id = p.categoria_id
      WHERE p.categoria_id = ? ${condActivo}
@@ -146,12 +195,13 @@ export async function crearProducto(
   referencia: string,
   nombre: string,
   categoria_id: number,
-  unidad_medida: string
+  unidad_medida: string,
+  precio?: number | null
 ): Promise<number> {
   const db = await getDb();
   const result = await db.execute(
-    "INSERT INTO productos_almacen (referencia, nombre, categoria_id, unidad_medida) VALUES (?, ?, ?, ?)",
-    [referencia.trim(), nombre.trim(), categoria_id, unidad_medida.trim()]
+    "INSERT INTO productos_almacen (referencia, nombre, categoria_id, unidad_medida, precio) VALUES (?, ?, ?, ?, ?)",
+    [referencia.trim(), nombre.trim(), categoria_id, unidad_medida.trim(), precio]
   );
   if (result.lastInsertId === undefined) {
     throw new Error("No se pudo crear el producto");
@@ -161,17 +211,18 @@ export async function crearProducto(
 
 export async function actualizarProducto(
   id: number,
-  datos: Partial<Pick<ProductoAlmacen, "referencia" | "nombre" | "categoria_id" | "unidad_medida">>
+  datos: Partial<Pick<ProductoAlmacen, "referencia" | "nombre" | "categoria_id" | "unidad_medida" | "precio">>
 ): Promise<void> {
   const db = await getDb();
 
   const campos: string[] = [];
-  const params: (string | number)[] = [];
+  const params: (string | number | null)[] = [];
 
   if (datos.referencia !== undefined) { campos.push("referencia = ?"); params.push(datos.referencia.trim()); }
   if (datos.nombre !== undefined)     { campos.push("nombre = ?");     params.push(datos.nombre.trim()); }
   if (datos.categoria_id !== undefined) { campos.push("categoria_id = ?"); params.push(datos.categoria_id); }
   if (datos.unidad_medida !== undefined) { campos.push("unidad_medida = ?"); params.push(datos.unidad_medida.trim()); }
+  if (datos.precio !== undefined) { campos.push("precio = ?"); params.push(datos.precio); }
 
   if (campos.length === 0) return;
 
@@ -458,4 +509,95 @@ export async function getResumenPorDepartamento(
      ORDER BY total_cantidad DESC NULLS LAST`,
     params
   );
+}
+
+// ─── Funciones adicionales para rediseño ───────────────────────────────────────
+
+/**
+ * Elimina un producto y todas sus salidas asociadas.
+ */
+export async function deleteProduct(productId: number): Promise<void> {
+  const db = await getDb();
+  await db.execute("DELETE FROM salidas_productos WHERE producto_id = ?", [productId]);
+  await db.execute("DELETE FROM productos_almacen WHERE id = ?", [productId]);
+}
+
+/**
+ * Obtiene todas las salidas de un año específico, opcionalmente filtradas por departamento.
+ * Devuelve un mapa para fácil acceso: Map<producto_id, Map<mes, cantidad>>
+ */
+export async function getSalidasByYear(
+  year: number,
+  departamentoId?: number
+): Promise<Map<number, Map<number, number>>> {
+  const db = await getDb();
+
+  let condiciones: string[] = ["s.anio = ?"];
+  const params: (number | undefined)[] = [year];
+
+  if (departamentoId !== undefined) {
+    condiciones.push("s.departamento_id = ?");
+    params.push(departamentoId);
+  }
+
+  const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : "";
+
+  const rows = await db.select<{
+    producto_id: number;
+    mes: number;
+    cantidad: number;
+  }[]>(
+    `SELECT
+       s.producto_id, s.mes, s.cantidad
+     FROM salidas_productos s
+     ${where}
+     ORDER BY s.producto_id, s.mes`,
+    params
+  );
+
+  // Construir mapa anidado: producto_id -> mes -> cantidad
+  const resultado = new Map<number, Map<number, number>>();
+
+  for (const row of rows) {
+    if (!resultado.has(row.producto_id)) {
+      resultado.set(row.producto_id, new Map());
+    }
+    resultado.get(row.producto_id)!.set(row.mes, row.cantidad);
+  }
+
+  return resultado;
+}
+
+/**
+ * Función de utilidad para importar/actualizar productos desde Excel.
+ * Crea o actualiza un producto y devuelve su ID.
+ */
+export async function ensureProduct(
+  referencia: string,
+  nombre: string,
+  categoriaId: number,
+  unidadMedida: string,
+  precio?: number | null
+): Promise<number> {
+  // Buscar si ya existe
+  const db = await getDb();
+  const existente = await db.select<{ id: number }[]>(
+    "SELECT id FROM productos_almacen WHERE referencia = ?",
+    [referencia.trim()]
+  );
+
+  if (existente.length > 0) {
+    // Actualizar
+    const producto = existente[0];
+    await actualizarProducto(producto.id, {
+      nombre: nombre.trim(),
+      categoria_id: categoriaId,
+      unidad_medida: unidadMedida.trim(),
+      precio: precio,
+    });
+    return producto.id;
+  } else {
+    // Crear nuevo
+    return await crearProducto(referencia.trim(), nombre.trim(), categoriaId, unidadMedida.trim(), precio);
+  }
 }
