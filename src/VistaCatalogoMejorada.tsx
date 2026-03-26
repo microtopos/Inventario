@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from "react"
 import { useConfirm } from "./ConfirmDialog"
 import { useToast } from "./Toast"
 import * as XLSX from "xlsx"
@@ -548,7 +548,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                 const isExpanded = expandedCategories.has(cat.id)
 
                 return (
-                  <tbody key={cat.id}>
+                  <Fragment key={cat.id}>
                     {/* Fila de categoría */}
                     <tr
                       style={{ backgroundColor: "#f3f4f6", cursor: "pointer" }}
@@ -628,37 +628,33 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                         </tr>
                       )
                     })}
-                  </tbody>
+                  </Fragment>
                 )
               })}
 
               {/* Fila de totales */}
               {productosFiltrados.length > 0 && (
-                <tbody>
-                  <tr style={{ backgroundColor: "#e5e7eb", fontWeight: 700 }}>
-                    <td colSpan={5} style={{ padding: "12px", textAlign: "right", color: "#374151" }}>TOTALES</td>
-                    {totalesPorMes.map((total, i) => (
-                      <td key={i} style={{ padding: "12px", textAlign: "center", color: "#16a34a" }}>
-                        {total.toLocaleString()}
-                      </td>
-                    ))}
-                    <td style={{ padding: "12px", textAlign: "right", color: "#16a34a" }}>
-                      {totalesPorMes.reduce((a, b) => a + b, 0).toLocaleString()}
+                <tr style={{ backgroundColor: "#e5e7eb", fontWeight: 700 }}>
+                  <td colSpan={5} style={{ padding: "12px", textAlign: "right", color: "#374151" }}>TOTALES</td>
+                  {totalesPorMes.map((total, i) => (
+                    <td key={i} style={{ padding: "12px", textAlign: "center", color: "#16a34a" }}>
+                      {total.toLocaleString()}
                     </td>
-                    <td></td>
-                  </tr>
-                </tbody>
+                  ))}
+                  <td style={{ padding: "12px", textAlign: "right", color: "#16a34a" }}>
+                    {totalesPorMes.reduce((a, b) => a + b, 0).toLocaleString()}
+                  </td>
+                  <td></td>
+                </tr>
               )}
 
               {/* Mensaje si no hay productos */}
               {productosFiltrados.length === 0 && (
-                <tbody>
-                  <tr>
-                    <td colSpan={19} style={{ padding: "40px", textAlign: "center", color: "#999" }}>
-                      No se encontraron productos
-                    </td>
-                  </tr>
-                </tbody>
+                <tr>
+                  <td colSpan={19} style={{ padding: "40px", textAlign: "center", color: "#999" }}>
+                    No se encontraron productos
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
