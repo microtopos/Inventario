@@ -296,6 +296,13 @@ export async function getResumenPorVehiculo(
   const condiciones: string[] = [];
   const params: (string | number)[] = [];
 
+  // Siempre incluir solo vehículos activos
+  condiciones.push("v.activo = 1");
+
+  if (filtros.vehiculo_id) {
+    condiciones.push("v.id = ?");
+    params.push(filtros.vehiculo_id);
+  }
   if (filtros.fecha_desde) {
     condiciones.push("r.fecha >= ?");
     params.push(filtros.fecha_desde);
@@ -320,7 +327,6 @@ export async function getResumenPorVehiculo(
      FROM vehiculos v
      LEFT JOIN repostajes r ON r.vehiculo_id = v.id
      ${where}
-     WHERE v.activo = 1
      GROUP BY v.id
      ORDER BY gasto_total DESC NULLS LAST`,
     params

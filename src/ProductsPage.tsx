@@ -435,7 +435,8 @@ function VistaEstadisticas() {
   const [consumoMensual, setConsumoMensual] = useState<ConsumoMensualDepartamento[]>([])
   const [resumen, setResumen] = useState<ResumenDepartamento[]>([])
   const [salidasFiltradas, setSalidasFiltradas] = useState<SalidaProducto[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loadingGeneral, setLoadingGeneral] = useState(false)
+  const [loadingSalidas, setLoadingSalidas] = useState(false)
   const [showNewDeptInput, setShowNewDeptInput] = useState(false)
   const [newDeptName, setNewDeptName] = useState("")
 
@@ -449,31 +450,46 @@ function VistaEstadisticas() {
   }, [])
 
   useEffect(() => {
-    loadStats()
+    loadGeneralStats()
+  }, [anio, mes, categoriaId])
+
+  useEffect(() => {
+    loadSalidasFiltradas()
   }, [anio, mes, categoriaId, departamentoFiltro])
 
-  async function loadStats() {
-    setLoading(true)
+  async function loadGeneralStats() {
+    setLoadingGeneral(true)
     try {
-      const [matrizData, consumoData, resumenData, salidasData] = await Promise.all([
+      const [matrizData, consumoData, resumenData] = await Promise.all([
         getMatrizConsumo(anio, mes, categoriaId === "" ? undefined : Number(categoriaId)),
         getConsumoMensualPorDepartamento({ anio_desde: anio, anio_hasta: anio }),
         getResumenPorDepartamento({ anio, categoria_id: categoriaId === "" ? undefined : Number(categoriaId) }),
-        getSalidas({
-          anio,
-          mes,
-          departamento_id: departamentoFiltro === "" ? undefined : Number(departamentoFiltro),
-          categoria_id: categoriaId === "" ? undefined : Number(categoriaId),
-        }),
       ])
       setMatriz(matrizData.matriz)
       setConsumoMensual(consumoData)
       setResumen(resumenData)
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    } finally {
+      setLoadingGeneral(false)
+    }
+  }
+
+  async function loadSalidasFiltradas() {
+    setLoadingSalidas(true)
+    setSalidasFiltradas([])
+    try {
+      const salidasData = await getSalidas({
+        anio,
+        mes,
+        departamento_id: departamentoFiltro === "" ? undefined : Number(departamentoFiltro),
+        categoria_id: categoriaId === "" ? undefined : Number(categoriaId),
+      })
       setSalidasFiltradas(salidasData)
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     } finally {
-      setLoading(false)
+      setLoadingSalidas(false)
     }
   }
 
@@ -615,13 +631,18 @@ function VistaEstadisticas() {
               </select>
             )}
           </div>
-          <button onClick={loadStats} style={{ ...btnStyle, backgroundColor: "#16a34a", color: "#fff", border: "none", fontSize: "13px" }}>
+          <button onClick={() => { loadGeneralStats(); loadSalidasFiltradas(); }} style={{ ...btnStyle, backgroundColor: "#16a34a", color: "#fff", border: "none", fontSize: "13px" }}>
             ↻ Actualizar
           </button>
         </div>
       </div>
 
-      {loading ? (
+      {/* Indicador de filtro */}
+      <div style={{ fontSize: "11px", color: "#666", marginBottom: "12px" }}>
+        ℹ️ El filtro de departamento se aplica únicamente a la tabla de salidas.
+      </div>
+
+      {loadingGeneral ? (
         <div style={{ padding: "60px", textAlign: "center", color: "#888" }}>Cargando estadísticas...</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
@@ -797,7 +818,9 @@ function VistaEstadisticas() {
               Consumo mensual por producto — {MESES[mes-1]} {anio}
               {departamentoFiltro && ` — ${departamentos.find(d => d.id === departamentoFiltro)?.nombre}`}
             </h3>
-            {salidasFiltradas.length === 0 ? (
+            {loadingSalidas ? (
+              <div style={{ textAlign: "center", padding: "20px", color: "#888" }}>Cargando salidas...</div>
+            ) : salidasFiltradas.length === 0 ? (
               <div style={{ textAlign: "center", padding: "40px", color: "#999" }}>No hay registros de consumo para el periodo seleccionado.</div>
             ) : (
               <div style={{ overflowX: "auto" }}>

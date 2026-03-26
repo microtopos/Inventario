@@ -56,8 +56,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   // Mapa de salidas: producto_id -> mes -> cantidad
   const [salidasMap, setSalidasMap] = useState<Map<number, Map<number, number>>>(new Map())
 
-  // Ref para rastrear la última solicitud de carga de salidas
-  const salidasRequestIdRef = useRef(0)
+  // Ref para almacenar el departamento/año para el cual están cargados los datos actuales
+  const cachedDeptYearRef = useRef<{ dept: number | ""; year: number } | null>(null)
 
   // Carga inicial de datos (useCallback para usar en useEffect)
   const loadInitialData = useCallback(async () => {
@@ -82,25 +82,31 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
   // Cargar salidas para departamento/año específico
   const cargarSalidas = useCallback(async () => {
-    if (departamentoId === "") return
+    if (departamentoId === "") {
+      // Cuando no hay departamento seleccionado, limpiar el mapa y la caché
+      setSalidasMap(new Map())
+      cachedDeptYearRef.current = null
+      return
+    }
 
-    // Generar un ID único para esta solicitud
-    const currentRequestId = ++salidasRequestIdRef.current
     const deptAlMomento = departamentoId
     const yearAlMomento = year
 
-    // Limpiar el mapa inmediatamente para no mostrar datos del departamento anterior
-    setSalidasMap(new Map())
+    // Si ya tenemos datos cargados para este departamento/año, no hacer nada
+    if (cachedDeptYearRef.current?.dept === deptAlMomento && cachedDeptYearRef.current.year === yearAlMomento) {
+      return
+    }
 
     try {
       const mapa = await getSalidasByYear(yearAlMomento, Number(deptAlMomento))
 
-      // Solo actualizar si esta es la solicitud más reciente
-      if (salidasRequestIdRef.current === currentRequestId) {
-        setSalidasMap(mapa)
-      }
+      // Actualizar el mapa y marcar como caché actual
+      setSalidasMap(mapa)
+      cachedDeptYearRef.current = { dept: deptAlMomento, year: yearAlMomento }
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
+      // En caso de error, limpiar la caché para permitir reintento
+      cachedDeptYearRef.current = null
     }
   }, [departamentoId, year, toast])
 
@@ -110,6 +116,14 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   }, [loadInitialData])
 
   // Cada vez que cambia departamento o año, recargar salidas
+  useEffect(() => {
+    if (departamentoId === "") {
+      // Limpiar cuando no hay departamento seleccionado
+      setSalidasMap(new Map())
+      cachedDeptYearRef.current = null
+    }
+  }, [departamentoId])
+
   useEffect(() => {
     if (departamentoId !== "" && year) {
       cargarSalidas()
@@ -361,6 +375,11 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         }
         return nuevo
       })
+
+      // Mantener la caché actualizada (seguimos en el mismo dept/año)
+      if (cachedDeptYearRef.current?.dept === Number(departamentoId) && cachedDeptYearRef.current.year === year) {
+        cachedDeptYearRef.current = { dept: Number(departamentoId), year }
+      }
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     } finally {
@@ -383,6 +402,12 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         nuevo.delete(producto.id)
         return nuevo
       })
+
+      // Mantener la caché actualizada (seguimos en el mismo dept/año)
+      if (cachedDeptYearRef.current?.dept === Number(departamentoId) && cachedDeptYearRef.current.year === year) {
+        cachedDeptYearRef.current = { dept: Number(departamentoId), year }
+      }
+
       toast.success("Producto eliminado")
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
@@ -574,9 +599,11 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                       style={{ backgroundColor: "#f3f4f6", cursor: "pointer" }}
                       onClick={() => toggleCategory(cat.id)}
                     >
-                      <td colSpan={5} style={{ padding: "10px 12px", fontWeight: 700, color: "#374151", display: "flex", alignItems: "center", gap: "8px" }}>
-                        <span style={{ fontSize: "12px", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▶</span>
-                        {cat.nombre} ({prodsEnCat.length})
+                      <td colSpan={19} style={{ padding: "10px 12px", fontWeight: 700, color: "#374151", verticalAlign: "middle" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                          <span style={{ fontSize: "12px", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▶</span>
+                          {cat.nombre} ({prodsEnCat.length})
+                        </div>
                       </td>
                     </tr>
 
@@ -688,7 +715,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           onClose={() => setEditingProductId(null)}
           onSaved={async () => {
             await loadInitialData()
-            await loadSalidas()
+            await cargarSalidas()
             setEditingProductId(null)
           }}
           categorias={categorias}

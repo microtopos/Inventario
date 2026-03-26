@@ -363,23 +363,23 @@ function RopaStats() {
         {/* PAGINATION */}
         {movPagination.totalPages > 1 && (
           <div style={{ display: "flex", justifyContent: "center", gap: "6px", marginTop: "16px" }}>
-            {Array.from({ length: movPagination.totalPages }, (_, i) => i + 1).map(page => (
+            {Array.from({ length: movPagination.totalPages }, (_, i) => i).map(pageIndex => (
               <button
-                key={page}
-                onClick={() => movPagination.goToPage(page)}
+                key={pageIndex}
+                onClick={() => movPagination.goToPage(pageIndex)}
                 style={{
                   padding: "6px 12px",
                   borderRadius: "6px",
                   border: "1px solid",
-                  borderColor: movPagination.page === page ? "#2563eb" : "#e5e7eb",
-                  backgroundColor: movPagination.page === page ? "#eff6ff" : "#fff",
-                  color: movPagination.page === page ? "#2563eb" : "#666",
+                  borderColor: movPagination.page === pageIndex ? "#2563eb" : "#e5e7eb",
+                  backgroundColor: movPagination.page === pageIndex ? "#eff6ff" : "#fff",
+                  color: movPagination.page === pageIndex ? "#2563eb" : "#666",
                   fontSize: "13px",
                   fontWeight: 500,
                   cursor: "pointer",
                 }}
               >
-                {page}
+                {pageIndex + 1}
               </button>
             ))}
           </div>
