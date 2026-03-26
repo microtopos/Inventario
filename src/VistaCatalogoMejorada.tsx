@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useConfirm } from "./ConfirmDialog"
 import { useToast } from "./Toast"
+import * as XLSX from "xlsx"
 import {
   getCategorias,
   getProductos,
@@ -10,13 +11,21 @@ import {
   deleteProduct,
   upsertSalida,
   crearDepartamentoProd,
+  crearCategoria,
+  ensureProduct,
   type CategoriaProducto,
   type ProductoAlmacen,
   type DepartamentoProd,
   getSalidasByYear,
 } from "./productosService"
 import { ModalProducto } from "./ProductModal"
-import ImportarProductosModal from "./ImportarProductosModal"
+
+async function getOrCreateCategoriaId(nombre: string): Promise<number> {
+  const cats = await getCategorias();
+  const existente = cats.find(c => c.nombre.toUpperCase() === nombre.toUpperCase());
+  if (existente) return existente.id;
+  return await crearCategoria(nombre);
+}
 
 const MESES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -37,11 +46,12 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [searchTerm, setSearchTerm] = useState("")
   const [expandedCategories, setExpandedCategories] = useState<Set<number>>(new Set())
   const [editingProductId, setEditingProductId] = useState<number | null>(null)
-  const [showImportModal, setShowImportModal] = useState(false)
   const [loading, setLoading] = useState(true)
   const [savingCell, setSavingCell] = useState<{ productoId: number; mes: number } | null>(null)
   const [showNewDeptInput, setShowNewDeptInput] = useState(false)
   const [newDeptName, setNewDeptName] = useState("")
+  const [isImporting, setIsImporting] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Mapa de salidas: producto_id -> mes -> cantidad
   const [salidasMap, setSalidasMap] = useState<Map<number, Map<number, number>>>(new Map())
@@ -71,6 +81,166 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       toast.error("Error", e?.message ?? String(e))
     }
   }
+
+  const handleImportClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (departamentoId === "" || departamentoId <= 0) {
+      toast.error("Error", "Selecciona un departamento válido antes de importar");
+      return;
+    }
+
+    setIsImporting(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const sheetName = workbook.SheetNames[0];
+      const worksheet = workbook.Sheets[sheetName];
+      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+      const monthMap: { [key: string]: number } = {
+        'ENE': 1, 'ENERO': 1,
+        'FEB': 2, 'FEBRERO': 2,
+        'MAR': 3, 'MARZO': 3,
+        'ABR': 4, 'ABRIL': 4,
+        'MAY': 5, 'MAYO': 5,
+        'JUN': 6, 'JUNIO': 6,
+        'JUL': 7, 'JULIO': 7,
+        'AGO': 8, 'AGOSTO': 8,
+        'SET': 9, 'SEP': 9, 'SEPTIEMBRE': 9,
+        'OCT': 10, 'OCTUBRE': 10,
+        'NOV': 11, 'NOVIEMBRE': 11,
+        'DIC': 12, 'DICIEMBRE': 12,
+      };
+      const monthNames = Object.keys(monthMap);
+      let headerRowIndex = -1;
+      for (let i = 0; i < Math.min(10, data.length); i++) {
+        const currentRow = data[i] || [];
+        const rowStr = currentRow.map(c => String(c || '')).join(' ').toUpperCase();
+        if (monthNames.some(m => rowStr.includes(m))) {
+          headerRowIndex = i;
+          break;
+        }
+      }
+      if (headerRowIndex === -1) {
+        throw new Error("No se encontró encabezado con meses en el archivo");
+      }
+
+      const headerRow = data[headerRowIndex];
+      const detectedMonths: { idx: number; month: number }[] = [];
+      headerRow.forEach((col: any, idx: number) => {
+        const colStr = String(col || '').toUpperCase().trim();
+        for (const [name, monthNum] of Object.entries(monthMap)) {
+          if (colStr.includes(name)) {
+            detectedMonths.push({ idx, month: monthNum });
+            break;
+          }
+        }
+      });
+      if (detectedMonths.length === 0) {
+        throw new Error("No se detectaron columnas de meses");
+      }
+
+      const categoriesSeen: string[] = [];
+      const productos: any[] = [];
+      let currentCategory = "SIN CATEGORÍA";
+
+      for (let i = headerRowIndex + 1; i < data.length; i++) {
+        const row = data[i];
+        if (!row || row.length === 0) continue;
+
+        const ref = row[0];
+        const desc = row[1];
+        const refStr = (ref ?? '').toString().trim();
+        const descStr = (desc ?? '').toString().trim();
+
+        if (refStr !== '' && descStr === '') {
+          currentCategory = refStr;
+          if (!categoriesSeen.includes(currentCategory)) {
+            categoriesSeen.push(currentCategory);
+          }
+          continue;
+        }
+
+        if (refStr === '') continue;
+
+        const prod = {
+          referencia: refStr,
+          nombre: descStr,
+          categoria_nombre: currentCategory,
+          unidad_medida: "UNIDAD",
+          meses: {} as { [key: number]: number },
+        };
+
+        for (const { idx, month } of detectedMonths) {
+          const val = row[idx];
+          if (val !== undefined && val !== null) {
+            const str = String(val).trim();
+            if (str) {
+              const num = parseInt(str.split(' ')[0], 10);
+              if (!isNaN(num) && num > 0) {
+                prod.meses[month] = num;
+              }
+            }
+          }
+        }
+        productos.push(prod);
+      }
+
+      if (productos.length === 0) {
+        throw new Error("No se encontraron productos para importar");
+      }
+
+      const batchSize = 10;
+      let importedCount = 0;
+      for (let i = 0; i < productos.length; i++) {
+        const prod = productos[i];
+        try {
+          const catId = await getOrCreateCategoriaId(prod.categoria_nombre || "SIN CATEGORÍA");
+          const productoId = await ensureProduct(
+            prod.referencia,
+            prod.nombre,
+            catId,
+            prod.unidad_medida || "UNIDAD"
+          );
+          for (const [mes, cantidad] of Object.entries(prod.meses)) {
+            await upsertSalida({
+              producto_id: productoId,
+              departamento_id: departamentoId as number,
+              cantidad,
+              mes: Number(mes),
+              anio: year,
+            });
+          }
+          importedCount++;
+        } catch (err) {
+          console.error(`Error importando producto ${prod.referencia}:`, err);
+        }
+
+        if ((i + 1) % batchSize === 0 && i < productos.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 150));
+        }
+      }
+
+      toast.success("Importación completada", `Se importaron ${importedCount} productos`);
+      await loadInitialData();
+      await loadSalidas();
+    } catch (err: any) {
+      toast.error("Error importando archivo", err.message || String(err));
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
 
   async function loadInitialData() {
     setLoading(true)
@@ -216,6 +386,13 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
   return (
     <div>
+      <input
+        type="file"
+        ref={fileInputRef}
+        style={{ display: 'none' }}
+        accept=".xlsx,.xls,.csv"
+        onChange={handleFileSelected}
+      />
       {/* Barra superior de controles */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
         <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
@@ -316,10 +493,22 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
         <div style={{ display: "flex", gap: "8px" }}>
           <button
-            onClick={() => setShowImportModal(true)}
-            style={{ padding: "8px 16px", border: "1px solid #d1d5db", borderRadius: "8px", backgroundColor: "#fff", fontSize: "14px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
+            onClick={handleImportClick}
+            disabled={isImporting}
+            style={{
+              padding: "8px 16px",
+              border: "1px solid #d1d5db",
+              borderRadius: "8px",
+              backgroundColor: "#fff",
+              fontSize: "14px",
+              cursor: isImporting ? "not-allowed" : "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              opacity: isImporting ? 0.6 : 1
+            }}
           >
-            📥 Importar Excel
+            {isImporting ? "Importando..." : "📥 Importar Excel"}
           </button>
           <button
             onClick={() => setEditingProductId("nuevo" as any)}
@@ -490,19 +679,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         />
       )}
 
-      {showImportModal && (
-        <ImportarProductosModal
-          onClose={() => setShowImportModal(false)}
-          onImported={async () => {
-            await loadInitialData()
-            await loadSalidas()
-            setShowImportModal(false)
-            toast.success("Importación completada")
-          }}
-          onDepartamentoCreado={handleDepartamentoCreado}
-          departamentos={departamentos}
-        />
-      )}
     </div>
   )
 }
