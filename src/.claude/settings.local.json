@@ -10,7 +10,8 @@
       "Bash(find /c/Users/dan.pirlitu/Desktop/\"Inventario Ropa\" -maxdepth 1 -type f ! -name \".gitignore\" -exec git status --porcelain {})",
       "Bash(find . -name *.db -o -name inventario.db)",
       "Read(//c/Users/dan.pirlitu/Desktop/Inventario Ropa/**)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

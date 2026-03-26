@@ -6,17 +6,15 @@ import {
   getCategorias,
   getProductos,
   getDepartamentosProd,
-  actualizarProducto,
-  crearProducto,
   deleteProduct,
   upsertSalida,
   crearDepartamentoProd,
   crearCategoria,
   ensureProduct,
+  getSalidasByYear,
   type CategoriaProducto,
   type ProductoAlmacen,
   type DepartamentoProd,
-  getSalidasByYear,
 } from "./productosService"
 import { ModalProducto } from "./ProductModal"
 
@@ -31,6 +29,34 @@ const MESES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
 ]
+
+// VistaCatalogoMejorada.tsx — Mejoras de visualización
+// ============================================================================
+// Paleta de colores para consumo (heatmap)
+function getConsumoColor(valor: number, maxValor: number): string {
+  if (valor === 0) return "#ffffff"
+  const intensidad = Math.min(valor / (maxValor || 1), 1)
+  // De amarillo claro a verde oscuro
+  if (intensidad < 0.25) return "#fef9c3" // amarillo muy claro
+  if (intensidad < 0.5) return "#fef08a"  // amarillo
+  if (intensidad < 0.75) return "#bef264"  // verde lima
+  return "#65a30d"                        // verde oscuro
+}
+
+function getConsumoTextColor(valor: number): string {
+  return valor > 0 ? "#1a1a1a" : "#9ca3af"
+}
+
+// Helper para calcular el valor máximo de consumo en la vista actual (para escalado de colores)
+function calcularMaximoConsumo(productosFiltrados: ProductoAlmacen[], getConsumo: (id: number, mes: number) => number): number {
+  let max = 0
+  for (const prod of productosFiltrados) {
+    for (let mes = 1; mes <= 12; mes++) {
+      max = Math.max(max, getConsumo(prod.id, mes))
+    }
+  }
+  return max
+}
 
 // Componente principal
 export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepartamentoCreado?: () => void }) {
@@ -52,6 +78,9 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [newDeptName, setNewDeptName] = useState("")
   const [isImporting, setIsImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [deptSearchTerm, setDeptSearchTerm] = useState("")
+  const [showDeptDropdown, setShowDeptDropdown] = useState(false)
+  const deptInputRef = useRef<HTMLDivElement>(null)
 
   // Mapa de salidas: producto_id -> mes -> cantidad
   const [salidasMap, setSalidasMap] = useState<Map<number, Map<number, number>>>(new Map())
@@ -130,6 +159,17 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }, [departamentoId, year, cargarSalidas])
 
+  // Cerrar dropdown al hacer clic fuera
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (deptInputRef.current && !deptInputRef.current.contains(e.target as Node)) {
+        setShowDeptDropdown(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   // Recargar lista de departamentos desde BD
   const handleDepartamentoCreado = async () => {
     try {
@@ -143,6 +183,15 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       toast.error("Error", e?.message ?? String(e))
     }
   }
+
+  // Departamentos filtrados por búsqueda
+  const departamentosFiltrados = useMemo(() => {
+    if (!deptSearchTerm.trim()) return departamentos
+    const term = deptSearchTerm.toLowerCase()
+    return departamentos.filter(dep =>
+      dep.nombre.toLowerCase().includes(term)
+    )
+  }, [departamentos, deptSearchTerm])
 
   const handleImportClick = () => {
     if (fileInputRef.current) {
@@ -425,6 +474,11 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     return totals
   }, [productosFiltrados, salidasMap])
 
+  // Calcular máximo consumo para escalado de colores (evita colores muy saturados)
+  const maxConsumo = useMemo(() => {
+    return calcularMaximoConsumo(productosFiltrados, getConsumo)
+  }, [productosFiltrados])
+
   if (loading) {
     return <div style={{ padding: "40px", textAlign: "center", color: "#888" }}>Cargando datos...</div>
   }
@@ -444,83 +498,246 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           {/* Buscador */}
           <input
             type="text"
-            placeholder="Buscar por referencia o nombre..."
+            placeholder="🔍 Buscar por referencia o nombre..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            style={{ padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", fontSize: "14px", minWidth: "220px" }}
+            style={{
+              padding: "10px 14px",
+              border: "2px solid #e5e7eb",
+              borderRadius: "10px",
+              fontSize: "14px",
+              minWidth: "260px",
+              transition: "border-color 0.15s",
+              backgroundColor: "#fff",
+              outline: "none"
+            }}
           />
-          {/* Filtro departamento */}
-          {showNewDeptInput ? (
-            <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-              <input
-                type="text"
-                placeholder="Nuevo departamento"
-                value={newDeptName}
-                onChange={e => setNewDeptName(e.target.value)}
-                style={{ padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", fontSize: "14px", minWidth: "180px" }}
-                autoFocus
-              />
-              <button
-                onClick={async () => {
-                  if (!newDeptName.trim()) {
-                    toast.error("Error", "Ingresa un nombre para el departamento")
-                    return
-                  }
-                  try {
-                    const nuevoId = await crearDepartamentoProd(newDeptName.trim())
-                    setDepartamentoId(nuevoId)
-                    setNewDeptName("")
+          {/* Selector de departamento simple con búsqueda */}
+          <div style={{ position: "relative" }} ref={deptInputRef}>
+            {showNewDeptInput ? (
+              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                <input
+                  type="text"
+                  placeholder="Nuevo departamento"
+                  value={newDeptName}
+                  onChange={e => setNewDeptName(e.target.value)}
+                  style={{ padding: "8px 12px", border: "2px solid #3b82f6", borderRadius: "8px", fontSize: "14px", minWidth: "200px" }}
+                  autoFocus
+                />
+                <button
+                  onClick={async () => {
+                    if (!newDeptName.trim()) {
+                      toast.error("Error", "Ingresa un nombre para el departamento")
+                      return
+                    }
+                    try {
+                      const nuevoId = await crearDepartamentoProd(newDeptName.trim())
+                      setDepartamentoId(nuevoId)
+                      setNewDeptName("")
+                      setShowNewDeptInput(false)
+                      await handleDepartamentoCreado()
+                      toast.success("Departamento creado")
+                    } catch (err: any) {
+                      toast.error("Error", err.message || "No se pudo crear el departamento")
+                    }
+                  }}
+                  disabled={!newDeptName.trim()}
+                  style={{
+                    padding: "8px 12px",
+                    border: "none",
+                    borderRadius: "8px",
+                    backgroundColor: (!newDeptName.trim()) ? "#ccc" : "#16a34a",
+                    color: "#fff",
+                    fontSize: "14px",
+                    cursor: (!newDeptName.trim()) ? "not-allowed" : "pointer"
+                  }}
+                >
+                  ✓ Crear
+                </button>
+                <button
+                  onClick={() => {
                     setShowNewDeptInput(false)
-                    // Recargar lista de departamentos
-                    await handleDepartamentoCreado()
-                    toast.success("Departamento creado")
-                  } catch (err: any) {
-                    toast.error("Error", err.message || "No se pudo crear el departamento")
-                  }
-                }}
-                disabled={!newDeptName.trim()}
-                style={{
-                  padding: "8px 12px",
-                  border: "none",
-                  borderRadius: "8px",
-                  backgroundColor: (!newDeptName.trim()) ? "#ccc" : "#16a34a",
-                  color: "#fff",
-                  fontSize: "14px",
-                  cursor: (!newDeptName.trim()) ? "not-allowed" : "pointer"
-                }}
-              >
-                ✓ Crear
-              </button>
-              <button
-                onClick={() => {
-                  setShowNewDeptInput(false)
-                  setNewDeptName("")
-                }}
-                style={{ padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", backgroundColor: "#fff", fontSize: "14px", cursor: "pointer" }}
-              >
-                ✕
-              </button>
-            </div>
-          ) : (
-            <select
-              value={departamentoId}
-              onChange={e => {
-                const val = e.target.value
-                if (val === "nuevo") {
-                  setShowNewDeptInput(true)
-                } else {
-                  setDepartamentoId(val === "" ? "" : Number(val))
-                }
-              }}
-              style={{ padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", fontSize: "14px" }}
-            >
-              <option value="">-- Todos los departamentos --</option>
-              {departamentos.map(dep => (
-                <option key={dep.id} value={dep.id}>{dep.nombre}</option>
-              ))}
-              <option value="nuevo">➕ Crear nuevo departamento...</option>
-            </select>
-          )}
+                    setNewDeptName("")
+                  }}
+                  style={{ padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", backgroundColor: "#fff", fontSize: "14px", cursor: "pointer" }}
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <>
+                <div
+                  onClick={() => setShowDeptDropdown(!showDeptDropdown)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "10px 14px",
+                    border: showDeptDropdown ? "2px solid #3b82f6" : "2px solid #e5e7eb",
+                    borderRadius: "10px",
+                    backgroundColor: "#fff",
+                    cursor: "pointer",
+                    minWidth: "260px",
+                    boxShadow: showDeptDropdown ? "0 0 0 3px rgba(59, 130, 246, 0.1)" : "none"
+                  }}
+                >
+                  <span style={{ fontSize: "14px", color: "#6b7280" }}>🏢</span>
+                  <span style={{
+                    flex: 1,
+                    fontSize: "14px",
+                    color: departamentoId === "" ? "#9ca3af" : "#374151",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap"
+                  }}>
+                    {departamentoId === "" ? "Todos los departamentos" : departamentos.find(d => d.id === departamentoId)?.nombre || "Seleccionar..."}
+                  </span>
+                  <span style={{
+                    fontSize: "12px",
+                    transition: "transform 0.2s",
+                    transform: showDeptDropdown ? "rotate(180deg)" : "rotate(0deg)",
+                    color: "#6b7280"
+                  }}>▼</span>
+                </div>
+
+                {/* Dropdown de departamentos */}
+                {showDeptDropdown && (
+                  <div style={{
+                    position: "absolute",
+                    top: "calc(100% + 4px)",
+                    left: 0,
+                    right: 0,
+                    backgroundColor: "#fff",
+                    border: "2px solid #e5e7eb",
+                    borderRadius: "10px",
+                    boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
+                    zIndex: 1000,
+                    maxHeight: "300px",
+                    overflowY: "auto",
+                  }}>
+                    {/* Input de búsqueda */}
+                    <div style={{ padding: "8px 12px", borderBottom: "1px solid #e5e7eb", position: "sticky", top: 0, backgroundColor: "#fff" }}>
+                      <input
+                        type="text"
+                        placeholder="🔍 Filtrar departamentos..."
+                        value={deptSearchTerm}
+                        onChange={(e) => setDeptSearchTerm(e.target.value)}
+                        style={{
+                          width: "100%",
+                          padding: "8px 12px",
+                          border: "1px solid #e5e7eb",
+                          borderRadius: "6px",
+                          fontSize: "13px",
+                          outline: "none",
+                          boxSizing: "border-box"
+                        }}
+                        autoFocus
+                      />
+                    </div>
+
+                    {/* Opción "Todos" */}
+                    <div
+                      onClick={() => {
+                        setDepartamentoId("")
+                        setDeptSearchTerm("")
+                        setShowDeptDropdown(false)
+                      }}
+                      style={{
+                        padding: "10px 14px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        backgroundColor: departamentoId === "" ? "#dbeafe" : "transparent",
+                        color: departamentoId === "" ? "#1e40af" : "#374151",
+                        fontWeight: departamentoId === "" ? 600 : 400,
+                        fontSize: "13px",
+                        borderBottom: "1px solid #f3f4f6"
+                      }}
+                      onMouseEnter={e => {
+                        if (departamentoId !== "") e.currentTarget.style.backgroundColor = "#f3f4f6"
+                      }}
+                      onMouseLeave={e => {
+                        if (departamentoId !== "") e.currentTarget.style.backgroundColor = "transparent"
+                      }}
+                    >
+                      <span>📁</span>
+                      <span>Todos los departamentos</span>
+                    </div>
+
+                    {/* Lista filtrada */}
+                    {departamentosFiltrados.length === 0 ? (
+                      <div style={{
+                        padding: "16px",
+                        textAlign: "center",
+                        color: "#9ca3af",
+                        fontSize: "13px"
+                      }}>
+                        No se encontraron departamentos
+                      </div>
+                    ) : (
+                      departamentosFiltrados.map(dep => (
+                        <div
+                          key={dep.id}
+                          onClick={() => {
+                            setDepartamentoId(dep.id)
+                            setDeptSearchTerm("")
+                            setShowDeptDropdown(false)
+                          }}
+                          style={{
+                            padding: "10px 14px",
+                            cursor: "pointer",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                            backgroundColor: departamentoId === dep.id ? "#dbeafe" : "transparent",
+                            color: departamentoId === dep.id ? "#1e40af" : "#374151",
+                            fontWeight: departamentoId === dep.id ? 600 : 400,
+                            fontSize: "13px"
+                          }}
+                          onMouseEnter={e => {
+                            if (departamentoId !== dep.id) e.currentTarget.style.backgroundColor = "#f3f4f6"
+                          }}
+                          onMouseLeave={e => {
+                            if (departamentoId !== dep.id) e.currentTarget.style.backgroundColor = "transparent"
+                          }}
+                        >
+                          <span>🏢</span>
+                          <span>{dep.nombre}</span>
+                        </div>
+                      ))
+                    )}
+
+                    {/* Crear nuevo departamento */}
+                    <div style={{ borderTop: "1px solid #e5e7eb" }}>
+                      <div
+                        onClick={() => {
+                          setShowDeptDropdown(false)
+                          setShowNewDeptInput(true)
+                          setDeptSearchTerm("")
+                        }}
+                        style={{
+                          padding: "12px 14px",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          backgroundColor: "#f0fdf4",
+                          color: "#16a34a",
+                          fontWeight: 500
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.backgroundColor = "#dcfce7"}
+                        onMouseLeave={e => e.currentTarget.style.backgroundColor = "#f0fdf4"}
+                      >
+                        <span>➕</span>
+                        <span style={{ fontSize: "13px" }}>Crear nuevo departamento...</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
           {/* Selector año */}
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <label style={{ fontSize: "14px", color: "#666" }}>Año:</label>
@@ -557,7 +774,21 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           </button>
           <button
             onClick={() => setEditingProductId("nuevo" as any)}
-            style={{ padding: "8px 16px", border: "none", borderRadius: "8px", backgroundColor: "#16a34a", color: "#fff", fontSize: "14px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
+            style={{
+              padding: "10px 18px",
+              border: "none",
+              borderRadius: "10px",
+              backgroundColor: "#16a34a",
+              color: "#fff",
+              fontSize: "14px",
+              fontWeight: 600,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              boxShadow: "0 2px 4px rgba(22, 163, 74, 0.2)",
+              transition: "all 0.15s"
+            }}
           >
             + Nuevo producto
           </button>
@@ -566,13 +797,62 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
       {/* Tabla */}
       {departamentoId === "" ? (
-        <div style={{ padding: "40px", textAlign: "center", color: "#666", backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: "12px" }}>
-          Selecciona un departamento para ver y editar los consumos mensuales.
+        <div style={{
+          padding: "60px",
+          textAlign: "center",
+          color: "#6b7280",
+          backgroundColor: "#fff",
+          border: "2px dashed #e5e7eb",
+          borderRadius: "16px"
+        }}>
+          <div style={{ fontSize: "18px", fontWeight: 600, marginBottom: "12px" }}>
+            📊 Selecciona un departamento
+          </div>
+          <div style={{ fontSize: "14px" }}>
+            Elige un departamento del menú desplegable para ver y editar los consumos mensuales.
+          </div>
         </div>
       ) : (
-        <div style={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: "12px", overflow: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px", whiteSpace: "nowrap" }}>
-            <thead style={{ backgroundColor: "#f9fafb", position: "sticky", top: 0, zIndex: 10 }}>
+        <div style={{
+          backgroundColor: "#fff",
+          border: "2px solid #e5e7eb",
+          borderRadius: "16px",
+          overflow: "auto",
+          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)"
+        }}>
+          {/* Leyenda de colores */}
+          <div style={{
+            padding: "10px 16px",
+            backgroundColor: "#f9fafb",
+            borderBottom: "1px solid #e5e7eb",
+            display: "flex",
+            alignItems: "center",
+            gap: "16px",
+            fontSize: "11px",
+            color: "#6b7280",
+            flexWrap: "wrap"
+          }}>
+            <span style={{ fontWeight: 600, color: "#374151", fontSize: "12px" }}>Intensidad de consumo:</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <div style={{ width: "14px", height: "14px", backgroundColor: "#ffffff", border: "1px solid #d1d5db", borderRadius: "3px" }}></div>
+              <span>Ninguno</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <div style={{ width: "14px", height: "14px", backgroundColor: "#fef08a", border: "1px solid #facc15", borderRadius: "3px" }}></div>
+              <span>Bajo</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <div style={{ width: "14px", height: "14px", backgroundColor: "#bef264", border: "1px solid #a3e635", borderRadius: "3px" }}></div>
+              <span>Medio</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+              <div style={{ width: "14px", height: "14px", backgroundColor: "#65a30d", border: "1px solid #4d7c0f", borderRadius: "3px" }}></div>
+              <span>Alto</span>
+            </div>
+          </div>
+
+          <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "13px", whiteSpace: "nowrap" }}>
+            <thead style={{ backgroundColor: "#3b82f6", position: "sticky", top: 48, zIndex: 10 }}>
               <tr>
                 <th style={{ ...thStyle, minWidth: "100px" }}>Referencia</th>
                 <th style={{ ...thStyle, minWidth: "200px" }}>Nombre</th>
@@ -596,13 +876,37 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                   <Fragment key={cat.id}>
                     {/* Fila de categoría */}
                     <tr
-                      style={{ backgroundColor: "#f3f4f6", cursor: "pointer" }}
+                      style={{
+                        backgroundColor: "#dbeafe",
+                        cursor: "pointer",
+                        borderBottom: isExpanded ? "2px solid #3b82f6" : "1px solid #bfdbfe",
+                        transition: "background-color 0.15s"
+                      }}
                       onClick={() => toggleCategory(cat.id)}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.backgroundColor = "#bfdbfe"
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.backgroundColor = "#dbeafe"
+                      }}
                     >
-                      <td colSpan={19} style={{ padding: "10px 12px", fontWeight: 700, color: "#374151", verticalAlign: "middle" }}>
+                      <td colSpan={19} style={{ padding: "12px 16px", fontWeight: 700, color: "#1e40af", verticalAlign: "middle" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span style={{ fontSize: "12px", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>▶</span>
-                          {cat.nombre} ({prodsEnCat.length})
+                          <span style={{
+                            fontSize: "14px",
+                            transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
+                            transition: "transform 0.2s",
+                            color: "#3b82f6"
+                          }}>▶</span>
+                          <span style={{ fontSize: "14px" }}>{cat.nombre}</span>
+                          <span style={{
+                            fontSize: "11px",
+                            padding: "2px 8px",
+                            borderRadius: "12px",
+                            backgroundColor: "rgba(59, 130, 246, 0.1)",
+                            color: "#3b82f6",
+                            fontWeight: 600
+                          }}>{prodsEnCat.length}</span>
                         </div>
                       </td>
                     </tr>
@@ -611,28 +915,66 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                     {isExpanded && prodsEnCat.map(prod => {
                       const totalProd = MESES.reduce((sum, _, idx) => sum + getConsumo(prod.id, idx + 1), 0)
                       return (
-                        <tr key={prod.id} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                        <tr
+                          key={prod.id}
+                          style={{
+                            borderBottom: "1px solid #e5e7eb",
+                            backgroundColor: prod.activo === false ? "#f9fafb" : "#fff",
+                            transition: "background-color 0.15s"
+                          }}
+                          onMouseEnter={e => {
+                            if (prod.activo !== false) {
+                              e.currentTarget.style.backgroundColor = "#f0f9ff"
+                            }
+                          }}
+                          onMouseLeave={e => {
+                            if (prod.activo !== false) {
+                              e.currentTarget.style.backgroundColor = "#fff"
+                            }
+                          }}
+                        >
                           <td style={tdStyle}>
-                            <div style={{ fontWeight: 600, color: "#2563eb", fontSize: "13px" }}>{prod.referencia}</div>
+                            <div style={{ fontWeight: 700, color: prod.activo === false ? "#9ca3af" : "#1d4ed8", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
+                              {prod.referencia}
+                              {prod.activo === false && (
+                                <span style={{
+                                  fontSize: "10px",
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  backgroundColor: "#f3f4f6",
+                                  color: "#6b7280",
+                                  fontWeight: 500,
+                                  border: "1px solid #e5e7eb"
+                                }}>INACTIVO</span>
+                              )}
+                            </div>
                           </td>
                           <td style={tdStyle}>
-                            <div style={{ fontSize: "13px", color: "#444" }}>{prod.nombre}</div>
+                            <div style={{
+                              fontSize: "13px",
+                              color: prod.activo === false ? "#9ca3af" : "#1f2937",
+                              fontWeight: prod.activo === false ? 400 : 500
+                            }}>
+                              {prod.nombre}
+                            </div>
                           </td>
                           <td style={{ ...tdStyle, textAlign: "right", fontSize: "13px", color: "#666" }}>
                             {prod.precio !== null && prod.precio !== undefined
                               ? prod.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"
                               : "-"}
                           </td>
-                          <td style={tdStyle}>
-                            <div style={{ fontSize: "12px", color: "#666" }}>{cat.nombre}</div>
+                          <td style={{ ...tdStyle, fontSize: "12px", color: "#6b7280", fontStyle: "italic" }}>
+                            {cat.nombre}
                           </td>
                           <td style={{ ...tdStyle, fontSize: "12px", fontStyle: "italic", color: "#666" }}>{prod.unidad_medida}</td>
                           {MESES.map((_, idx) => {
                             const mes = idx + 1
                             const valor = getConsumo(prod.id, mes)
                             const isSaving = savingCell?.productoId === prod.id && savingCell?.mes === mes
+                            const bgColor = getConsumoColor(valor, maxConsumo)
+                            const textColor = getConsumoTextColor(valor)
                             return (
-                              <td key={mes} style={{ padding: "4px", textAlign: "center" }}>
+                              <td key={mes} style={{ padding: "4px", textAlign: "center", backgroundColor: bgColor }}>
                                 <input
                                   type="number"
                                   min="0"
@@ -642,18 +984,29 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                                   style={{
                                     width: "60px",
                                     padding: "4px",
-                                    border: "1px solid #e5e7eb",
+                                    border: "1px solid rgba(0,0,0,0.1)",
                                     borderRadius: "4px",
                                     textAlign: "center",
                                     fontSize: "12px",
-                                    backgroundColor: isSaving ? "#f5f5f5" : "#fff",
-                                    color: "#374151",
+                                    backgroundColor: isSaving ? "#f5f5f5" : "rgba(255,255,255,0.9)",
+                                    color: textColor,
+                                    fontWeight: valor > 0 ? 600 : 400,
+                                    cursor: "pointer",
+                                    transition: "all 0.15s",
+                                    outline: "none"
                                   }}
                                 />
                               </td>
                             )
                           })}
-                          <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, fontSize: "13px", color: "#16a34a" }}>
+                          <td style={{
+                            ...tdStyle,
+                            textAlign: "right",
+                            fontWeight: 700,
+                            fontSize: "13px",
+                            color: "#059669",
+                            backgroundColor: totalProd > 0 ? "#ecfdf5" : "transparent"
+                          }}>
                             {totalProd.toLocaleString()}
                           </td>
                           <td style={{ ...tdStyle, textAlign: "center" }}>
@@ -681,14 +1034,14 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
               {/* Fila de totales */}
               {productosFiltrados.length > 0 && (
-                <tr style={{ backgroundColor: "#e5e7eb", fontWeight: 700 }}>
-                  <td colSpan={5} style={{ padding: "12px", textAlign: "right", color: "#374151" }}>TOTALES</td>
+                <tr style={{ backgroundColor: "#111827", fontWeight: 700 }}>
+                  <td colSpan={5} style={{ padding: "14px", textAlign: "right", color: "#f9fafb", fontSize: "13px" }}>TOTALES</td>
                   {totalesPorMes.map((total, i) => (
-                    <td key={i} style={{ padding: "12px", textAlign: "center", color: "#16a34a" }}>
+                    <td key={i} style={{ padding: "14px", textAlign: "center", color: "#fbbf24", fontSize: "14px" }}>
                       {total.toLocaleString()}
                     </td>
                   ))}
-                  <td style={{ padding: "12px", textAlign: "right", color: "#16a34a" }}>
+                  <td style={{ padding: "14px", textAlign: "right", color: "#fbbf24", fontSize: "14px" }}>
                     {totalesPorMes.reduce((a, b) => a + b, 0).toLocaleString()}
                   </td>
                   <td></td>
@@ -698,8 +1051,18 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               {/* Mensaje si no hay productos */}
               {productosFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={19} style={{ padding: "40px", textAlign: "center", color: "#999" }}>
-                    No se encontraron productos
+                  <td colSpan={19} style={{
+                    padding: "60px",
+                    textAlign: "center",
+                    color: "#6b7280",
+                    backgroundColor: "#fafafa"
+                  }}>
+                    <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "8px" }}>
+                      No se encontraron productos
+                    </div>
+                    <div style={{ fontSize: "13px" }}>
+                      {searchTerm ? "Intenta con otro término de búsqueda" : "Agrega productos usando el botón '+ Nuevo producto'"}
+                    </div>
                   </td>
                 </tr>
               )}
@@ -726,22 +1089,22 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   )
 }
 
-// Estilos reutilizables
+// Estilos reutilizables mejorados
 const thStyle: React.CSSProperties = {
-  padding: "10px 12px",
+  padding: "12px 16px",
   textAlign: "left",
-  backgroundColor: "#f9fafb",
-  borderBottom: "1px solid #e5e7eb",
-  fontWeight: 600,
-  color: "#666",
+  backgroundColor: "#3b82f6",
+  borderBottom: "2px solid #2563eb",
+  fontWeight: 700,
+  color: "#ffffff",
   fontSize: "11px",
   textTransform: "uppercase",
-  letterSpacing: "0.05em",
+  letterSpacing: "0.1em",
 }
 
 const tdStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  color: "#444",
+  padding: "10px 16px",
+  color: "#374151",
   fontSize: "13px",
-  borderBottom: "1px solid #f0f0f0",
+  borderBottom: "1px solid #e5e7eb",
 }
