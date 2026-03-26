@@ -21,6 +21,19 @@ import {
   type SalidaProducto,
 } from "./productosService"
 import VistaCatalogoMejorada from "./VistaCatalogoMejorada"
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  BarChart,
+  Bar,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  Legend,
+} from 'recharts'
 
 const COLORS = [
   "#2563eb", "#16a34a", "#dc2626", "#9333ea",
@@ -164,6 +177,13 @@ const tdStyle: React.CSSProperties = {
   padding: "12px 16px",
   color: "#444",
   fontSize: "14px",
+}
+
+const cardStyle: React.CSSProperties = {
+  backgroundColor: "#fff",
+  border: "1px solid #e5e7eb",
+  borderRadius: "12px",
+  padding: "20px",
 }
 
 

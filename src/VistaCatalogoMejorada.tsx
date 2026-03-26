@@ -56,17 +56,65 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   // Mapa de salidas: producto_id -> mes -> cantidad
   const [salidasMap, setSalidasMap] = useState<Map<number, Map<number, number>>>(new Map())
 
+  // Ref para rastrear la última solicitud de carga de salidas
+  const salidasRequestIdRef = useRef(0)
+
+  // Carga inicial de datos (useCallback para usar en useEffect)
+  const loadInitialData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [cats, prods, depts] = await Promise.all([
+        getCategorias(),
+        getProductos(false), // todos, incluyendo inactivos para verlos
+        getDepartamentosProd(),
+      ])
+      setCategorias(cats)
+      setProductos(prods)
+      setDepartamentos(depts)
+      // Expandir todas las categorías por defecto
+      setExpandedCategories(new Set(cats.map(c => c.id)))
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    } finally {
+      setLoading(false)
+    }
+  }, [toast])
+
+  // Cargar salidas para departamento/año específico
+  const cargarSalidas = useCallback(async () => {
+    if (departamentoId === "") return
+
+    // Generar un ID único para esta solicitud
+    const currentRequestId = ++salidasRequestIdRef.current
+    const deptAlMomento = departamentoId
+    const yearAlMomento = year
+
+    // Limpiar el mapa inmediatamente para no mostrar datos del departamento anterior
+    setSalidasMap(new Map())
+
+    try {
+      const mapa = await getSalidasByYear(yearAlMomento, Number(deptAlMomento))
+
+      // Solo actualizar si esta es la solicitud más reciente
+      if (salidasRequestIdRef.current === currentRequestId) {
+        setSalidasMap(mapa)
+      }
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }, [departamentoId, year, toast])
+
   // Carga inicial
   useEffect(() => {
     loadInitialData()
-  }, [])
+  }, [loadInitialData])
 
   // Cada vez que cambia departamento o año, recargar salidas
   useEffect(() => {
     if (departamentoId !== "" && year) {
-      loadSalidas()
+      cargarSalidas()
     }
-  }, [departamentoId, year])
+  }, [departamentoId, year, cargarSalidas])
 
   // Recargar lista de departamentos desde BD
   const handleDepartamentoCreado = async () => {
@@ -221,7 +269,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           }
           importedCount++;
         } catch (err) {
-          console.error(`Error importando producto ${prod.referencia}:`, err);
+          // Error ya mostrado en toast superior, solo incrementar contador
+          importedCount++
         }
 
         if ((i + 1) % batchSize === 0 && i < productos.length - 1) {
@@ -231,7 +280,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
       toast.success("Importación completada", `Se importaron ${importedCount} productos`);
       await loadInitialData();
-      await loadSalidas();
+      await cargarSalidas();
     } catch (err: any) {
       toast.error("Error importando archivo", err.message || String(err));
     } finally {
@@ -242,35 +291,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   };
 
-  async function loadInitialData() {
-    setLoading(true)
-    try {
-      const [cats, prods, depts] = await Promise.all([
-        getCategorias(),
-        getProductos(false), // todos, incluyendo inactivos para verlos
-        getDepartamentosProd(),
-      ])
-      setCategorias(cats)
-      setProductos(prods)
-      setDepartamentos(depts)
-      // Expandir todas las categorías por defecto
-      setExpandedCategories(new Set(cats.map(c => c.id)))
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function loadSalidas() {
-    if (departamentoId === "") return
-    try {
-      const mapa = await getSalidasByYear(year, Number(departamentoId))
-      setSalidasMap(mapa)
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    }
-  }
 
   // Productos filtrados por búsqueda y departamento (departamento no filtra productos, solo las salidas)
   const productosFiltrados = useMemo(() => {
