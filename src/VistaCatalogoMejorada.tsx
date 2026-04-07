@@ -159,6 +159,13 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }, [departamentoId, year, cargarSalidas])
 
+  // Auto-seleccionar el primer departamento cuando se carga la lista
+  useEffect(() => {
+    if (departamentoId === "" && departamentos.length > 0) {
+      setDepartamentoId(departamentos[0].id)
+    }
+  }, [departamentos, departamentoId])
+
   // Cerrar dropdown al hacer clic fuera
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {

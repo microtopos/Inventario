@@ -12,7 +12,7 @@ import {
   type Vehiculo, type Repostaje, type FiltrosRepostaje, type ResumenVehiculo,
 } from "./gasolinaService"
 import {
-  ResponsiveContainer, BarChart, Bar, CartesianGrid, Tooltip, XAxis, YAxis,
+  ResponsiveContainer, BarChart, Bar, CartesianGrid, Tooltip, XAxis, YAxis, Cell,
 } from "recharts"
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
@@ -508,7 +508,7 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
                       {gastoPorVehiculo
                         .filter(r => r.gasto_total > 0)
                         .map((_, i) => (
-                          <rect key={i} fill={COLORES_VEHICULO[i % COLORES_VEHICULO.length]} />
+                          <Cell key={`cell-${i}`} fill={COLORES_VEHICULO[i % COLORES_VEHICULO.length]} />
                         ))}
                     </Bar>
                   </BarChart>

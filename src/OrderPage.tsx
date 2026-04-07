@@ -534,7 +534,7 @@ export default function OrderPage({ onNavigate }: {
           <div style={{ fontSize: "11px", fontWeight: 700, color: "#888", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "10px" }}>Cantidades por talla</div>
           {!selectedProduct ? (
             <div style={{ backgroundColor: "#fff", border: "1px dashed #d1d5db", borderRadius: "12px", padding: "60px 40px", textAlign: "center", color: "#bbb" }}>
-              <div style={{ fontSize: "40px", marginBottom: "12px" }}>👗</div>
+              <div style={{ fontSize: "40px", marginBottom: "12px" }}>📦</div>
               <div style={{ fontSize: "14px", fontWeight: 500 }}>Selecciona un producto de la lista</div>
               <div style={{ fontSize: "12px", marginTop: "4px", color: "#d1d5db" }}>para añadirlo al pedido</div>
             </div>

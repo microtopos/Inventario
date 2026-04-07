@@ -120,6 +120,11 @@ function App() {
     return () => document.removeEventListener("mousedown", handleClick)
   }, [])
 
+  // Resetear scroll al cambiar de página (inventario <-> producto)
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [selectedProduct, page])
+
   // ── Navegación entre páginas ──────────────────────────────────────────────
 
   if (selectedProduct) {

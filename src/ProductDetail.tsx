@@ -270,6 +270,11 @@ export default function ProductDetail({
   // Contador para forzar recarga del hook tras aplicar ajustes
   const [movReloadKey, setMovReloadKey] = useState(0)
 
+  // Resetear scroll al abrir la página de producto
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [])
+
   const movPagination = usePagination<any>({
     fetchFn: useCallback(async (pageSize, offset) => {
       const [items, total] = await Promise.all([
