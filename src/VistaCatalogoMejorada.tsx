@@ -17,6 +17,7 @@ import {
   type DepartamentoProd,
 } from "./productosService"
 import { ModalProducto } from "./ProductModal"
+import { ModalSalida } from "./SalidaModal"
 
 async function getOrCreateCategoriaId(nombre: string): Promise<number> {
   const cats = await getCategorias();
@@ -58,10 +59,14 @@ function calcularMaximoConsumo(productosFiltrados: ProductoAlmacen[], getConsumo
   return max
 }
 
+// Total de columnas: Ref + Nombre + Precio + Categoría + Unidad + 12 meses + Total + Acciones
+const TOTAL_COLS = 20
+
 // Componente principal
 export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepartamentoCreado?: () => void }) {
   const toast = useToast()
-  const { confirm } = useConfirm()
+  const { confirm, dialog } = useConfirm()
+  const [showSalidaModal, setShowSalidaModal] = useState(false)
 
   // Estados
   const [categorias, setCategorias] = useState<CategoriaProducto[]>([])
@@ -770,7 +775,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: "8px" }}>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
           <button
             onClick={handleImportClick}
             disabled={isImporting}
@@ -793,12 +798,12 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             {isImporting ? "Importando..." : "📥 Importar Excel"}
           </button>
           <button
-            onClick={() => setEditingProductId("nuevo" as any)}
+            onClick={() => setShowSalidaModal(true)}
             style={{
               padding: "10px 20px",
               border: "none",
               borderRadius: "10px",
-              backgroundColor: "#22c55e",
+              backgroundColor: "#f97316",
               color: "#fff",
               fontSize: "13px",
               fontWeight: 600,
@@ -806,11 +811,34 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               display: "flex",
               alignItems: "center",
               gap: "6px",
-              boxShadow: "0 2px 8px rgba(34,197,94,0.25)",
+              boxShadow: "0 2px 8px rgba(249,115,22,0.25)",
               transition: "all 0.15s"
             }}
           >
-            + Nuevo producto
+            + Nueva Salida
+          </button>
+          <button
+            onClick={() => setEditingProductId("nuevo" as any)}
+            style={{
+              padding: "10px 10px",
+              border: "none",
+              borderRadius: "10px",
+              backgroundColor: "#dcfce7",
+              color: "#15803d",
+              fontSize: "12px",
+              fontWeight: 400,
+              cursor: "pointer",
+              transition: "all 0.15s",
+              marginLeft: "auto",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.backgroundColor = "#bbf7d0"
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.backgroundColor = "#dcfce7"
+            }}
+          >
+            + nuevo producto
           </button>
         </div>
         </div>
@@ -873,10 +901,10 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           </div>
 
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "13px", whiteSpace: "nowrap" }}>
-            <thead style={{ backgroundColor: "#3b82f6", position: "sticky", top: 48, zIndex: 10 }}>
+            <thead style={{ position: "sticky", top: 48, zIndex: 10 }}>
               <tr>
-                <th style={{ ...thStyle, minWidth: "100px" }}>Referencia</th>
-                <th style={{ ...thStyle, minWidth: "200px" }}>Nombre</th>
+                <th style={{ ...thStyle, position: "sticky", left: 0, zIndex: 3, minWidth: "110px", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.15)" }}>Referencia</th>
+                <th style={{ ...thStyle, position: "sticky", left: "110px", zIndex: 2, minWidth: "220px", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)" }}>Nombre</th>
                 <th style={{ ...thStyle, minWidth: "100px" }}>Precio (€)</th>
                 <th style={{ ...thStyle, minWidth: "120px" }}>Categoría</th>
                 <th style={{ ...thStyle, minWidth: "80px" }}>Unidad</th>
@@ -884,7 +912,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                   <th key={i} style={{ ...thStyle, minWidth: "70px", textAlign: "center" }}>{mes}</th>
                 ))}
                 <th style={{ ...thStyle, minWidth: "100px", textAlign: "center" }}>Total</th>
-                <th style={{ ...thStyle, minWidth: "120px", textAlign: "center" }}>Acciones</th>
+                <th style={{ ...thStyle, position: "sticky", right: 0, zIndex: 3, minWidth: "130px", textAlign: "center", boxShadow: "-2px 0 4px -2px rgba(0,0,0,0.15)" }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -907,7 +935,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                       onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eff6ff" }}
                       onMouseLeave={e => { e.currentTarget.style.backgroundColor = isExpanded ? "#eff6ff" : "#f8fafc" }}
                     >
-                      <td colSpan={19} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", verticalAlign: "middle" }}>
+                      <td colSpan={TOTAL_COLS} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", verticalAlign: "middle", position: "sticky", left: 0, backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", zIndex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <span style={{
                             fontSize: "12px",
@@ -942,7 +970,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           onMouseEnter={e => { if (prod.activo !== false) e.currentTarget.style.backgroundColor = "#f8fafc" }}
                           onMouseLeave={e => { if (prod.activo !== false) e.currentTarget.style.backgroundColor = "#fff" }}
                         >
-                          <td style={tdStyle}>
+                          <td style={{ ...tdStyle, position: "sticky", left: 0, zIndex: 3, backgroundColor: "#fff", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.12)" }}>
                             <div style={{ fontWeight: 700, color: prod.activo === false ? "#9ca3af" : "#1d4ed8", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
                               {prod.referencia}
                               {prod.activo === false && (
@@ -958,7 +986,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                               )}
                             </div>
                           </td>
-                          <td style={tdStyle}>
+                          <td style={{ ...tdStyle, position: "sticky", left: "110px", zIndex: 2, backgroundColor: "#fff", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.08)" }}>
                             <div style={{
                               fontSize: "13px",
                               color: prod.activo === false ? "#9ca3af" : "#1f2937",
@@ -972,8 +1000,18 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                               ? prod.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"
                               : "-"}
                           </td>
-                          <td style={{ ...tdStyle, fontSize: "12px", color: "#6b7280", fontStyle: "italic" }}>
-                            {cat.nombre}
+                          <td style={{ ...tdStyle }}>
+                            <span style={{
+                              display: "inline-block",
+                              padding: "3px 10px",
+                              borderRadius: "9999px",
+                              backgroundColor: "#e0e7ff",
+                              color: "#3730a3",
+                              fontSize: "11px",
+                              fontWeight: 600,
+                            }}>
+                              {cat.nombre}
+                            </span>
                           </td>
                           <td style={{ ...tdStyle, fontSize: "12px", fontStyle: "italic", color: "#666" }}>{prod.unidad_medida}</td>
                           {MESES.map((_, idx) => {
@@ -993,16 +1031,28 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                                   style={{
                                     width: "60px",
                                     padding: "4px",
-                                    border: "1px solid rgba(0,0,0,0.1)",
+                                    border: "1px solid #d1d5db",
                                     borderRadius: "4px",
                                     textAlign: "center",
                                     fontSize: "12px",
-                                    backgroundColor: isSaving ? "#f5f5f5" : "rgba(255,255,255,0.9)",
+                                    backgroundColor: isSaving ? "#f5f5f5" : "rgba(255,255,255,0.92)",
                                     color: textColor,
                                     fontWeight: valor > 0 ? 600 : 400,
                                     cursor: "pointer",
                                     transition: "all 0.15s",
-                                    outline: "none"
+                                    outline: "none",
+                                    boxShadow: valor > 0 ? "0 0 0 1px rgba(34,197,94,0.25)" : "none",
+                                    borderColor: valor > 0 ? "#93c5fd" : "#d1d5db",
+                                  }}
+                                  onMouseEnter={e => {
+                                    if (!isSaving) {
+                                      e.currentTarget.style.borderColor = "#3b82f6"
+                                      e.currentTarget.style.boxShadow = `0 0 0 2px ${valor > 0 ? "rgba(59,130,246,0.2)" : "rgba(59,130,246,0.12)"}`
+                                    }
+                                  }}
+                                  onMouseLeave={e => {
+                                    e.currentTarget.style.borderColor = valor > 0 ? "#93c5fd" : "#d1d5db"
+                                    e.currentTarget.style.boxShadow = valor > 0 ? "0 0 0 1px rgba(34,197,94,0.25)" : "none"
                                   }}
                                 />
                               </td>
@@ -1018,7 +1068,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           }}>
                             {totalProd.toLocaleString()}
                           </td>
-                          <td style={{ ...tdStyle, textAlign: "center" }}>
+                          <td style={{ ...tdStyle, position: "sticky", right: 0, zIndex: 3, backgroundColor: "#fff", boxShadow: "-2px 0 4px -2px rgba(0,0,0,0.12)" }}>
                             <div style={{ display: "flex", gap: "6px", justifyContent: "center" }}>
                               <button
                                 onClick={() => setEditingProductId(prod.id)}
@@ -1060,7 +1110,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               {/* Mensaje si no hay productos */}
               {productosFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={19} style={{
+                  <td colSpan={TOTAL_COLS} style={{
                     padding: "60px",
                     textAlign: "center",
                     color: "#6b7280",
@@ -1080,6 +1130,9 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         </div>
       )}
 
+      {/* Diálogo de confirmación */}
+      {dialog}
+
       {/* Modales */}
       {editingProductId !== null && (
         <ModalProducto
@@ -1091,6 +1144,16 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             setEditingProductId(null)
           }}
           categorias={categorias}
+        />
+      )}
+
+      {showSalidaModal && (
+        <ModalSalida
+          onClose={async () => {
+            setShowSalidaModal(false)
+            await loadInitialData()
+            await cargarSalidas()
+          }}
         />
       )}
 

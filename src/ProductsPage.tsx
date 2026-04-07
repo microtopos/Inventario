@@ -120,20 +120,12 @@ function sumPivot(pivot: ReturnType<typeof pivotByMes>): number {
 // TYPES & UTILITIES
 // ============================================================================
 
-type SubPage = "catalog" | "register" | "stats"
+type SubPage = "catalog" | "stats"
 
 const MESES = [
   "Ene", "Feb", "Mar", "Abr", "May", "Jun",
   "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
 ]
-
-function formatEuro(n: number): string {
-  return n.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"
-}
-
-function hoy(): Date {
-  return new Date()
-}
 
 // ============================================================================
 // SHARED STYLES (reuse from original inline patterns)
@@ -190,251 +182,6 @@ const cardStyle: React.CSSProperties = {
 
 
 
-
-// ============================================================================
-// SUB-VIEW: REGISTRAR SALIDA
-// ============================================================================
-
-function VistaRegistrarSalida() {
-  const toast = useToast()
-  const [productos, setProductos] = useState<ProductoAlmacen[]>([])
-  const [departamentos, setDepartamentos] = useState<DepartamentoProd[]>([])
-  const [loadingData, setLoadingData] = useState(false)
-  const [saving, setSaving] = useState(false)
-
-  const [productoId, setProductoId] = useState<number>(0)
-  const [departamentoId, setDepartamentoId] = useState<number>(0)
-  const [cantidad, setCantidad] = useState<string>("")
-  const [mes, setMes] = useState<number>(hoy().getMonth() + 1)
-  const [anio, setAnio] = useState<number>(hoy().getFullYear())
-  const [showNewDeptInput, setShowNewDeptInput] = useState(false)
-  const [newDeptName, setNewDeptName] = useState("")
-
-  useEffect(() => {
-    loadInitialData()
-  }, [])
-
-  async function loadInitialData() {
-    setLoadingData(true)
-    try {
-      const [prods, depts] = await Promise.all([
-        getProductos(true),
-        getDepartamentosProd(),
-      ])
-      setProductos(prods)
-      setDepartamentos(depts)
-      if (prods.length > 0) setProductoId(prods[0].id)
-      if (depts.length > 0) setDepartamentoId(depts[0].id)
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    } finally {
-      setLoadingData(false)
-    }
-  }
-
-  const recargarDepartamentos = async () => {
-    try {
-      const depts = await getDepartamentosProd()
-      setDepartamentos(depts)
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    }
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    if (!productoId || !departamentoId || !cantidad || isNaN(Number(cantidad)) || Number(cantidad) <= 0) {
-      toast.error("Error", "Complete todos los campos con valores válidos")
-      return
-    }
-    setSaving(true)
-    try {
-      await upsertSalida({
-        producto_id: productoId,
-        departamento_id: departamentoId,
-        cantidad: Number(cantidad),
-        mes,
-        anio,
-      })
-      toast.success("Salida registrada/actualizada")
-      setCantidad("")
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  if (loadingData) {
-    return <div style={{ padding: "40px", textAlign: "center", color: "#888" }}>Cargando datos...</div>
-  }
-
-  const selectedProd = productos.find(p => p.id === productoId)
-
-  return (
-    <div style={{ maxWidth: "800px", margin: "0 auto" }}>
-      <div style={cardStyle}>
-        <h3 style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a", marginBottom: "20px", display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ width: "4px", height: "20px", borderRadius: "2px", backgroundColor: "#22c55e", display: "inline-block" }} />
-          Registrar Salida
-        </h3>
-
-        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
-          {/* Producto */}
-          <div>
-            <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", marginBottom: "6px", display: "block" }}>Producto</label>
-            <select
-              value={productoId}
-              onChange={e => setProductoId(Number(e.target.value))}
-              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-            >
-              {productos.map(p => (
-                <option key={p.id} value={p.id}>{p.referencia} — {p.nombre}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Departamento */}
-          <div>
-            <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", marginBottom: "6px", display: "block" }}>Departamento</label>
-            {showNewDeptInput ? (
-              <div style={{ display: "flex", gap: "6px" }}>
-                <input
-                  type="text"
-                  placeholder="Nuevo departamento"
-                  value={newDeptName}
-                  onChange={e => setNewDeptName(e.target.value)}
-                  style={{ ...inputStyle, flex: 1 }}
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!newDeptName.trim()) {
-                      toast.error("Error", "Ingresa un nombre para el departamento")
-                      return
-                    }
-                    try {
-                      const nuevoId = await crearDepartamentoProd(newDeptName.trim())
-                      setDepartamentoId(nuevoId)
-                      setNewDeptName("")
-                      setShowNewDeptInput(false)
-                      // Recargar lista de departamentos
-                      await recargarDepartamentos()
-                      toast.success("Departamento creado")
-                    } catch (err: any) {
-                      toast.error("Error", err.message || "No se pudo crear el departamento")
-                    }
-                  }}
-                  disabled={!newDeptName.trim()}
-                  style={{
-                    ...btnStyle,
-                    padding: "8px 12px",
-                    backgroundColor: (!newDeptName.trim()) ? "#ccc" : "#16a34a",
-                    color: "#fff",
-                    border: "none"
-                  }}
-                >
-                  ✓
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowNewDeptInput(false)
-                    setNewDeptName("")
-                  }}
-                  style={{ ...btnStyle, padding: "8px 12px" }}
-                >
-                  ✕
-                </button>
-              </div>
-            ) : (
-              <select
-                value={departamentoId}
-                onChange={e => {
-                  const val = e.target.value
-                  if (val === "nuevo") {
-                    setShowNewDeptInput(true)
-                  } else {
-                    setDepartamentoId(Number(val))
-                  }
-                }}
-                style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-              >
-                {departamentos.map(d => (
-                  <option key={d.id} value={d.id}>{d.nombre}</option>
-                ))}
-                <option value="nuevo">➕ Crear nuevo departamento...</option>
-              </select>
-            )}
-          </div>
-
-          {/* Cantidad */}
-          <div>
-            <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", marginBottom: "6px", display: "block" }}>Cantidad ({productos.find(p => p.id === productoId)?.unidad_medida || 'unit'})</label>
-            <input
-              type="number"
-              min="0"
-              value={cantidad}
-              onChange={e => setCantidad(e.target.value)}
-              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-              placeholder="Ej: 10"
-            />
-          </div>
-
-          {/* Mes */}
-          <div>
-            <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", marginBottom: "6px", display: "block" }}>Mes</label>
-            <select
-              value={mes}
-              onChange={e => setMes(Number(e.target.value))}
-              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-            >
-              {MESES.map((m, i) => (
-                <option key={i+1} value={i+1}>{m}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Año */}
-          <div>
-            <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", marginBottom: "6px", display: "block" }}>Año</label>
-            <input
-              type="number"
-              min="2000"
-              max="2100"
-              value={anio}
-              onChange={e => setAnio(Number(e.target.value))}
-              style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-            />
-          </div>
-        </div>
-
-        <div style={{ marginTop: "6px", display: "flex", justifyContent: "flex-end", paddingTop: "16px", borderTop: "1px solid #f1f5f9" }}>
-          <button
-            type="submit"
-            disabled={saving}
-            style={{
-              ...btnStyle,
-              backgroundColor: saving ? "#e2e8f0" : "#22c55e",
-              color: saving ? "#94a3b8" : "#fff",
-              border: "none",
-              padding: "12px 32px",
-              fontSize: "14px",
-              fontWeight: 600,
-              borderRadius: "10px",
-              boxShadow: saving ? "none" : "0 2px 8px rgba(34,197,94,0.25)",
-            }}
-          >
-            {saving ? "Guardando..." : "Registrar salida"}
-          </button>
-        </div>
-        </form>
-      </div>
-    </div>
-  )
-}
 
 // ============================================================================
 // VISTA: ESTADÍSTICAS DE PRODUCTOS
@@ -834,7 +581,6 @@ export default function ProductsPage({ onNavigate }: { onNavigate: (page: Page) 
 
   const SUB_TABS: { key: SubPage; label: string; icon: string }[] = [
     { key: "catalog", label: "Catálogo", icon: "📦" },
-    { key: "register", label: "Registrar Salida", icon: "📝" },
     { key: "stats", label: "Estadísticas", icon: "📊" },
   ]
 
@@ -886,7 +632,6 @@ export default function ProductsPage({ onNavigate }: { onNavigate: (page: Page) 
 
       <main style={{ maxWidth: "1280px", margin: "0 auto", padding: "24px" }}>
         {subPage === "catalog" && <VistaCatalogoMejorada />}
-        {subPage === "register" && <VistaRegistrarSalida />}
         {subPage === "stats" && <VistaEstadisticas />}
       </main>
     </div>
