@@ -140,50 +140,52 @@ function hoy(): Date {
 // ============================================================================
 
 const inputStyle: React.CSSProperties = {
-  padding: "8px 12px",
-  borderRadius: "8px",
-  border: "1px solid #d1d5db",
+  padding: "10px 14px",
+  borderRadius: "10px",
+  border: "1.5px solid #e2e8f0",
   backgroundColor: "#fff",
   fontSize: "14px",
   outline: "none",
-  transition: "border-color 0.15s",
+  transition: "border-color 0.15s, box-shadow 0.15s",
+  color: "#334155",
 }
 
 const btnStyle: React.CSSProperties = {
-  padding: "8px 16px",
-  borderRadius: "8px",
-  border: "1px solid #d1d5db",
+  padding: "9px 18px",
+  borderRadius: "10px",
+  border: "1.5px solid #e2e8f0",
   backgroundColor: "#fff",
-  color: "#374151",
-  fontSize: "14px",
+  color: "#475569",
+  fontSize: "13px",
   fontWeight: 500,
   cursor: "pointer",
   transition: "all 0.15s",
 }
 
 const thStyle: React.CSSProperties = {
-  padding: "12px 16px",
+  padding: "14px 16px",
   textAlign: "left",
-  backgroundColor: "#f9fafb",
-  borderBottom: "1px solid #e5e7eb",
+  backgroundColor: "#f8fafc",
+  borderBottom: "1.5px solid #e2e8f0",
   fontWeight: 600,
-  color: "#666",
-  fontSize: "12px",
+  color: "#64748b",
+  fontSize: "11px",
   textTransform: "uppercase" as const,
-  letterSpacing: "0.05em",
+  letterSpacing: "0.06em",
 }
 
 const tdStyle: React.CSSProperties = {
-  padding: "12px 16px",
-  color: "#444",
+  padding: "14px 16px",
+  color: "#334155",
   fontSize: "14px",
 }
 
 const cardStyle: React.CSSProperties = {
   backgroundColor: "#fff",
-  border: "1px solid #e5e7eb",
-  borderRadius: "12px",
-  padding: "20px",
+  border: "1px solid #f1f5f9",
+  borderRadius: "16px",
+  padding: "22px",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06)",
 }
 
 
@@ -267,13 +269,17 @@ function VistaRegistrarSalida() {
     return <div style={{ padding: "40px", textAlign: "center", color: "#888" }}>Cargando datos...</div>
   }
 
+  const selectedProd = productos.find(p => p.id === productoId)
+
   return (
     <div style={{ maxWidth: "800px", margin: "0 auto" }}>
-      <h2 style={{ fontSize: "18px", fontWeight: 700, color: "#111", marginBottom: "16px" }}>
-        Registrar Salida de Producto
-      </h2>
+      <div style={cardStyle}>
+        <h3 style={{ fontSize: "16px", fontWeight: 700, color: "#0f172a", marginBottom: "20px", display: "flex", alignItems: "center", gap: "8px" }}>
+          <span style={{ width: "4px", height: "20px", borderRadius: "2px", backgroundColor: "#22c55e", display: "inline-block" }} />
+          Registrar Salida
+        </h3>
 
-      <form onSubmit={handleSubmit} style={{ backgroundColor: "#fff", border: "1px solid #e5e7eb", borderRadius: "12px", padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
           {/* Producto */}
           <div>
@@ -405,16 +411,27 @@ function VistaRegistrarSalida() {
           </div>
         </div>
 
-        <div style={{ marginTop: "8px", display: "flex", justifyContent: "flex-end" }}>
+        <div style={{ marginTop: "6px", display: "flex", justifyContent: "flex-end", paddingTop: "16px", borderTop: "1px solid #f1f5f9" }}>
           <button
             type="submit"
             disabled={saving}
-            style={{ ...btnStyle, backgroundColor: saving ? "#f5f5f5" : "#16a34a", color: saving ? "#aaa" : "#fff", border: "none", padding: "10px 24px", fontSize: "14px", fontWeight: 600 }}
+            style={{
+              ...btnStyle,
+              backgroundColor: saving ? "#e2e8f0" : "#22c55e",
+              color: saving ? "#94a3b8" : "#fff",
+              border: "none",
+              padding: "12px 32px",
+              fontSize: "14px",
+              fontWeight: 600,
+              borderRadius: "10px",
+              boxShadow: saving ? "none" : "0 2px 8px rgba(34,197,94,0.25)",
+            }}
           >
-            {saving ? "Guardando..." : "Guardar salida"}
+            {saving ? "Guardando..." : "Registrar salida"}
           </button>
         </div>
-      </form>
+        </form>
+      </div>
     </div>
   )
 }
@@ -543,189 +560,141 @@ function VistaEstadisticas() {
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
-        <h2 style={{ fontSize: "18px", fontWeight: 700, color: "#111", margin: 0 }}>Estadísticas de Productos</h2>
-        <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+      {/* Filter bar */}
+      <div style={cardStyle}>
+        <div style={{ fontSize: "12px", fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "14px" }}>Filtros</div>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
           <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-            <label style={{ fontSize: "13px", color: "#666" }}>Año:</label>
-            <select value={anio} onChange={e => setAnio(Number(e.target.value))} style={{ ...inputStyle, width: "90px" }}>
+            <label style={{ fontSize: "13px", color: "#64748b" }}>Año</label>
+            <select value={anio} onChange={e => setAnio(Number(e.target.value))} style={{ ...inputStyle, width: "95px" }}>
               {aniosPosibles.map(a => <option key={a} value={a}>{a}</option>)}
             </select>
           </div>
           <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-            <label style={{ fontSize: "13px", color: "#666" }}>Mes:</label>
-            <select value={mes} onChange={e => setMes(Number(e.target.value))} style={{ ...inputStyle, width: "100px" }}>
+            <label style={{ fontSize: "13px", color: "#64748b" }}>Mes</label>
+            <select value={mes} onChange={e => setMes(Number(e.target.value))} style={{ ...inputStyle, width: "110px" }}>
               {MESES.map((m, i) => <option key={i+1} value={i+1}>{m}</option>)}
             </select>
           </div>
           <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-            <label style={{ fontSize: "13px", color: "#666" }}>Categoría:</label>
-            <select value={categoriaId} onChange={e => setCategoriaId(e.target.value === "" ? "" : Number(e.target.value))} style={{ ...inputStyle, width: "180px" }}>
+            <label style={{ fontSize: "13px", color: "#64748b" }}>Categoría</label>
+            <select value={categoriaId} onChange={e => setCategoriaId(e.target.value === "" ? "" : Number(e.target.value))} style={{ ...inputStyle, width: "170px" }}>
               <option value="">Todas</option>
               {categorias.map(cat => <option key={cat.id} value={cat.id}>{cat.nombre}</option>)}
             </select>
           </div>
           <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-            <label style={{ fontSize: "13px", color: "#666" }}>Departamento:</label>
+            <label style={{ fontSize: "13px", color: "#64748b" }}>Depto</label>
             {showNewDeptInput ? (
               <div style={{ display: "flex", gap: "6px" }}>
-                <input
-                  type="text"
-                  placeholder="Nuevo departamento"
-                  value={newDeptName}
-                  onChange={e => setNewDeptName(e.target.value)}
-                  style={{ ...inputStyle, width: "140px" }}
-                  autoFocus
-                />
+                <input type="text" placeholder="Nuevo depto" value={newDeptName} onChange={e => setNewDeptName(e.target.value)} style={{ ...inputStyle, width: "130px" }} autoFocus />
                 <button
                   onClick={async () => {
-                    if (!newDeptName.trim()) {
-                      toast.error("Error", "Ingresa un nombre para el departamento")
-                      return
-                    }
+                    if (!newDeptName.trim()) { toast.error("Error", "Ingresa un nombre"); return }
                     try {
                       const nuevoId = await crearDepartamentoProd(newDeptName.trim())
-                      setDepartamentoFiltro(nuevoId)
-                      setNewDeptName("")
-                      setShowNewDeptInput(false)
-                      // Recargar lista de departamentos
+                      setDepartamentoFiltro(nuevoId); setNewDeptName(""); setShowNewDeptInput(false)
                       await recargarDepartamentos()
                       toast.success("Departamento creado")
-                    } catch (err: any) {
-                      toast.error("Error", err.message || "No se pudo crear el departamento")
-                    }
+                    } catch (err: any) { toast.error("Error", err.message || "No se pudo crear") }
                   }}
                   disabled={!newDeptName.trim()}
-                  style={{
-                    ...btnStyle,
-                    padding: "6px 12px",
-                    backgroundColor: (!newDeptName.trim()) ? "#ccc" : "#16a34a",
-                    color: "#fff",
-                    border: "none"
-                  }}
-                >
-                  ✓
-                </button>
-                <button
-                  onClick={() => {
-                    setShowNewDeptInput(false)
-                    setNewDeptName("")
-                  }}
-                  style={{ ...btnStyle, padding: "6px 12px" }}
-                >
-                  ✕
-                </button>
+                  style={{ ...btnStyle, padding: "8px 12px", backgroundColor: (!newDeptName.trim()) ? "#cbd5e1" : "#22c55e", color: "#fff", border: "none" }}
+                >✓</button>
+                <button onClick={() => { setShowNewDeptInput(false); setNewDeptName("") }} style={{ ...btnStyle, padding: "8px 12px" }}>✕</button>
               </div>
             ) : (
               <select value={departamentoFiltro} onChange={e => {
                 const val = e.target.value
-                if (val === "nuevo") {
-                  setShowNewDeptInput(true)
-                } else {
-                  setDepartamentoFiltro(val === "" ? "" : Number(val))
-                }
-              }} style={{ ...inputStyle, width: "180px" }}>
+                if (val === "nuevo") setShowNewDeptInput(true)
+                else setDepartamentoFiltro(val === "" ? "" : Number(val))
+              }} style={{ ...inputStyle, width: "170px" }}>
                 <option value="">Todos</option>
                 {departamentos.map(dep => <option key={dep.id} value={dep.id}>{dep.nombre}</option>)}
                 <option value="nuevo">➕ Crear nuevo...</option>
               </select>
             )}
           </div>
-          <button onClick={() => { loadGeneralStats(); loadSalidasFiltradas(); }} style={{ ...btnStyle, backgroundColor: "#16a34a", color: "#fff", border: "none", fontSize: "13px" }}>
+          <button
+            onClick={() => { loadGeneralStats(); loadSalidasFiltradas() }}
+            style={{ ...btnStyle, backgroundColor: "#3b82f6", color: "#fff", border: "none", fontSize: "13px", fontWeight: 600, padding: "10px 20px", borderRadius: "10px" }}
+          >
             ↻ Actualizar
           </button>
         </div>
-      </div>
-
-      {/* Indicador de filtro */}
-      <div style={{ fontSize: "11px", color: "#666", marginBottom: "12px" }}>
-        ℹ️ El filtro de departamento se aplica únicamente a la tabla de salidas.
+        <div style={{ fontSize: "11px", color: "#94a3b8", marginTop: "10px" }}>
+          El filtro de departamento se aplica únicamente a la tabla de salidas.
+        </div>
       </div>
 
       {loadingGeneral ? (
-        <div style={{ padding: "60px", textAlign: "center", color: "#888" }}>Cargando estadísticas...</div>
+        <div style={{ padding: "60px", textAlign: "center", color: "#94a3b8" }}>Cargando estadísticas...</div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "20px", marginTop: "4px" }}>
 
-          {/* Resumen cards */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px" }}>
-            <div style={cardStyle}>
-              <div style={{ fontSize: "12px", color: "#888", marginBottom: "4px" }}>Productos con salida</div>
-              <div style={{ fontSize: "24px", fontWeight: 700, color: "#111" }}>{matriz.length}</div>
-            </div>
-            <div style={cardStyle}>
-              <div style={{ fontSize: "12px", color: "#888", marginBottom: "4px" }}>Departamentos</div>
-              <div style={{ fontSize: "24px", fontWeight: 700, color: "#111" }}>{departamentos.length}</div>
-            </div>
-            <div style={cardStyle}>
-              <div style={{ fontSize: "12px", color: "#888", marginBottom: "4px" }}>Consumo total (Año {anio})</div>
-              <div style={{ fontSize: "24px", fontWeight: 700, color: "#111" }}>
-                {resumen.reduce((sum, r) => sum + r.total_cantidad, 0).toLocaleString()} unidades
+          {/* Charts side by side */}
+          <div style={{ display: "flex", gap: "20px", flexWrap: "wrap" }}>
+            {/* Pie: distribución por departamento */}
+            {resumen.length > 0 && (
+              <div style={{ ...cardStyle, flex: "1 1 380px" }}>
+                <h3 style={{ fontSize: "14px", fontWeight: 600, color: "#0f172a", marginBottom: "12px" }}>
+                  Distribución por departamento
+                </h3>
+                <div style={{ height: "280px" }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={resumen.map(r => ({
+                          name: r.departamento_nombre,
+                          value: r.total_cantidad,
+                          pct: ((r.total_cantidad / resumen.reduce((s, r) => s + r.total_cantidad, 0)) * 100).toFixed(1),
+                        }))}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={95}
+                        innerRadius={38}
+                        label={({ name, pct }) => `${name} (${pct}%)`}
+                        labelLine={false}
+                      >
+                        {resumen.map((_, i) => (
+                          <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip content={<PieTooltip />} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-            </div>
+            )}
+            {/* Bar: consumo mensual */}
+            {barChartData.length > 0 && (
+              <div style={{ ...cardStyle, flex: "1 1 380px" }}>
+                <h3 style={{ fontSize: "14px", fontWeight: 600, color: "#0f172a", marginBottom: "12px" }}>
+                  Consumo mensual por departamento
+                </h3>
+                <div style={{ height: "280px" }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={barChartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                      <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#666" }} />
+                      <YAxis tickFormatter={v => v.toLocaleString()} tick={{ fontSize: 12, fill: "#666" }} />
+                      <Tooltip />
+                      <Legend />
+                      {departamentos.map((dept, i) => (
+                        <Bar key={dept.id} dataKey={dept.nombre} stackId="a" fill={["#16a34a", "#22c55e", "#4ade80", "#86efac", "#bbf7d0", "#dcfce7", "#f0fdf4"][i % 7]} />
+                      ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Gráfico de pastel: Distribución de consumo por departamento */}
-          {resumen.length > 0 && (
-            <div style={cardStyle}>
-              <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>
-                Distribución de consumo por departamento — {anio}
-              </h3>
-              <div style={{ height: "300px" }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={resumen.map(r => ({
-                        name: r.departamento_nombre,
-                        value: r.total_cantidad,
-                        pct: ((r.total_cantidad / resumen.reduce((sum, r) => sum + r.total_cantidad, 0)) * 100).toFixed(1),
-                      }))}
-                      dataKey="value"
-                      nameKey="name"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={100}
-                      innerRadius={40}
-                      label={({ name, pct }) => `${name} (${pct}%)`}
-                      labelLine={false}
-                    >
-                      {resumen.map((_, i) => (
-                        <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip content={<PieTooltip />} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-
-          {/* Gráfico de barras: Consumo mensual por departamento */}
-          {barChartData.length > 0 && (
-            <div style={cardStyle}>
-              <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>
-                Consumo mensual por departamento — {anio}
-              </h3>
-              <div style={{ height: "300px" }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={barChartData} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                    <XAxis dataKey="mes" tick={{ fontSize: 12, fill: "#666" }} />
-                    <YAxis tickFormatter={v => v.toLocaleString()} tick={{ fontSize: 12, fill: "#666" }} />
-                    <Tooltip />
-                    <Legend />
-                    {departamentos.map((dept, i) => (
-                      <Bar key={dept.id} dataKey={dept.nombre} stackId="a" fill={["#16a34a", "#22c55e", "#4ade80", "#86efac", "#bbf7d0", "#dcfce7", "#f0fdf4"][i % 7]} />
-                    ))}
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          )}
-
-          {/* Matriz de consumo editable */}
+          {/* Matriz de consumo */}
           <div style={cardStyle}>
-            <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>
+            <h3 style={{ fontSize: "14px", fontWeight: 600, color: "#0f172a", marginBottom: "16px" }}>
               Matriz de consumo — {MESES[mes-1]} {anio}
               {categoriaId && ` (${categorias.find(c => c.id === categoriaId)?.nombre})`}
             </h3>
@@ -779,31 +748,31 @@ function VistaEstadisticas() {
             )}
           </div>
 
-          {/* Tabla resumen por departamento */}
+          {/* Resumen por departamento */}
           <div style={cardStyle}>
-            <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>
+            <h3 style={{ fontSize: "14px", fontWeight: 600, color: "#0f172a", marginBottom: "16px" }}>
               Resumen por departamento — {anio}
             </h3>
             {resumen.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "40px", color: "#999" }}>No hay datos</div>
+              <div style={{ textAlign: "center", padding: "40px", color: "#94a3b8" }}>No hay datos</div>
             ) : (
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
                   <thead>
-                    <tr style={{ backgroundColor: "#f9fafb" }}>
+                    <tr>
                       <th style={thStyle}>Departamento</th>
-                      <th style={thStyle}>Salidas registradas</th>
+                      <th style={thStyle}>Salidas</th>
                       <th style={thStyle}>Consumo total</th>
                       <th style={thStyle}>Productos distintos</th>
                     </tr>
                   </thead>
                   <tbody>
                     {resumen.map(r => (
-                      <tr key={r.departamento_id} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                      <tr key={r.departamento_id} style={{ borderBottom: "1px solid #f1f5f9" }}>
                         <td style={{ ...tdStyle, fontWeight: 500 }}>{r.departamento_nombre}</td>
                         <td style={{ ...tdStyle }}>{r.total_salidas}</td>
-                        <td style={{ ...tdStyle, fontWeight: 600, color: "#16a34a" }}>{r.total_cantidad.toLocaleString()}</td>
-                        <td style={{ ...tdStyle }}>{r.productos_distintos}</td>
+                        <td style={{ ...tdStyle, fontWeight: 700, color: "#22c55e" }}>{r.total_cantidad.toLocaleString()}</td>
+                        <td style={{ ...tdStyle, color: "#64748b" }}>{r.productos_distintos}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -812,37 +781,37 @@ function VistaEstadisticas() {
             )}
           </div>
 
-          {/* Lista de productos con consumo mensual */}
+          {/* Registro de salidas */}
           <div style={cardStyle}>
-            <h3 style={{ fontSize: "15px", fontWeight: 600, color: "#111", marginBottom: "16px", margin: 0 }}>
-              Consumo mensual por producto — {MESES[mes-1]} {anio}
-              {departamentoFiltro && ` — ${departamentos.find(d => d.id === departamentoFiltro)?.nombre}`}
+            <h3 style={{ fontSize: "14px", fontWeight: 600, color: "#0f172a", marginBottom: "16px" }}>
+              Registro de salidas — {MESES[mes-1]} {anio}
+              {departamentoFiltro && ` · ${departamentos.find(d => d.id === departamentoFiltro)?.nombre}`}
             </h3>
             {loadingSalidas ? (
-              <div style={{ textAlign: "center", padding: "20px", color: "#888" }}>Cargando salidas...</div>
+              <div style={{ textAlign: "center", padding: "20px", color: "#94a3b8" }}>Cargando...</div>
             ) : salidasFiltradas.length === 0 ? (
-              <div style={{ textAlign: "center", padding: "40px", color: "#999" }}>No hay registros de consumo para el periodo seleccionado.</div>
+              <div style={{ textAlign: "center", padding: "40px", color: "#94a3b8" }}>No hay registros para los filtros seleccionados.</div>
             ) : (
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
                   <thead>
-                    <tr style={{ backgroundColor: "#f9fafb" }}>
+                    <tr>
                       <th style={thStyle}>Producto</th>
                       <th style={thStyle}>Departamento</th>
-                      <th style={thStyle}>Cantidad</th>
+                      <th style={{ ...thStyle, textAlign: "right" }}>Cantidad</th>
                       <th style={thStyle}>Unidad</th>
                     </tr>
                   </thead>
                   <tbody>
                     {salidasFiltradas.map(s => (
-                      <tr key={`${s.producto_id}-${s.departamento_id}`} style={{ borderBottom: "1px solid #f0f0f0" }}>
-                        <td style={{ ...tdStyle }}>
-                          <div style={{ fontWeight: 500 }}>{s.producto_referencia}</div>
-                          <div style={{ fontSize: "11px", color: "#999" }}>{s.producto_nombre}</div>
+                      <tr key={`${s.producto_id}-${s.departamento_id}`} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 600, color: "#3b82f6" }}>{s.producto_referencia}</div>
+                          <div style={{ fontSize: "11px", color: "#94a3b8" }}>{s.producto_nombre}</div>
                         </td>
-                        <td style={{ ...tdStyle }}>{s.departamento_nombre}</td>
-                        <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: "#16a34a" }}>{s.cantidad.toLocaleString()}</td>
-                        <td style={{ ...tdStyle, fontSize: "12px", color: "#666" }}>{s.unidad_medida}</td>
+                        <td style={{ ...tdStyle, color: "#475569" }}>{s.departamento_nombre}</td>
+                        <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: "#22c55e", fontVariantNumeric: "tabular-nums" }}>{s.cantidad.toLocaleString()}</td>
+                        <td style={{ ...tdStyle, fontSize: "12px", color: "#94a3b8" }}>{s.unidad_medida}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -863,18 +832,26 @@ function VistaEstadisticas() {
 export default function ProductsPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const [subPage, setSubPage] = useState<SubPage>("catalog")
 
-  const SUB_TABS: { key: SubPage; label: string }[] = [
-    { key: "catalog", label: "📦 Catálogo" },
-    { key: "register", label: "📝 Registrar Salida" },
-    { key: "stats", label: "📊 Estadísticas" },
+  const SUB_TABS: { key: SubPage; label: string; icon: string }[] = [
+    { key: "catalog", label: "Catálogo", icon: "📦" },
+    { key: "register", label: "Registrar Salida", icon: "📝" },
+    { key: "stats", label: "Estadísticas", icon: "📊" },
   ]
 
   return (
-    <div style={{ minHeight: "calc(100vh - 64px)", backgroundColor: "#f5f5f5", fontFamily: "system-ui, sans-serif" }}>
+    <div style={{ minHeight: "calc(100vh - 64px)", backgroundColor: "#f8fafc", fontFamily: "system-ui, -apple-system, sans-serif" }}>
       <AppHeader page="productos" onNavigate={onNavigate} />
 
       {/* Sub-navegación */}
-      <div style={{ backgroundColor: "#fff", borderBottom: "1px solid #e0e7eb", padding: "0 32px", display: "flex", alignItems: "center", height: "48px", gap: "4px" }}>
+      <div style={{
+        backgroundColor: "#fff",
+        borderBottom: "1px solid #f1f5f9",
+        padding: "0 32px",
+        display: "flex",
+        alignItems: "center",
+        height: "52px",
+        gap: "6px",
+      }}>
         {SUB_TABS.map(tab => {
           const isActive = subPage === tab.key
           return (
@@ -883,37 +860,31 @@ export default function ProductsPage({ onNavigate }: { onNavigate: (page: Page) 
               onClick={() => setSubPage(tab.key)}
               style={{
                 position: "relative",
-                padding: "8px 16px",
-                borderRadius: "6px",
+                padding: "10px 18px",
+                borderRadius: "10px",
                 border: "none",
-                backgroundColor: "transparent",
-                color: isActive ? "#16a34a" : "#666",
+                backgroundColor: isActive ? "#f0fdf4" : "transparent",
+                color: isActive ? "#15803d" : "#64748b",
                 fontWeight: isActive ? 600 : 500,
-                fontSize: "14px",
+                fontSize: "13px",
                 cursor: "pointer",
-                transition: "color 0.15s, background-color 0.15s",
+                transition: "all 0.15s",
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                letterSpacing: "0.01em",
               }}
-              onMouseEnter={e => { if (!isActive) e.currentTarget.style.backgroundColor = "#f0fdf4" }}
+              onMouseEnter={e => { if (!isActive) e.currentTarget.style.backgroundColor = "#f8fafc" }}
               onMouseLeave={e => { if (!isActive) e.currentTarget.style.backgroundColor = "transparent" }}
             >
+              <span style={{ fontSize: "15px" }}>{tab.icon}</span>
               {tab.label}
-              {isActive && (
-                <span style={{
-                  position: "absolute",
-                  bottom: "2px",
-                  left: "16px",
-                  right: "16px",
-                  height: "2px",
-                  backgroundColor: "#16a34a",
-                  borderRadius: "2px",
-                }} />
-              )}
             </button>
           )
         })}
       </div>
 
-      <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "24px" }}>
+      <main style={{ maxWidth: "1280px", margin: "0 auto", padding: "24px" }}>
         {subPage === "catalog" && <VistaCatalogoMejorada />}
         {subPage === "register" && <VistaRegistrarSalida />}
         {subPage === "stats" && <VistaEstadisticas />}

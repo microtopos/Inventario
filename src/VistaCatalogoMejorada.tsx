@@ -487,7 +487,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   }, [productosFiltrados])
 
   if (loading) {
-    return <div style={{ padding: "40px", textAlign: "center", color: "#888" }}>Cargando datos...</div>
+    return <div style={{ padding: "40px", textAlign: "center", color: "#94a3b8" }}>Cargando datos...</div>
   }
 
   return (
@@ -499,24 +499,34 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         accept=".xlsx,.xls,.csv"
         onChange={handleFileSelected}
       />
-      {/* Barra superior de controles */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px", flexWrap: "wrap", gap: "12px" }}>
+
+      {/* Barra superior de controles — card */}
+      <div style={{
+        backgroundColor: "#fff",
+        border: "1px solid #f1f5f9",
+        borderRadius: "16px",
+        padding: "16px 20px",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+        marginBottom: "16px",
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
         <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
           {/* Buscador */}
           <input
             type="text"
-            placeholder="🔍 Buscar por referencia o nombre..."
+            placeholder="🔍 Buscar referencia o nombre..."
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
             style={{
               padding: "10px 14px",
-              border: "2px solid #e5e7eb",
+              border: "1.5px solid #e2e8f0",
               borderRadius: "10px",
               fontSize: "14px",
               minWidth: "260px",
               transition: "border-color 0.15s",
               backgroundColor: "#fff",
-              outline: "none"
+              outline: "none",
+              color: "#334155",
             }}
           />
           {/* Selector de departamento simple con búsqueda */}
@@ -765,16 +775,19 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             onClick={handleImportClick}
             disabled={isImporting}
             style={{
-              padding: "8px 16px",
-              border: "1px solid #d1d5db",
-              borderRadius: "8px",
+              padding: "10px 16px",
+              border: "1.5px solid #e2e8f0",
+              borderRadius: "10px",
               backgroundColor: "#fff",
-              fontSize: "14px",
+              fontSize: "13px",
+              fontWeight: 500,
               cursor: isImporting ? "not-allowed" : "pointer",
               display: "flex",
               alignItems: "center",
               gap: "6px",
-              opacity: isImporting ? 0.6 : 1
+              color: "#475569",
+              opacity: isImporting ? 0.5 : 1,
+              transition: "all 0.15s",
             }}
           >
             {isImporting ? "Importando..." : "📥 Importar Excel"}
@@ -782,23 +795,24 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           <button
             onClick={() => setEditingProductId("nuevo" as any)}
             style={{
-              padding: "10px 18px",
+              padding: "10px 20px",
               border: "none",
               borderRadius: "10px",
-              backgroundColor: "#16a34a",
+              backgroundColor: "#22c55e",
               color: "#fff",
-              fontSize: "14px",
+              fontSize: "13px",
               fontWeight: 600,
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
               gap: "6px",
-              boxShadow: "0 2px 4px rgba(22, 163, 74, 0.2)",
+              boxShadow: "0 2px 8px rgba(34,197,94,0.25)",
               transition: "all 0.15s"
             }}
           >
             + Nuevo producto
           </button>
+        </div>
         </div>
       </div>
 
@@ -884,34 +898,30 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                     {/* Fila de categoría */}
                     <tr
                       style={{
-                        backgroundColor: "#dbeafe",
+                        backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc",
                         cursor: "pointer",
-                        borderBottom: isExpanded ? "2px solid #3b82f6" : "1px solid #bfdbfe",
+                        borderBottom: "1px solid #f1f5f9",
                         transition: "background-color 0.15s"
                       }}
                       onClick={() => toggleCategory(cat.id)}
-                      onMouseEnter={e => {
-                        e.currentTarget.style.backgroundColor = "#bfdbfe"
-                      }}
-                      onMouseLeave={e => {
-                        e.currentTarget.style.backgroundColor = "#dbeafe"
-                      }}
+                      onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eff6ff" }}
+                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = isExpanded ? "#eff6ff" : "#f8fafc" }}
                     >
-                      <td colSpan={19} style={{ padding: "12px 16px", fontWeight: 700, color: "#1e40af", verticalAlign: "middle" }}>
+                      <td colSpan={19} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", verticalAlign: "middle" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <span style={{
-                            fontSize: "14px",
+                            fontSize: "12px",
                             transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
                             transition: "transform 0.2s",
                             color: "#3b82f6"
                           }}>▶</span>
-                          <span style={{ fontSize: "14px" }}>{cat.nombre}</span>
+                          <span style={{ fontSize: "13px" }}>{cat.nombre}</span>
                           <span style={{
-                            fontSize: "11px",
+                            fontSize: "10px",
                             padding: "2px 8px",
-                            borderRadius: "12px",
-                            backgroundColor: "rgba(59, 130, 246, 0.1)",
-                            color: "#3b82f6",
+                            borderRadius: "10px",
+                            backgroundColor: isExpanded ? "#dbeafe" : "#e2e8f0",
+                            color: isExpanded ? "#2563eb" : "#64748b",
                             fontWeight: 600
                           }}>{prodsEnCat.length}</span>
                         </div>
@@ -925,20 +935,12 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                         <tr
                           key={prod.id}
                           style={{
-                            borderBottom: "1px solid #e5e7eb",
-                            backgroundColor: prod.activo === false ? "#f9fafb" : "#fff",
+                            borderBottom: "1px solid #f1f5f9",
+                            backgroundColor: prod.activo === false ? "#fafafa" : "#fff",
                             transition: "background-color 0.15s"
                           }}
-                          onMouseEnter={e => {
-                            if (prod.activo !== false) {
-                              e.currentTarget.style.backgroundColor = "#f0f9ff"
-                            }
-                          }}
-                          onMouseLeave={e => {
-                            if (prod.activo !== false) {
-                              e.currentTarget.style.backgroundColor = "#fff"
-                            }
-                          }}
+                          onMouseEnter={e => { if (prod.activo !== false) e.currentTarget.style.backgroundColor = "#f8fafc" }}
+                          onMouseLeave={e => { if (prod.activo !== false) e.currentTarget.style.backgroundColor = "#fff" }}
                         >
                           <td style={tdStyle}>
                             <div style={{ fontWeight: 700, color: prod.activo === false ? "#9ca3af" : "#1d4ed8", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>

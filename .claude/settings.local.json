@@ -12,7 +12,8 @@
       "Read(//c/Users/dan.pirlitu/Desktop/Inventario Ropa/$LOCALAPPDATA/**)",
       "Bash(sqlite3 \"$APPDATA/Inventario/inventario.db\" \".tables\")",
       "Bash(ls -la *.sqlite)",
-      "Bash(ls -la *.sqlite3)"
+      "Bash(ls -la *.sqlite3)",
+      "Bash(npx tsc:*)"
     ]
   }
 }
