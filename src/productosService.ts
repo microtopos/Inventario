@@ -569,6 +569,18 @@ export async function getSalidasByYear(
 }
 
 /**
+ * Obtiene los años distintos de los que existen datos en la tabla de salidas,
+ * ordenados de más a menos. Devuelve como máximo los 5 más recientes.
+ */
+export async function getAniosDisponibles(): Promise<number[]> {
+  const db = await getDbWithRetry();
+  const rows = await db.select<{ anio: number }[]>(
+    `SELECT DISTINCT anio FROM salidas_productos ORDER BY anio DESC LIMIT 5`
+  );
+  return rows.map(r => r.anio);
+}
+
+/**
  * Función de utilidad para importar/actualizar productos desde Excel.
  * Crea o actualiza un producto y devuelve su ID.
  * NOTA: El precio solo se establece al crear un producto nuevo. Al actualizar,

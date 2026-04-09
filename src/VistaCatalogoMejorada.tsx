@@ -12,6 +12,7 @@ import {
   crearCategoria,
   ensureProduct,
   getSalidasByYear,
+  getAniosDisponibles,
   type CategoriaProducto,
   type ProductoAlmacen,
   type DepartamentoProd,
@@ -82,6 +83,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [showNewDeptInput, setShowNewDeptInput] = useState(false)
   const [newDeptName, setNewDeptName] = useState("")
   const [isImporting, setIsImporting] = useState(false)
+  const [availableYears, setAvailableYears] = useState<number[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [deptSearchTerm, setDeptSearchTerm] = useState("")
   const [showDeptDropdown, setShowDeptDropdown] = useState(false)
@@ -97,14 +99,16 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const loadInitialData = useCallback(async () => {
     setLoading(true)
     try {
-      const [cats, prods, depts] = await Promise.all([
+      const [cats, prods, depts, anios] = await Promise.all([
         getCategorias(),
         getProductos(false), // todos, incluyendo inactivos para verlos
         getDepartamentosProd(),
+        getAniosDisponibles(),
       ])
       setCategorias(cats)
       setProductos(prods)
       setDepartamentos(depts)
+      setAvailableYears(anios)
       // Expandir todas las categorías por defecto
       setExpandedCategories(new Set(cats.map(c => c.id)))
     } catch (e: any) {
@@ -768,9 +772,13 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               onChange={e => setYear(Number(e.target.value))}
               style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "14px" }}
             >
-              {[year, year-1, year-2, year-3, year-4].map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
+              {availableYears.length > 0 ? (
+                availableYears.map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))
+              ) : (
+                <option value={year}>{year}</option>
+              )}
             </select>
           </div>
         </div>
