@@ -11,11 +11,16 @@ import {
   crearDepartamentoProd,
   crearCategoria,
   ensureProduct,
+  actualizarProducto,
   getSalidasByYear,
   getAniosDisponibles,
+  getUnidadesPresentacion,
+  getPresentacionesDeProducto,
   type CategoriaProducto,
   type ProductoAlmacen,
   type DepartamentoProd,
+  type UnidadPresentacion,
+  type ProductoPresentacion,
 } from "./productosService"
 import { ModalProducto } from "./ProductModal"
 import { ModalSalida } from "./SalidaModal"
@@ -68,6 +73,9 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const toast = useToast()
   const { confirm, dialog } = useConfirm()
   const [showSalidaModal, setShowSalidaModal] = useState(false)
+  const [showAddUnitModal, setShowAddUnitModal] = useState(false)
+  const [editingProductForUnit, setEditingProductForUnit] = useState<number | null>(null)
+  const [newUnitName, setNewUnitName] = useState("")
 
   // Estados
   const [categorias, setCategorias] = useState<CategoriaProducto[]>([])
@@ -92,6 +100,15 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   // Mapa de salidas: producto_id -> mes -> cantidad
   const [salidasMap, setSalidasMap] = useState<Map<number, Map<number, number>>>(new Map())
 
+  // Estados para presentaciones
+  const [unidadesPresentacion, setUnidadesPresentacion] = useState<UnidadPresentacion[]>([])
+  // Mapa de presentaciones por producto: producto_id -> presentacion[]
+  const [presentacionesPorProducto, setPresentacionesPorProducto] = useState<Map<number, ProductoPresentacion[]>>(new Map())
+  // Mapa de presentacion seleccionada por producto: producto_id -> presentacion_id
+  const [presentacionSeleccionada, setPresentacionSeleccionada] = useState<Map<number, number>>(new Map())
+  // Mapa de salidas por presentación: presentacion_id -> mes -> cantidad
+  const [salidasPorPresentacion, setSalidasPorPresentacion] = useState<Map<number, Map<number, number>>>(new Map())
+
   // Ref para almacenar el departamento/año para el cual están cargados los datos actuales
   const cachedDeptYearRef = useRef<{ dept: number | ""; year: number } | null>(null)
 
@@ -99,18 +116,23 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const loadInitialData = useCallback(async () => {
     setLoading(true)
     try {
-      const [cats, prods, depts, anios] = await Promise.all([
+      const [cats, prods, depts, anios, unidades] = await Promise.all([
         getCategorias(),
         getProductos(false), // todos, incluyendo inactivos para verlos
         getDepartamentosProd(),
         getAniosDisponibles(),
+        getUnidadesPresentacion(),
       ])
       setCategorias(cats)
       setProductos(prods)
       setDepartamentos(depts)
       setAvailableYears(anios)
+      setUnidadesPresentacion(unidades)
       // Expandir todas las categorías por defecto
       setExpandedCategories(new Set(cats.map(c => c.id)))
+
+      // Cargar presentaciones de todos los productos
+      await cargarTodasLasPresentaciones(prods);
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     } finally {
@@ -118,11 +140,54 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }, [toast])
 
+  // Cargar presentaciones de todos los productos
+  const cargarTodasLasPresentaciones = useCallback(async (productosParaCargar: ProductoAlmacen[] = productos) => {
+    try {
+      // Obtener presentaciones para TODOS los productos (no solo activos)
+      // Esto asegura que todos los productos tengan su desplegable de unidad
+
+      const presentacionesMap = new Map<number, ProductoPresentacion[]>();
+      const seleccionadasMap = new Map<number, number>();
+
+      for (const producto of productosParaCargar) {
+        const presentaciones = await getPresentacionesDeProducto(producto.id);
+
+        // Si no hay presentaciones, crear una por defecto basada en unidad_medida
+        if (presentaciones.length === 0) {
+          presentacionesMap.set(producto.id, [{
+            id: -1, // ID especial para presentación por defecto
+            unidad_id: 0,
+            nombre: producto.unidad_medida || "Unidad",
+            precio: producto.precio ?? null
+          }]);
+          seleccionadasMap.set(producto.id, -1);
+        } else {
+          presentacionesMap.set(producto.id, presentaciones);
+          // Por defecto, seleccionar la primera presentación
+          seleccionadasMap.set(producto.id, presentaciones[0].id);
+        }
+      }
+
+      setPresentacionesPorProducto(presentacionesMap);
+      setPresentacionSeleccionada(seleccionadasMap);
+    } catch (e: any) {
+      toast.error("Error al cargar presentaciones", e?.message ?? String(e));
+    }
+  }, [toast, productos])
+
+  // Asegurar que las presentaciones se carguen cuando cambien los productos
+  useEffect(() => {
+    if (productos.length > 0) {
+      cargarTodasLasPresentaciones()
+    }
+  }, [productos, cargarTodasLasPresentaciones]);
+
   // Cargar salidas para departamento/año específico
   const cargarSalidas = useCallback(async () => {
     if (departamentoId === "") {
       // Cuando no hay departamento seleccionado, limpiar el mapa y la caché
       setSalidasMap(new Map())
+      setSalidasPorPresentacion(new Map())
       cachedDeptYearRef.current = null
       return
     }
@@ -136,17 +201,31 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
 
     try {
+      // Cargar salidas tradicionales (para compatibilidad y mapa general)
       const mapa = await getSalidasByYear(yearAlMomento, Number(deptAlMomento))
-
-      // Actualizar el mapa y marcar como caché actual
       setSalidasMap(mapa)
+
+      // Cargar salidas por presentación para cada producto
+      const presentacionesMap = new Map<number, Map<number, number>>();
+      const productosConPresentaciones = presentacionesPorProducto.get(Number(deptAlMomento)) || [];
+
+      // Para cada presentación, cargar sus salidas
+      for (const pres of productosConPresentaciones) {
+        const mapaPres = await getSalidasByYear(yearAlMomento, Number(deptAlMomento), pres.id);
+        presentacionesMap.set(pres.id, mapaPres);
+      }
+
+      setSalidasPorPresentacion(presentacionesMap);
+
+      // Actualizar caché
       cachedDeptYearRef.current = { dept: deptAlMomento, year: yearAlMomento }
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
       // En caso de error, limpiar la caché para permitir reintento
       cachedDeptYearRef.current = null
+      setSalidasPorPresentacion(new Map())
     }
-  }, [departamentoId, year, toast])
+  }, [departamentoId, year, toast, presentacionesPorProducto])
 
   // Carga inicial
   useEffect(() => {
@@ -158,6 +237,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     if (departamentoId === "") {
       // Limpiar cuando no hay departamento seleccionado
       setSalidasMap(new Map())
+      setSalidasPorPresentacion(new Map())
       cachedDeptYearRef.current = null
     }
   }, [departamentoId])
@@ -167,6 +247,13 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       cargarSalidas()
     }
   }, [departamentoId, year, cargarSalidas])
+
+  // Cuando cambian las presentaciones de un producto, actualizar la selección si es necesario
+  useEffect(() => {
+    // Esta función se ejecutará cuando presentacionesPorProducto cambie
+    // Pero necesitamos evitar bucles infinitos, así que la ejecutamos solo cuando sea necesario
+    // Por ahora, la llamaremos manualmente cuando cargamos las presentaciones
+  }, [presentacionesPorProducto])
 
   // Auto-seleccionar el primer departamento cuando se carga la lista
   useEffect(() => {
@@ -404,10 +491,12 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     setExpandedCategories(nuevo)
   }
 
-  // Obtener consumo para un producto y mes
+  // Obtener consumo para un producto y mes (usando la presentación seleccionada)
   function getConsumo(productoId: number, mes: number): number {
-    const prodMap = salidasMap.get(productoId)
-    return prodMap?.get(mes) ?? 0
+    const presentacionId = presentacionSeleccionada.get(productoId)
+    if (!presentacionId) return 0
+    const presMap = salidasPorPresentacion.get(presentacionId)
+    return presMap?.get(mes) ?? 0
   }
 
   // Actualizar consumo de una celda
@@ -419,14 +508,35 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     setSavingCell({ productoId, mes })
 
     try {
+      // Obtener la presentación seleccionada para este producto
+      const presentacionId = presentacionSeleccionada.get(productoId)
+
       await upsertSalida({
         producto_id: productoId,
         departamento_id: Number(departamentoId),
+        presentacion_id: presentacionId !== undefined ? presentacionId : null,
         cantidad: valor,
         mes,
         anio: year,
       })
-      // Actualizar mapa local
+      // Actualizar mapa local de salidas por presentación
+      if (presentacionId !== undefined) {
+        setSalidasPorPresentacion(prev => {
+          const nuevo = new Map(prev)
+          if (!nuevo.has(presentacionId)) {
+            nuevo.set(presentacionId, new Map())
+          }
+          const presMap = nuevo.get(presentacionId)!
+          if (valor === 0) {
+            presMap.delete(mes)
+          } else {
+            presMap.set(mes, valor)
+          }
+          return nuevo
+        })
+      }
+
+      // Actualizar mapa general de salidas (por compatibilidad)
       setSalidasMap(prev => {
         const nuevo = new Map(prev)
         if (!nuevo.has(productoId)) {
@@ -450,7 +560,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     } finally {
       setSavingCell(null)
     }
-  }, [departamentoId, year, toast])
+  }, [departamentoId, year, toast, presentacionSeleccionada])
 
   async function handleDeleteProduct(producto: ProductoAlmacen) {
     const ok = await confirm(
@@ -488,12 +598,12 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       }
     }
     return totals
-  }, [productosFiltrados, salidasMap])
+  }, [productosFiltrados, salidasPorPresentacion])
 
   // Calcular máximo consumo para escalado de colores (evita colores muy saturados)
   const maxConsumo = useMemo(() => {
     return calcularMaximoConsumo(productosFiltrados, getConsumo)
-  }, [productosFiltrados])
+  }, [productosFiltrados, salidasPorPresentacion])
 
   if (loading) {
     return <div style={{ padding: "40px", textAlign: "center", color: "#94a3b8" }}>Cargando datos...</div>
@@ -538,232 +648,37 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               color: "#334155",
             }}
           />
-          {/* Selector de departamento simple con búsqueda */}
-          <div style={{ position: "relative" }} ref={deptInputRef}>
-            {showNewDeptInput ? (
-              <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-                <input
-                  type="text"
-                  placeholder="Nuevo departamento"
-                  value={newDeptName}
-                  onChange={e => setNewDeptName(e.target.value)}
-                  style={{ padding: "8px 12px", border: "2px solid #3b82f6", borderRadius: "8px", fontSize: "14px", minWidth: "200px" }}
-                  autoFocus
-                />
-                <button
-                  onClick={async () => {
-                    if (!newDeptName.trim()) {
-                      toast.error("Error", "Ingresa un nombre para el departamento")
-                      return
-                    }
-                    try {
-                      const nuevoId = await crearDepartamentoProd(newDeptName.trim())
-                      setDepartamentoId(nuevoId)
-                      setNewDeptName("")
-                      setShowNewDeptInput(false)
-                      await handleDepartamentoCreado()
-                      toast.success("Departamento creado")
-                    } catch (err: any) {
-                      toast.error("Error", err.message || "No se pudo crear el departamento")
-                    }
-                  }}
-                  disabled={!newDeptName.trim()}
-                  style={{
-                    padding: "8px 12px",
-                    border: "none",
-                    borderRadius: "8px",
-                    backgroundColor: (!newDeptName.trim()) ? "#ccc" : "#16a34a",
-                    color: "#fff",
-                    fontSize: "14px",
-                    cursor: (!newDeptName.trim()) ? "not-allowed" : "pointer"
-                  }}
-                >
-                  ✓ Crear
-                </button>
-                <button
-                  onClick={() => {
-                    setShowNewDeptInput(false)
-                    setNewDeptName("")
-                  }}
-                  style={{ padding: "8px 12px", border: "1px solid #d1d5db", borderRadius: "8px", backgroundColor: "#fff", fontSize: "14px", cursor: "pointer" }}
-                >
-                  ✕
-                </button>
-              </div>
-            ) : (
-              <>
-                <div
-                  onClick={() => setShowDeptDropdown(!showDeptDropdown)}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    padding: "10px 14px",
-                    border: showDeptDropdown ? "2px solid #3b82f6" : "2px solid #e5e7eb",
-                    borderRadius: "10px",
-                    backgroundColor: "#fff",
-                    cursor: "pointer",
-                    minWidth: "260px",
-                    boxShadow: showDeptDropdown ? "0 0 0 3px rgba(59, 130, 246, 0.1)" : "none"
-                  }}
-                >
-                  <span style={{ fontSize: "14px", color: "#6b7280" }}>🏢</span>
-                  <span style={{
-                    flex: 1,
-                    fontSize: "14px",
-                    color: departamentoId === "" ? "#9ca3af" : "#374151",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap"
-                  }}>
-                    {departamentoId === "" ? "Todos los departamentos" : departamentos.find(d => d.id === departamentoId)?.nombre || "Seleccionar..."}
-                  </span>
-                  <span style={{
-                    fontSize: "12px",
-                    transition: "transform 0.2s",
-                    transform: showDeptDropdown ? "rotate(180deg)" : "rotate(0deg)",
-                    color: "#6b7280"
-                  }}>▼</span>
-                </div>
-
-                {/* Dropdown de departamentos */}
-                {showDeptDropdown && (
-                  <div style={{
-                    position: "absolute",
-                    top: "calc(100% + 4px)",
-                    left: 0,
-                    right: 0,
-                    backgroundColor: "#fff",
-                    border: "2px solid #e5e7eb",
-                    borderRadius: "10px",
-                    boxShadow: "0 10px 40px rgba(0,0,0,0.15)",
-                    zIndex: 1000,
-                    maxHeight: "300px",
-                    overflowY: "auto",
-                  }}>
-                    {/* Input de búsqueda */}
-                    <div style={{ padding: "8px 12px", borderBottom: "1px solid #e5e7eb", position: "sticky", top: 0, backgroundColor: "#fff" }}>
-                      <input
-                        type="text"
-                        placeholder="🔍 Filtrar departamentos..."
-                        value={deptSearchTerm}
-                        onChange={(e) => setDeptSearchTerm(e.target.value)}
-                        style={{
-                          width: "100%",
-                          padding: "8px 12px",
-                          border: "1px solid #e5e7eb",
-                          borderRadius: "6px",
-                          fontSize: "13px",
-                          outline: "none",
-                          boxSizing: "border-box"
-                        }}
-                        autoFocus
-                      />
-                    </div>
-
-                    {/* Opción "Todos" */}
-                    <div
-                      onClick={() => {
-                        setDepartamentoId("")
-                        setDeptSearchTerm("")
-                        setShowDeptDropdown(false)
-                      }}
-                      style={{
-                        padding: "10px 14px",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        backgroundColor: departamentoId === "" ? "#dbeafe" : "transparent",
-                        color: departamentoId === "" ? "#1e40af" : "#374151",
-                        fontWeight: departamentoId === "" ? 600 : 400,
-                        fontSize: "13px",
-                        borderBottom: "1px solid #f3f4f6"
-                      }}
-                      onMouseEnter={e => {
-                        if (departamentoId !== "") e.currentTarget.style.backgroundColor = "#f3f4f6"
-                      }}
-                      onMouseLeave={e => {
-                        if (departamentoId !== "") e.currentTarget.style.backgroundColor = "transparent"
-                      }}
-                    >
-                      <span>📁</span>
-                      <span>Todos los departamentos</span>
-                    </div>
-
-                    {/* Lista filtrada */}
-                    {departamentosFiltrados.length === 0 ? (
-                      <div style={{
-                        padding: "16px",
-                        textAlign: "center",
-                        color: "#9ca3af",
-                        fontSize: "13px"
-                      }}>
-                        No se encontraron departamentos
-                      </div>
-                    ) : (
-                      departamentosFiltrados.map(dep => (
-                        <div
-                          key={dep.id}
-                          onClick={() => {
-                            setDepartamentoId(dep.id)
-                            setDeptSearchTerm("")
-                            setShowDeptDropdown(false)
-                          }}
-                          style={{
-                            padding: "10px 14px",
-                            cursor: "pointer",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                            backgroundColor: departamentoId === dep.id ? "#dbeafe" : "transparent",
-                            color: departamentoId === dep.id ? "#1e40af" : "#374151",
-                            fontWeight: departamentoId === dep.id ? 600 : 400,
-                            fontSize: "13px"
-                          }}
-                          onMouseEnter={e => {
-                            if (departamentoId !== dep.id) e.currentTarget.style.backgroundColor = "#f3f4f6"
-                          }}
-                          onMouseLeave={e => {
-                            if (departamentoId !== dep.id) e.currentTarget.style.backgroundColor = "transparent"
-                          }}
-                        >
-                          <span>🏢</span>
-                          <span>{dep.nombre}</span>
-                        </div>
-                      ))
-                    )}
-
-                    {/* Crear nuevo departamento */}
-                    <div style={{ borderTop: "1px solid #e5e7eb" }}>
-                      <div
-                        onClick={() => {
-                          setShowDeptDropdown(false)
-                          setShowNewDeptInput(true)
-                          setDeptSearchTerm("")
-                        }}
-                        style={{
-                          padding: "12px 14px",
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "8px",
-                          backgroundColor: "#f0fdf4",
-                          color: "#16a34a",
-                          fontWeight: 500
-                        }}
-                        onMouseEnter={e => e.currentTarget.style.backgroundColor = "#dcfce7"}
-                        onMouseLeave={e => e.currentTarget.style.backgroundColor = "#f0fdf4"}
-                      >
-                        <span>➕</span>
-                        <span style={{ fontSize: "13px" }}>Crear nuevo departamento...</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
+          {/* Selector de departamento nativo */}
+          <select
+            value={departamentoId === "" ? "__todos__" : departamentoId}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === "__nuevo__") {
+                setShowNewDeptInput(true);
+              } else if (value === "__todos__") {
+                setDepartamentoId("");
+              } else {
+                setDepartamentoId(Number(value));
+              }
+            }}
+            style={{
+              padding: "10px 14px",
+              border: "2px solid #e5e7eb",
+              borderRadius: "10px",
+              backgroundColor: "#fff",
+              minWidth: "260px",
+              fontSize: "14px",
+              cursor: "pointer"
+            }}
+          >
+            <option value="__todos__">Todos los departamentos</option>
+            {departamentos.map(dep => (
+              <option key={dep.id} value={dep.id}>
+                {dep.nombre}
+              </option>
+            ))}
+            <option value="__nuevo__">+ Crear departamento...</option>
+          </select>
           {/* Selector año */}
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <label style={{ fontSize: "14px", color: "#666" }}>Año:</label>
@@ -828,22 +743,20 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           <button
             onClick={() => setEditingProductId("nuevo" as any)}
             style={{
-              padding: "10px 10px",
+              padding: "10px 20px",
               border: "none",
               borderRadius: "10px",
-              backgroundColor: "#dcfce7",
-              color: "#15803d",
-              fontSize: "12px",
-              fontWeight: 400,
+              backgroundColor: "#16a34a",
+              color: "#fff",
+              fontSize: "13px",
+              fontWeight: 600,
               cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              boxShadow: "0 2px 8px rgba(249,115,22,0.25)",
               transition: "all 0.15s",
               marginLeft: "auto",
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.backgroundColor = "#bbf7d0"
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.backgroundColor = "#dcfce7"
             }}
           >
             + nuevo producto
@@ -877,36 +790,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           overflow: "auto",
           boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)"
         }}>
-          {/* Leyenda de colores */}
-          <div style={{
-            padding: "10px 16px",
-            backgroundColor: "#f9fafb",
-            borderBottom: "1px solid #e5e7eb",
-            display: "flex",
-            alignItems: "center",
-            gap: "16px",
-            fontSize: "11px",
-            color: "#6b7280",
-            flexWrap: "wrap"
-          }}>
-            <span style={{ fontWeight: 600, color: "#374151", fontSize: "12px" }}>Intensidad de consumo:</span>
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <div style={{ width: "14px", height: "14px", backgroundColor: "#ffffff", border: "1px solid #d1d5db", borderRadius: "3px" }}></div>
-              <span>Ninguno</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <div style={{ width: "14px", height: "14px", backgroundColor: "#fef08a", border: "1px solid #facc15", borderRadius: "3px" }}></div>
-              <span>Bajo</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <div style={{ width: "14px", height: "14px", backgroundColor: "#bef264", border: "1px solid #a3e635", borderRadius: "3px" }}></div>
-              <span>Medio</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-              <div style={{ width: "14px", height: "14px", backgroundColor: "#65a30d", border: "1px solid #4d7c0f", borderRadius: "3px" }}></div>
-              <span>Alto</span>
-            </div>
-          </div>
 
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "13px", whiteSpace: "nowrap" }}>
             <thead style={{ position: "sticky", top: 48, zIndex: 10 }}>
@@ -1004,24 +887,71 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                             </div>
                           </td>
                           <td style={{ ...tdStyle, textAlign: "right", fontSize: "13px", color: "#666" }}>
-                            {prod.precio !== null && prod.precio !== undefined
-                              ? prod.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"
-                              : "-"}
+                            {/* Precio de la presentación seleccionada */}
+                            {(() => {
+                              const presId = presentacionSeleccionada.get(prod.id);
+                              if (!presId) return "-";
+
+                              const pres = presentacionesPorProducto.get(prod.id)?.find(p => p.id === presId);
+                              if (!pres) return "-";
+
+                              return pres.precio !== null
+                                ? pres.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"
+                                : "-";
+                            })()}
                           </td>
                           <td style={{ ...tdStyle }}>
-                            <span style={{
-                              display: "inline-block",
-                              padding: "3px 10px",
-                              borderRadius: "9999px",
-                              backgroundColor: "#e0e7ff",
-                              color: "#3730a3",
-                              fontSize: "11px",
-                              fontWeight: 600,
-                            }}>
-                              {cat.nombre}
-                            </span>
+                            {(() => {
+                              // Mostrar el nombre de la categoría del producto
+                              return prod.categoria_nombre || "-";
+                            })()}
                           </td>
-                          <td style={{ ...tdStyle, fontSize: "12px", fontStyle: "italic", color: "#666" }}>{prod.unidad_medida}</td>
+                          <td style={{ ...tdStyle }}>
+                            {/* Selector de unidad de presentación */}
+                            {(() => {
+                              const presId = presentacionSeleccionada.get(prod.id);
+                              const presList = presentacionesPorProducto.get(prod.id) || [];
+
+                              if (presList.length === 0) {
+                                return "-";
+                              }
+
+                              return (
+                                <select
+                                  value={presId !== undefined ? presId : presList[0]?.id || ""}
+                                  onChange={(e) => {
+                                    const value = Number(e.target.value);
+                                    if (value === -2) {
+                                      // Valor -2 es "Añadir tipo..." - abrir modal
+                                      setEditingProductForUnit(prod.id);
+                                      setShowAddUnitModal(true);
+                                      return;
+                                    }
+                                    // Para presentaciones por defecto (id: -1) o cualquier otra, guardar selección
+                                    const nuevaSeleccion = new Map(presentacionSeleccionada);
+                                    nuevaSeleccion.set(prod.id, value);
+                                    setPresentacionSeleccionada(nuevaSeleccion);
+                                  }}
+                                  style={{
+                                    padding: "4px 6px",
+                                    border: "1px solid #d1d5db",
+                                    borderRadius: "4px",
+                                    backgroundColor: "#fff",
+                                    fontSize: "12px",
+                                    minWidth: "80px"
+                                  }}
+                                >
+                                  <option value="">Seleccionar unidad...</option>
+                                  {presList.map(pres => (
+                                    <option key={pres.id} value={pres.id}>
+                                      {pres.nombre}{pres.precio !== null ? ` — ${pres.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : ""}
+                                    </option>
+                                  ))}
+                                  <option value="-2">Añadir tipo...</option>
+                                </select>
+                              );
+                            })()}
+                          </td>
                           {MESES.map((_, idx) => {
                             const mes = idx + 1
                             const valor = getConsumo(prod.id, mes)
@@ -1165,6 +1095,114 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         />
       )}
 
+      {/* Modal para añadir nueva unidad de presentación */}
+      {showAddUnitModal && editingProductForUnit !== null && (
+        <div onClick={() => setShowAddUnitModal(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300 }}>
+          <div style={{
+            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
+            backgroundColor: "#fff", borderRadius: "12px", width: "360px",
+            maxWidth: "calc(100vw - 32px)", boxShadow: "0 20px 48px rgba(0,0,0,0.15)",
+            zIndex: 301, overflow: "hidden"
+          }}>
+            <div style={{ height: "4px", backgroundColor: "#16a34a" }} />
+            <div style={{ padding: "24px" }}>
+              <h2 style={{ fontSize: "16px", fontWeight: 700, margin: "0 0 20px" }}>
+                Añadir nueva unidad de presentación
+              </h2>
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>
+                  Nombre de la unidad
+                </label>
+                <input
+                  type="text"
+                  value={newUnitName}
+                  onChange={(e) => setNewUnitName(e.target.value)}
+                  style={{
+                    padding: "10px 14px",
+                    border: "1.5px solid #e2e8f0",
+                    borderRadius: "8px",
+                    fontSize: "14px",
+                    width: "100%",
+                    boxSizing: "border-box"
+                  }}
+                  placeholder="Ej: Kilogramo, Litro, Docena"
+                />
+              </div>
+              <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+                <button
+                  onClick={() => {
+                    setShowAddUnitModal(false)
+                    setNewUnitName("")
+                    setEditingProductForUnit(null)
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: "6px",
+                    border: "1px solid #d1d5db",
+                    backgroundColor: "#fff",
+                    color: "#666"
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={async () => {
+                    if (!newUnitName.trim()) return;
+
+                    try {
+                      // Crear la nueva unidad de presentación
+                      const db = await import("./productosService").then(mod => mod.getDbWithRetry());
+                      const result = await db.execute(
+                        "INSERT INTO unidades_presentacion (nombre) VALUES (?)",
+                        [newUnitName.trim()]
+                      );
+
+                      if (result.lastInsertId === undefined) {
+                        throw new Error("No se pudo crear la unidad");
+                      }
+
+                      const newUnitId = result.lastInsertId;
+
+                      // Obtener presentaciones actuales del producto
+                      const presentaciones = await getPresentacionesDeProducto(editingProductForUnit);
+
+                      // Añadir la nueva presentación para este producto
+                      await upsertPresentacion(editingProductForUnit, newUnitId, null);
+
+                      // Recargar presentaciones del producto
+                      await cargarTodasLasPresentaciones(productos);
+
+                      // Seleccionar la nueva presentación para este producto
+                      const nuevaSeleccion = new Map(presentacionSeleccionada);
+                      nuevaSeleccion.set(editingProductForUnit, newUnitId);
+                      setPresentacionSeleccionada(nuevaSeleccion);
+
+                      // Cerrar modal
+                      setShowAddUnitModal(false);
+                      setNewUnitName("");
+                      setEditingProductForUnit(null);
+
+                    } catch (e: any) {
+                      toast.error("Error", e?.message ?? String(e))
+                    }
+                  }}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: "6px",
+                    border: "none",
+                    backgroundColor: "#16a34a",
+                    color: "#fff",
+                    fontWeight: 600
+                  }}
+                >
+                  Añadir
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
@@ -1173,10 +1211,10 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 const thStyle: React.CSSProperties = {
   padding: "12px 16px",
   textAlign: "left",
-  backgroundColor: "#3b82f6",
-  borderBottom: "2px solid #2563eb",
+  backgroundColor: "#f8fafc",
+  borderBottom: "2px solid #e2e8f0",
   fontWeight: 700,
-  color: "#ffffff",
+  color: "#64748b",
   fontSize: "11px",
   textTransform: "uppercase",
   letterSpacing: "0.1em",

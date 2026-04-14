@@ -289,6 +289,79 @@ pub fn run() {
                             ",
                             kind: MigrationKind::Up,
                         },
+                        Migration {
+                            version: 7,
+                            description: "unidades de presentación y presentación de productos",
+                            sql: "
+                            CREATE TABLE IF NOT EXISTS unidades_presentacion (
+                                id INTEGER PRIMARY KEY,
+                                nombre TEXT NOT NULL UNIQUE
+                            );
+
+                            INSERT OR IGNORE INTO unidades_presentacion (nombre) VALUES ('UNIDAD'), ('CAJA'), ('FARDO');
+
+                            CREATE TABLE IF NOT EXISTS producto_presentaciones (
+                                id INTEGER PRIMARY KEY,
+                                producto_id INTEGER NOT NULL REFERENCES productos_almacen(id),
+                                unidad_id INTEGER NOT NULL REFERENCES unidades_presentacion(id),
+                                precio DECIMAL(10,2) DEFAULT NULL,
+                                UNIQUE(producto_id, unidad_id)
+                            );
+
+                            -- Migrar datos existentes: para cada producto que tenga unidad_medida,
+                            -- crear una presentación con esa unidad (buscar o crear en unidades_presentacion)
+                            -- y copiar el precio existente a producto_presentaciones.
+                            INSERT INTO producto_presentaciones (producto_id, unidad_id, precio)
+                            SELECT
+                                p.id,
+                                COALESCE((SELECT id FROM unidades_presentacion WHERE nombre = p.unidad_medida LIMIT 1),
+                                         (SELECT id FROM unidades_presentacion WHERE nombre = 'UNIDAD' LIMIT 1)),
+                                p.precio
+                            FROM productos_almacen p
+                            WHERE p.unidad_medida IS NOT NULL
+                            AND NOT EXISTS (
+                                SELECT 1 FROM producto_presentaciones pp
+                                WHERE pp.producto_id = p.id
+                                AND pp.unidad_id = (
+                                    COALESCE((SELECT id FROM unidades_presentacion WHERE nombre = p.unidad_medida LIMIT 1),
+                                           (SELECT id FROM unidades_presentacion WHERE nombre = 'UNIDAD' LIMIT 1))
+                                )
+                            );
+
+                            -- La tabla salidas_productos añade presentacion_id:
+                            ALTER TABLE salidas_productos ADD COLUMN presentacion_id INTEGER REFERENCES producto_presentaciones(id);
+
+                            -- Crear índice para mejor rendimiento en búsquedas por presentación
+                            CREATE INDEX IF NOT EXISTS idx_salidas_presentacion ON salidas_productos(presentacion_id);
+
+                            -- Actualizar registros existentes de salidas_productos para asignarles la presentación correspondiente
+                            -- (asumiendo que usaban la unidad_medida original del producto)
+                            UPDATE salidas_productos
+                            SET presentacion_id = (
+                                SELECT pp.id FROM producto_presentaciones pp
+                                JOIN unidades_presentacion up ON pp.unidad_id = up.id
+                                WHERE pp.producto_id = salidas_productos.producto_id
+                                AND up.nombre = (
+                                    SELECT p.unidad_medida
+                                    FROM productos_almacen p
+                                    WHERE p.id = salidas_productos.producto_id
+                                )
+                                LIMIT 1
+                            )
+                            WHERE presentacion_id IS NULL
+                            AND EXISTS (
+                                SELECT 1 FROM producto_presentaciones pp
+                                JOIN unidades_presentacion up ON pp.unidad_id = up.id
+                                WHERE pp.producto_id = salidas_productos.producto_id
+                                AND up.nombre = (
+                                    SELECT p.unidad_medida
+                                    FROM productos_almacen p
+                                    WHERE p.id = salidas_productos.producto_id
+                                )
+                            );
+                        ",
+                            kind: MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),

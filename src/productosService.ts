@@ -98,6 +98,7 @@ export interface NuevaSalida {
   cantidad: number;
   mes: number;
   anio: number;
+  presentacion_id?: number;
 }
 
 export interface FiltrosSalida {
@@ -327,28 +328,54 @@ export async function getSalidas(
 
 /**
  * Inserta o actualiza una salida (upsert).
- * Si ya existe (producto+departamento+mes+año), actualiza la cantidad.
+ * Si ya existe (producto+departamento+mes+año+presentacion_id), actualiza la cantidad.
  * Si cantidad = 0, elimina el registro para no acumular basura.
+ * Si se especifica presentacion_id, se usa para la unicidad; sino, se usa producto_id+departamento_id+mes+anio.
  */
 export async function upsertSalida(datos: NuevaSalida): Promise<void> {
   const db = await getDbWithRetry();
 
   if (datos.cantidad === 0) {
-    await db.execute(
-      `DELETE FROM salidas_productos
-       WHERE producto_id = ? AND departamento_id = ? AND mes = ? AND anio = ?`,
-      [datos.producto_id, datos.departamento_id, datos.mes, datos.anio]
-    );
+    // Eliminar registro existente
+    if (datos.presentacion_id !== undefined) {
+      await db.execute(
+        `DELETE FROM salidas_productos
+         WHERE presentacion_id = ?`,
+        [datos.presentacion_id]
+      );
+    } else {
+      await db.execute(
+        `DELETE FROM salidas_productos
+         WHERE producto_id = ? AND departamento_id = ? AND mes = ? AND anio = ?`,
+        [datos.producto_id, datos.departamento_id, datos.mes, datos.anio]
+      );
+    }
     return;
   }
 
-  await db.execute(
-    `INSERT INTO salidas_productos (producto_id, departamento_id, cantidad, mes, anio)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(producto_id, departamento_id, mes, anio)
-     DO UPDATE SET cantidad = excluded.cantidad`,
-    [datos.producto_id, datos.departamento_id, datos.cantidad, datos.mes, datos.anio]
-  );
+  if (datos.presentacion_id !== undefined) {
+    // Usar presentacion_id para la unicidad
+    await db.execute(
+      `INSERT INTO salidas_productos (producto_id, departamento_id, presentacion_id, cantidad, mes, anio)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(presentacion_id)
+       DO UPDATE SET cantidad = excluded.cantidad,
+                     producto_id = excluded.producto_id,
+                     departamento_id = excluded.departamento_id,
+                     mes = excluded.mes,
+                     anio = excluded.anio`,
+      [datos.producto_id, datos.departamento_id, datos.presentacion_id, datos.cantidad, datos.mes, datos.anio]
+    );
+  } else {
+    // Comportamiento original: unicidad por producto+departamento+mes+anio
+    await db.execute(
+      `INSERT INTO salidas_productos (producto_id, departamento_id, cantidad, mes, anio)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(producto_id, departamento_id, mes, anio)
+       DO UPDATE SET cantidad = excluded.cantidad`,
+      [datos.producto_id, datos.departamento_id, datos.cantidad, datos.mes, datos.anio]
+    );
+  }
 }
 
 export async function eliminarSalida(id: number): Promise<void> {
@@ -523,12 +550,13 @@ export async function deleteProduct(productId: number): Promise<void> {
 }
 
 /**
- * Obtiene todas las salidas de un año específico, opcionalmente filtradas por departamento.
+ * Obtiene todas las salidas de un año específico, opcionalmente filtradas por departamento y presentación.
  * Devuelve un mapa para fácil acceso: Map<producto_id, Map<mes, cantidad>>
  */
 export async function getSalidasByYear(
   year: number,
-  departamentoId?: number
+  departamentoId?: number,
+  presentacionId?: number
 ): Promise<Map<number, Map<number, number>>> {
   const db = await getDbWithRetry();
 
@@ -538,6 +566,11 @@ export async function getSalidasByYear(
   if (departamentoId !== undefined) {
     condiciones.push("s.departamento_id = ?");
     params.push(departamentoId);
+  }
+
+  if (presentacionId !== undefined) {
+    condiciones.push("s.presentacion_id = ?");
+    params.push(presentacionId);
   }
 
   const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : "";
@@ -616,4 +649,108 @@ export async function ensureProduct(
     // Crear nuevo
     return await crearProducto(referencia.trim(), nombre.trim(), categoriaId, unidadMedida.trim(), precio);
   }
+}
+
+// ─── Nuevas funciones para unidades de presentación ──────────────────────────
+
+export interface UnidadPresentacion {
+  id: number;
+  nombre: string;
+}
+
+export interface ProductoPresentacion {
+  id: number;
+  unidad_id: number;
+  nombre: string;
+  precio: number | null;
+}
+
+/**
+ * Obtiene todas las unidades de presentación disponibles
+ */
+export async function getUnidadesPresentacion(): Promise<UnidadPresentacion[]> {
+  const db = await getDbWithRetry();
+  return db.select<UnidadPresentacion[]>(
+    "SELECT * FROM unidades_presentacion ORDER BY nombre"
+  );
+}
+
+/**
+ * Crea una nueva unidad de presentación
+ */
+export async function crearUnidadPresentacion(nombre: string): Promise<number> {
+  const db = await getDbWithRetry();
+  const result = await db.execute(
+    "INSERT INTO unidades_presentacion (nombre) VALUES (?)",
+    [nombre.trim()]
+  );
+  if (result.lastInsertId === undefined) {
+    throw new Error("No se pudo crear la unidad de presentación");
+  }
+  return result.lastInsertId;
+}
+
+/**
+ * Obtiene las presentaciones de un producto específico
+ */
+export async function getPresentacionesDeProducto(productoId: number): Promise<ProductoPresentacion[]> {
+  const db = await getDbWithRetry();
+  return db.select<ProductoPresentacion[]>(
+    `SELECT
+       pp.id,
+       pp.unidad_id,
+       up.nombre,
+       pp.precio
+     FROM producto_presentaciones pp
+     JOIN unidades_presentacion up ON up.id = pp.unidad_id
+     WHERE pp.producto_id = ?
+     ORDER BY up.nombre`,
+    [productoId]
+  );
+}
+
+/**
+ * Inserta o actualiza una presentación de producto
+ */
+export async function upsertPresentacion(productoId: number, unidadId: number, precio: number | null): Promise<number> {
+  const db = await getDbWithRetry();
+  const result = await db.execute(
+    `INSERT INTO producto_presentaciones (producto_id, unidad_id, precio)
+     VALUES (?, ?, ?)
+     ON CONFLICT(producto_id, unidad_id)
+     DO UPDATE SET precio = excluded.precio`,
+    [productoId, unidadId, precio]
+  );
+  if (result.lastInsertId === undefined) {
+    // Si es un UPDATE, lastInsertId será undefined, necesitamos obtener el ID existente
+    const rows = await db.select<{ id: number }[]>(
+      "SELECT id FROM producto_presentaciones WHERE producto_id = ? AND unidad_id = ?",
+      [productoId, unidadId]
+    );
+    if (rows.length > 0) {
+      return rows[0].id;
+    }
+    throw new Error("No se pudo insertar o actualizar la presentación");
+  }
+  return result.lastInsertId;
+}
+
+/**
+ * Elimina una presentación de producto
+ * @throws Error si la presentación tiene salidas asociadas
+ */
+export async function deletePresentacion(presentacionId: number): Promise<void> {
+  const db = await getDbWithRetry();
+
+  // Verificar si tiene salidas asociadas
+  const rows = await db.select<{ count: number }[]>(
+    "SELECT COUNT(*) AS count FROM salidas_productos WHERE presentacion_id = ?",
+    [presentacionId]
+  );
+
+  if (rows[0].count > 0) {
+    throw new Error("No se puede eliminar una presentación que tiene salidas registradas");
+  }
+
+  await db.execute("DELETE FROM producto_presentaciones WHERE id = ?", [presentacionId]);
 }
