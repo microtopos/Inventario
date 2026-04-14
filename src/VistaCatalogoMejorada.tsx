@@ -679,6 +679,52 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             ))}
             <option value="__nuevo__">+ Crear departamento...</option>
           </select>
+
+          {showNewDeptInput && (
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "8px" }}>
+              <input
+                type="text"
+                placeholder="Nombre del departamento..."
+                value={newDeptName}
+                onChange={(e) => setNewDeptName(e.target.value)}
+                style={{
+                  padding: "10px 14px",
+                  border: "1.5px solid #e2e8f0",
+                  borderRadius: "10px",
+                  fontSize: "14px",
+                  flex: 1,
+                }}
+              />
+              <button
+                onClick={async () => {
+                  if (!newDeptName.trim()) return
+                  try {
+                    const deptId = await crearDepartamentoProd(newDeptName.trim())
+                    setDepartamentos([...departamentos, { id: deptId, nombre: newDeptName.trim() }])
+                    setDepartamentoId(deptId)
+                    setShowNewDeptInput(false)
+                    setNewDeptName("")
+                    handleDepartamentoCreado()
+                  } catch (e: any) {
+                    toast.error("Error", e?.message ?? "Error al crear departamento")
+                  }
+                }}
+                style={{
+                  padding: "10px 16px",
+                  border: "none",
+                  borderRadius: "10px",
+                  backgroundColor: "#16a34a",
+                  color: "#fff",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Crear
+              </button>
+            </div>
+          )}
+
           {/* Selector año */}
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <label style={{ fontSize: "14px", color: "#666" }}>Año:</label>
