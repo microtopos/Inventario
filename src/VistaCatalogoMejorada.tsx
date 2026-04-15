@@ -775,7 +775,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         }}>
 
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "13px", whiteSpace: "nowrap" }}>
-            <thead style={{ position: "sticky", top: 48, zIndex: 10 }}>
+            <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr>
                 <th style={{ ...thStyle, position: "sticky", left: 0, zIndex: 3, minWidth: "110px", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.15)" }}>Referencia</th>
                 <th style={{ ...thStyle, position: "sticky", left: "110px", zIndex: 2, minWidth: "220px", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)" }}>Nombre</th>

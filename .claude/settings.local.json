@@ -30,7 +30,18 @@
       "Bash(awk:*)",
       "Bash(sed -i '1064s/\\);$/\\);\\\\n                          }\\)/' \"src\\\\/VistaCatalogoMejorada.tsx\")",
       "Bash(sed -i '1065d' \"src\\\\/VistaCatalogoMejorada.tsx\")",
-      "Bash(cat \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\\\\\\\\src\\\\\\\\VistaCatalogoMejorada.tsx\")"
+      "Bash(cat \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\\\\\\\\src\\\\\\\\VistaCatalogoMejorada.tsx\")",
+      "Bash(python3 /tmp/fix_table.py)",
+      "Bash(find \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\" -name \"*.test.*\" -o -name \"*.spec.*\")",
+      "Bash(find \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\" -path \"*/src/*\" -name \"*.test.*\" -o -path \"*/src/*\" -name \"*.spec.*\")",
+      "Bash(python3)",
+      "Bash(find . -name \"*.tsx\" -type f -exec npx tsc --noEmit {} \\\\;)",
+      "Bash(python3 /tmp/fix.py)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 /tmp/fix_line.pyç)",
+      "Bash(wc *)",
+      "Bash(xxd src/VistaCatalogoMejorada.tsx)",
+      "Bash(ls -la src/ConfirmDialog*)"
     ]
   }
 }
