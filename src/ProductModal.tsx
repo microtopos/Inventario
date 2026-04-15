@@ -226,7 +226,7 @@ export function ModalProducto({
   return (
     <div>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300 }} />
-      <div style={{
+      <div onClick={(e) => e.stopPropagation()} style={{
         position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
         backgroundColor: "#fff", borderRadius: "14px", width: "420px",
         maxWidth: "calc(100vw - 32px)", boxShadow: "0 24px 64px rgba(0,0,0,0.18)",

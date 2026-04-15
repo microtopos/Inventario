@@ -14,7 +14,23 @@
       "Bash(ls -la *.sqlite)",
       "Bash(ls -la *.sqlite3)",
       "Bash(npx tsc:*)",
-      "Bash(Get-Content:*)"
+      "Bash(Get-Content:*)",
+      "Bash(exit 0:*)",
+      "Bash(chmod +x /tmp/verify_fix.sh)",
+      "Bash(/tmp/verify_fix.sh)",
+      "Bash(pkill -f \"tauri dev\")",
+      "Bash(cd \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\")",
+      "Bash(cat)",
+      "Bash(python3 /tmp/test_delete_unit.py \"C:\\\\Users\\\\dan.pirlitu\\\\Desktop\\\\Inventario Ropa\\\\src\\\\VistaCatalogoMejorada.tsx\")",
+      "Bash(xxd)",
+      "Bash(awk NR>=990 && NR<=1065 {printf \"%3d: %s\\\\n\", NR, $0}:*)",
+      "Bash(awk 'NR>=645 && NR<=750 {printf \"%3d: %s\\\\n\", NR, $0}' \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\\\\\\\\src\\\\\\\\VistaCatalogoMejorada.tsx\")",
+      "Bash(awk 'NR>=645 && NR<=750 && /^[[:space:]]*}[[:space:]]*$/' \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\\\\\\\\src\\\\\\\\VistaCatalogoMejorada.tsx\")",
+      "Bash(awk 'NR>=894 && NR<=990 {printf \"%3d: %s\\\\n\", NR, $0}' \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\\\\\\\\src\\\\\\\\VistaCatalogoMejorada.tsx\")",
+      "Bash(awk:*)",
+      "Bash(sed -i '1064s/\\);$/\\);\\\\n                          }\\)/' \"src\\\\/VistaCatalogoMejorada.tsx\")",
+      "Bash(sed -i '1065d' \"src\\\\/VistaCatalogoMejorada.tsx\")",
+      "Bash(cat \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\\\\\\\\src\\\\\\\\VistaCatalogoMejorada.tsx\")"
     ]
   }
 }

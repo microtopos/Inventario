@@ -99,15 +99,12 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   // Mapa de salidas: producto_id -> mes -> cantidad
   const [salidasMap, setSalidasMap] = useState<Map<number, Map<number, number>>>(new Map())
 
-  // Estados para presentaciones
+  // Estados para unidades globales y precios por producto
   const [unidadesPresentacion, setUnidadesPresentacion] = useState<UnidadPresentacion[]>([])
-  // Mapa de precios por producto y unidad: producto_id -> (unidad_id -> precio)
+  // Precios por producto y unidad: producto_id -> Map<unidad_id, precio>
   const [preciosPorProductoUnidad, setPreciosPorProductoUnidad] = useState<Map<number, Map<number, number>>>(new Map())
-  // Mapa de presentaciones por producto: producto_id -> presentacion[]
-  const [presentacionesPorProducto, setPresentacionesPorProducto] = useState<Map<number, ProductoPresentacion[]>>(new Map())
-  // Mapa de presentacion seleccionada por producto: producto_id -> presentacion_id
+  // Mapa de presentacion seleccionada por producto: producto_id -> unidad_id
   const [presentacionSeleccionada, setPresentacionSeleccionada] = useState<Map<number, number>>(new Map())
-  // Mapa de salidas por presentación: presentacion_id -> mes -> cantidad
 
   // Ref para almacenar el departamento/año para el cual están cargados los datos actuales
   const cachedDeptYearRef = useRef<{ dept: number | ""; year: number } | null>(null)
@@ -155,9 +152,26 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
 
     try {
-      // Cargar salidas globales para el departamento/año
-      const mapa = await getSalidasByYear(yearAlMomento, Number(deptAlMomento));
-      setSalidasMap(mapa);
+      // Cargar salidas tradicionales (para compatibilidad y mapa general)
+      const mapa = await getSalidasByYear(yearAlMomento, Number(deptAlMomento))
+      setSalidasMap(mapa)
+
+      // Cargar salidas para cada producto y unidad global
+      const presentacionesMap = new Map<number, Map<number, number>>();
+
+      // Para cada producto, cargar salidas por cada unidad global
+      for (const prod of productos) {
+        const prodMap = new Map<number, number>();
+        for (const unidad of unidadesPresentacion) {
+          const mapaPres = await getSalidasByYear(yearAlMomento, Number(deptAlMomento));
+          // Filtrar por producto y unidad
+          const cantidad = mapaPres.get(prod.id)?.get(unidad.id) || 0;
+          prodMap.set(unidad.id, cantidad);
+        }
+        presentacionesMap.set(prod.id, prodMap);
+      }
+
+      setSalidasPorPresentacion(presentacionesMap);
 
       // Actualizar caché
       cachedDeptYearRef.current = { dept: deptAlMomento, year: yearAlMomento }
@@ -165,9 +179,9 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       toast.error("Error", e?.message ?? String(e))
       // En caso de error, limpiar la caché para permitir reintento
       cachedDeptYearRef.current = null
-      setSalidasMap(new Map())
+      setSalidasPorPresentacion(new Map())
     }
-  }, [departamentoId, year, toast, presentacionesPorProducto])
+  }, [departamentoId, year, toast, productos, unidadesPresentacion])
 
   // Carga inicial
   useEffect(() => {
@@ -179,6 +193,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     if (departamentoId === "") {
       // Limpiar cuando no hay departamento seleccionado
       setSalidasMap(new Map())
+      setSalidasPorPresentacion(new Map())
       cachedDeptYearRef.current = null
     }
   }, [departamentoId])
@@ -410,7 +425,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   }, [productos, searchTerm])
 
   // Agrupación por categoría
-  const productosPorCategoria = useMemo(() => {
     const mapa = new Map<number, ProductoAlmacen[]>()
     for (const prod of productosFiltrados) {
       if (!mapa.has(prod.categoria_id)) {
@@ -432,14 +446,14 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     setExpandedCategories(nuevo)
   }
 
-  // Obtener consumo para un producto y mes (usando salidas globales)
+  // Obtener consumo para un producto y mes
   function getConsumo(productoId: number, mes: number): number {
-    const prodMap = salidasMap.get(productoId)
+    const prodMap = salidasPorPresentacion.get(productoId)
     return prodMap?.get(mes) ?? 0
   }
 
   // Actualizar consumo de una celda
-  const handleCellChange = useCallback(async (productoId: number, mes: number, valorStr: string) => {
+  const handleCellChange = useCallback(async (productoId: number, mes: number, valorStr: string, unidadId?: number) => {
     if (departamentoId === "") return
     const valor = Number(valorStr)
     if (isNaN(valor) || valor < 0) return
@@ -447,30 +461,16 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     setSavingCell({ productoId, mes })
 
     try {
-      // Obtener la presentación seleccionada para este producto
-      const presentacionId = presentacionSeleccionada.get(productoId)
+      // Si no se pasa unidad_id, usar la seleccionada para este producto
+      const uId = unidadId !== undefined ? unidadId : presentacionSeleccionada.get(productoId)
 
       await upsertSalida({
         producto_id: productoId,
         departamento_id: Number(departamentoId),
-        presentacion_id: presentacionId !== undefined ? presentacionId : null,
+        presentacion_id: uId !== undefined ? uId : null,
         cantidad: valor,
         mes,
         anio: year,
-      })
-      // Actualizar mapa global de salidas
-      setSalidasMap(prev => {
-        const nuevo = new Map(prev)
-        if (!nuevo.has(productoId)) {
-          nuevo.set(productoId, new Map())
-        }
-        const prodMap = nuevo.get(productoId)!
-        if (valor === 0) {
-          prodMap.delete(mes)
-        } else {
-          prodMap.set(mes, valor)
-        }
-        return nuevo
       })
 
       // Actualizar mapa general de salidas (por compatibilidad)
@@ -791,7 +791,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             </thead>
             <tbody>
               {categorias.map(cat => {
-                const prodsEnCat = productosPorCategoria.get(cat.id) || []
+                const prodsEnCat = getProductosPorCategoria((cat.id) || []
                 if (prodsEnCat.length === 0) return null
                 const isExpanded = expandedCategories.has(cat.id)
 
@@ -870,16 +870,16 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                             </div>
                           </td>
                           <td style={{ ...tdStyle, textAlign: "right", fontSize: "13px", color: "#666" }}>
-                            {/* Precio de la presentación seleccionada */}
+                            {/* Precio de la unidad seleccionada */}
                             {(() => {
-                              const presId = presentacionSeleccionada.get(prod.id);
-                              if (!presId) return "-";
+                              const unidadId = presentacionSeleccionada.get(prod.id);
+                              if (!unidadId) return "-";
 
-                              const pres = presentacionesPorProducto.get(prod.id)?.find(p => p.id === presId);
-                              if (!pres) return "-";
+                              const precio = preciosPorProductoUnidad.get(prod.id)?.get(unidadId);
+                              if (precio === null || precio === undefined) return "-";
 
-                              return pres.precio !== null
-                                ? pres.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"
+                              return precio !== null
+                                ? precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"
                                 : "-";
                             })()}
                           </td>
@@ -890,18 +890,17 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                             })()}
                           </td>
                           <td style={{ ...tdStyle }}>
-                            {/* Selector de unidad de presentación */}
+                            {/* Selector de unidad de presentación (global) */}
                             {(() => {
-                              const presId = presentacionSeleccionada.get(prod.id);
-                              const presList = unidadesPresentacion;
+                              const unidadId = presentacionSeleccionada.get(prod.id);
 
-                              if (presList.length === 0) {
+                              if (unidadesPresentacion.length === 0) {
                                 return "-";
                               }
 
                               return (
                                 <select
-                                  value={presId !== undefined ? presId : presList[0]?.id || ""}
+                                  value={unidadId !== undefined ? unidadId : unidadesPresentacion[0]?.id || ""}
                                   onChange={(e) => {
                                     const value = Number(e.target.value);
                                     if (value === -2) {
@@ -910,10 +909,27 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                                       setShowAddUnitModal(true);
                                       return;
                                     }
-                                    // Guardar selección
+                                    // Guardar selección de unidad global para este producto
                                     const nuevaSeleccion = new Map(presentacionSeleccionada);
                                     nuevaSeleccion.set(prod.id, value);
                                     setPresentacionSeleccionada(nuevaSeleccion);
+
+                                    // Si ya existe precio guardado para esta unidad, usarlo; si no, limpiar precio temporal
+                                    const unidad = unidadesPresentacion.find(u => u.id === value);
+                                    if (unidad && preciosPorProductoUnidad.has(prod.id)) {
+                                      const preciosUnidad = preciosPorProductoUnidad.get(prod.id)!;
+                                      if (preciosUnidad.has(value)) {
+                                        // Precio ya existe - nada que hacer
+                                        return;
+                                      }
+                                    }
+                                    // Añadir entrada con precio null temporalmente
+                                    const nuevosPrecios = new Map(preciosPorProductoUnidad);
+                                    if (!nuevosPrecios.has(prod.id)) {
+                                      nuevosPrecios.set(prod.id, new Map());
+                                    }
+                                    nuevosPrecios.get(prod.id)!.set(value, null);
+                                    setPreciosPorProductoUnidad(nuevosPrecios);
                                   }}
                                   style={{
                                     padding: "4px 6px",
@@ -925,9 +941,9 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                                   }}
                                 >
                                   <option value="">Seleccionar unidad...</option>
-                                  {presList.map(pres => (
-                                    <option key={pres.id} value={pres.id}>
-                                      {pres.nombre}{preciosPorProductoUnidad.get(prod.id)?.get(pres.id) !== undefined ? ` — ${preciosPorProductoUnidad.get(prod.id)?.get(pres.id)?.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : ""}
+                                  {unidadesPresentacion.map(unidad => (
+                                    <option key={unidad.id} value={unidad.id}>
+                                      {unidad.nombre}
                                     </option>
                                   ))}
                                   <option value="-2">Añadir tipo...</option>
@@ -1081,7 +1097,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       {/* Modal para añadir nueva unidad de presentación */}
       {showAddUnitModal && editingProductForUnit !== null && (
         <div onClick={() => setShowAddUnitModal(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300 }}>
-          <div style={{
+          <div onClick={(e) => e.stopPropagation()} style={{
             position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
             backgroundColor: "#fff", borderRadius: "12px", width: "360px",
             maxWidth: "calc(100vw - 32px)", boxShadow: "0 20px 48px rgba(0,0,0,0.15)",
@@ -1134,7 +1150,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
                     try {
                       // Crear la nueva unidad de presentación
-                      const db = await import("./productosService").then(mod => mod.getDbWithRetry());
+                      const { getDbWithRetry } = await import("./productosService");
+                      const db = await getDbWithRetry();
                       const result = await db.execute(
                         "INSERT INTO unidades_presentacion (nombre) VALUES (?)",
                         [newUnitName.trim()]
@@ -1151,6 +1168,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
                       // Añadir la nueva presentación para este producto
                       await upsertPresentacion(editingProductForUnit, newUnitId, null);
+
+                      // Recargar presentaciones del producto
 
                       // Seleccionar la nueva presentación para este producto
                       const nuevaSeleccion = new Map(presentacionSeleccionada);

@@ -68,7 +68,7 @@ async function getDb(): Promise<Database> {
 }
 
 // Wrapper con retry para operaciones que pueden encontrar locked DB
-async function getDbWithRetry(): Promise<Database> {
+export async function getDbWithRetry(): Promise<Database> {
   return withRetry(getDb);
 }
 
