@@ -21,7 +21,6 @@ interface AppHeaderProps {
 const NAV_ITEMS: { key: Page; label: string; group: "ropa" | "gasolina" | "productos" }[] = [
   { key: "inventory", label: "📦 Inventario",   group: "ropa" },
   { key: "orders",    label: "🛒 Pedidos",      group: "ropa" },
-  { key: "dashboard", label: "📊 Estadísticas", group: "ropa" },
   { key: "gasolina",  label: "🚗 Coches",       group: "gasolina" },
   { key: "productos", label: "🧴 Productos",    group: "productos" },
 ]
