@@ -547,7 +547,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   }
 
   return (
-    <div>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 64px)" }}>
       <input
         type="file"
         ref={fileInputRef}
@@ -756,7 +756,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           color: "#6b7280",
           backgroundColor: "#fff",
           border: "2px dashed #e5e7eb",
-          borderRadius: "16px"
+          borderRadius: "16px",
+          flex: 1,
         }}>
           <div style={{ fontSize: "18px", fontWeight: 600, marginBottom: "12px" }}>
             📊 Selecciona un departamento
@@ -770,9 +771,19 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           backgroundColor: "#fff",
           border: "2px solid #e5e7eb",
           borderRadius: "16px",
-          overflow: "auto",
-          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)"
+          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)",
+          overflowY: "auto",
+          flex: 1,
+          minHeight: 0,
         }}>
+          {/* Contenedor horizontal con scrollbar arriba (rotateX trick) */}
+          <div style={{
+            overflowX: "auto",
+            overflowY: "visible",
+            transform: "rotateX(180deg)",
+          }}>
+          {/* Contra-rotación para que el contenido se vea normal */}
+          <div style={{ transform: "rotateX(180deg)" }}>
 
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "13px", whiteSpace: "nowrap" }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
@@ -1048,10 +1059,10 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               )}
             </tbody>
           </table>
+          </div>
+          </div>
         </div>
       )}
-
-      {/* Diálogo de confirmación */}
       {dialog}
 
       {/* Modales */}
