@@ -259,13 +259,13 @@ export default function OrderHistoryPage({
 
       function drawHeader() {
         doc.setDrawColor(...linea); doc.setLineWidth(0.4); doc.line(ML, 12, PW - MR, 12)
-        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...negro)
         doc.text("Gestión de Ropa", ML, 9)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...gris)
         doc.text(new Date().toLocaleDateString("es-ES"), PW - MR, 9, { align: "right" })
-        doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(...negro)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(17); doc.setTextColor(...negro)
         doc.text(`Pedido #${selectedOrder.id}`, ML, 22)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...gris)
         doc.text(
           `${fecha}  ·  ${totalLineas} prenda${totalLineas !== 1 ? "s" : ""}  ·  ${totalUnidades} unidades` +
           (selectedOrder.recibido ? "  ·  Recibido" : "  ·  Pendiente"),
@@ -277,9 +277,9 @@ export default function OrderHistoryPage({
       function addPage() {
         doc.addPage()
         doc.setDrawColor(...linea); doc.setLineWidth(0.4); doc.line(ML, 12, PW - MR, 12)
-        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...negro)
         doc.text("Gestión de Ropa", ML, 9)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...gris)
         doc.text(`Pedido #${selectedOrder.id}`, PW - MR, 9, { align: "right" })
         doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(ML, 14, PW - MR, 14)
       }
@@ -295,23 +295,23 @@ export default function OrderHistoryPage({
       const notasText = String(selectedOrder.notas ?? "").trim()
       if (notasText) {
         const boxPadX = 3
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(10)
         const lines = doc.splitTextToSize(notasText, CW - boxPadX * 2) as string[]
         const boxH = 4 + 3 + lines.length * 4.1 + 4
         y = checkPageBreak(y, boxH + 4)
         doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.rect(ML, y, CW, boxH, "S")
-        doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...gris)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...gris)
         doc.text("NOTAS", ML + boxPadX, y + 6)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...negro)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...negro)
         doc.text(lines, ML + boxPadX, y + 11)
         y += boxH + 8
       }
 
-      doc.setFillColor(...fondoCab); doc.rect(ML, y, CW, 7, "F")
-      doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...gris)
-      doc.text("PRENDA", ML + 2, y + 5)
-      doc.text("TOTAL", PW - MR - 2, y + 5, { align: "right" })
-      y += 9
+      doc.setFillColor(...fondoCab); doc.rect(ML, y, CW, 8, "F")
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...gris)
+      doc.text("PRENDA", ML + 2, y + 6)
+      doc.text("TOTAL", PW - MR - 2, y + 6, { align: "right" })
+      y += 10
 
       const colW = 22
       const chipsPerRow = Math.floor(CW / colW)
@@ -327,12 +327,12 @@ export default function OrderHistoryPage({
           doc.setFillColor(...fondoFil)
           doc.rect(ML, y - 1, CW, blockH + 1, "F")
         }
-        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...negro)
         doc.text(g.nombre, ML + 2, y + 5)
         doc.text(`${g.total} ud.`, PW - MR - 2, y + 5, { align: "right" })
         let tallaStartY = y + 8
         if (hasMeta) {
-          doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...gris)
+          doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...gris)
           doc.text([g.codigo, g.color].filter(Boolean).join("  ·  "), ML + 2, y + 11)
           tallaStartY = y + 14
         }
@@ -340,12 +340,12 @@ export default function OrderHistoryPage({
         for (const t of tallas) {
           if (col >= chipsPerRow) { col = 0; tx = ML + 2; ty += chipH + 1.5 }
           doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.rect(tx, ty, colW - 2, chipH, "S")
-          doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(...negro)
+          doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...negro)
           doc.text(t.talla, tx + 2, ty + 3.5)
-          doc.setFont("helvetica", "normal"); doc.setTextColor(...gris)
+          doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...gris)
           doc.text(`${t.cantidad}ud`, tx + (colW - 2) - 2, ty + 3.5, { align: "right" })
           if (selectedOrder.recibido && t.stock_actual !== undefined) {
-            doc.setFontSize(6); doc.setTextColor(...grisClar)
+            doc.setFontSize(7); doc.setTextColor(...grisClar)
             doc.text(`→${t.stock_actual}`, tx + (colW - 2) / 2, ty + 7.5, { align: "center" })
           }
           tx += colW; col++
@@ -357,7 +357,7 @@ export default function OrderHistoryPage({
       y = checkPageBreak(y, 14); y += 5
       doc.setDrawColor(...[180, 180, 180] as [number,number,number])
       doc.setLineWidth(0.5); doc.line(ML, y - 2, PW - MR, y - 2)
-      doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...negro)
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...negro)
       doc.text("Total del pedido:", ML + 2, y + 4)
       doc.text(`${totalLineas} prendas  ·  ${totalUnidades} unidades`, PW - MR - 2, y + 4, { align: "right" })
 
@@ -365,7 +365,7 @@ export default function OrderHistoryPage({
       for (let i = 1; i <= pages; i++) {
         doc.setPage(i)
         doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(ML, 286, PW - MR, 286)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...grisClar)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...grisClar)
         doc.text("Gestión de Ropa", ML, 290)
         doc.text(`Página ${i} de ${pages}`, PW - MR, 290, { align: "right" })
       }
