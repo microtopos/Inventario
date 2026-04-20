@@ -13,9 +13,19 @@ import { useToast } from "./Toast"
 import { getImageUrl } from "./getImageUrl"
 import { useDraft } from "./DraftContext"
 
+// Importamos OrderHistoryPage para embebido
+import OrderHistoryPage from "./OrderHistoryPage"
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+
+type SubView = "new" | "history"
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function OrderPage({ onNavigate }: {
   onNavigate: (page: any) => void
 }) {
+  const [subView, setSubView] = useState<SubView>("new")
   const [products, setProducts] = useState<any[]>([])
   const [search, setSearch] = useState("")
   const [deptFilter, setDeptFilter] = useState<number | null>(null)
@@ -27,7 +37,6 @@ export default function OrderPage({ onNavigate }: {
   const { confirm, alert, dialog } = useConfirm()
   const toast = useToast()
 
-  // Estado del borrador desde el contexto
   const { draftItems, draftNotas, syncState, setDraft, flushSync, clearState, discard } = useDraft()
 
   useEffect(() => {
@@ -56,7 +65,6 @@ export default function OrderPage({ onNavigate }: {
 
   function setCantidad(tallaId: number, value: number) {
     const next = { ...draftItems, [tallaId]: value }
-    // Si la cantidad es 0, eliminar la entrada
     if (value <= 0) delete next[tallaId]
     setDraft(next, draftNotas)
   }
@@ -145,13 +153,13 @@ export default function OrderPage({ onNavigate }: {
 
       function drawHeader() {
         doc.setDrawColor(...linea); doc.setLineWidth(0.4); doc.line(ML, 12, PW - MR, 12)
-        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...negro)
         doc.text("Gestión de Ropa", ML, 9)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...gris)
         doc.text(fecha, PW - MR, 9, { align: "right" })
-        doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.setTextColor(...negro)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(17); doc.setTextColor(...negro)
         doc.text("Pedido de ropa", ML, 22)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...gris)
         doc.text(`${totalLineas} prenda${totalLineas !== 1 ? "s" : ""}  ·  ${totalUnidades} unidades`, ML, 28)
         doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(ML, 31, PW - MR, 31)
       }
@@ -159,9 +167,9 @@ export default function OrderPage({ onNavigate }: {
       function addPage() {
         doc.addPage()
         doc.setDrawColor(...linea); doc.setLineWidth(0.4); doc.line(ML, 12, PW - MR, 12)
-        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...negro)
         doc.text("Gestión de Ropa", ML, 9)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...gris)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...gris)
         doc.text(fecha, PW - MR, 9, { align: "right" })
         doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(ML, 14, PW - MR, 14)
       }
@@ -177,23 +185,23 @@ export default function OrderPage({ onNavigate }: {
       const notasText = (draftNotas ?? "").trim()
       if (notasText) {
         const labelH = 4, lineH = 4.1, boxPadY = 3, boxPadX = 3
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...negro)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...negro)
         const lines = doc.splitTextToSize(notasText, CW - boxPadX * 2) as string[]
         const boxH = labelH + boxPadY + lines.length * lineH + 4
         y = checkPageBreak(y, boxH + 4)
         doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.rect(ML, y, CW, boxH, "S")
-        doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...gris)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...gris)
         doc.text("NOTAS", ML + boxPadX, y + 6)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...negro)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(...negro)
         doc.text(lines, ML + boxPadX, y + 11)
         y += boxH + 8
       }
 
-      doc.setFillColor(...fondoCab); doc.rect(ML, y, CW, 7, "F")
-      doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...gris)
-      doc.text("PRENDA", ML + 2, y + 5)
-      doc.text("TOTAL", PW - MR - 2, y + 5, { align: "right" })
-      y += 9
+      doc.setFillColor(...fondoCab); doc.rect(ML, y, CW, 8, "F")
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...gris)
+      doc.text("PRENDA", ML + 2, y + 6)
+      doc.text("TOTAL", PW - MR - 2, y + 6, { align: "right" })
+      y += 10
 
       const colW = 22
       const chipsPerRow = Math.floor(CW / colW)
@@ -206,12 +214,12 @@ export default function OrderPage({ onNavigate }: {
         const blockH = 7 + (hasMeta ? 6 : 0) + filasTallas * 9 + 5
         y = checkPageBreak(y, blockH)
         if (idx % 2 === 0) { doc.setFillColor(...fondoFil); doc.rect(ML, y - 1, CW, blockH + 1, "F") }
-        doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...negro)
+        doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...negro)
         doc.text(p.nombre, ML + 2, y + 5)
         doc.text(`${item.total} ud.`, PW - MR - 2, y + 5, { align: "right" })
         let tallaStartY = y + 8
         if (hasMeta) {
-          doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...gris)
+          doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...gris)
           doc.text([p.codigo, p.color].filter(Boolean).join("  ·  "), ML + 2, y + 11)
           tallaStartY = y + 14
         }
@@ -219,9 +227,9 @@ export default function OrderPage({ onNavigate }: {
         for (const t of tallas) {
           if (col >= chipsPerRow) { col = 0; tx = ML + 2; ty += 9 }
           doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.rect(tx, ty, colW - 2, 7.5, "S")
-          doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(...negro)
+          doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...negro)
           doc.text(t.talla, tx + 2, ty + 3.5)
-          doc.setFont("helvetica", "normal"); doc.setTextColor(...gris)
+          doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...gris)
           doc.text(`${t.cantidad}ud`, tx + (colW - 2) - 2, ty + 3.5, { align: "right" })
           tx += colW; col++
         }
@@ -232,7 +240,7 @@ export default function OrderPage({ onNavigate }: {
       y = checkPageBreak(y, 14); y += 5
       doc.setDrawColor(...[180, 180, 180] as [number,number,number]); doc.setLineWidth(0.5)
       doc.line(ML, y - 2, PW - MR, y - 2)
-      doc.setFont("helvetica", "bold"); doc.setFontSize(10); doc.setTextColor(...negro)
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...negro)
       doc.text("Total del pedido:", ML + 2, y + 4)
       doc.text(`${totalLineas} prendas  ·  ${totalUnidades} unidades`, PW - MR - 2, y + 4, { align: "right" })
 
@@ -240,7 +248,7 @@ export default function OrderPage({ onNavigate }: {
       for (let i = 1; i <= pages; i++) {
         doc.setPage(i)
         doc.setDrawColor(...linea); doc.setLineWidth(0.3); doc.line(ML, 286, PW - MR, 286)
-        doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...grisClar)
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...grisClar)
         doc.text("Gestión de Ropa", ML, 290)
         doc.text(`Página ${i} de ${pages}`, PW - MR, 290, { align: "right" })
       }
@@ -261,7 +269,18 @@ export default function OrderPage({ onNavigate }: {
     }
   }
 
-  // ── Render ───────────────────────────────────────────────────────────────────
+  // ── Render — vista historial embebida ─────────────────────────────────────
+
+  if (subView === "history") {
+    return (
+      <OrderHistoryPage
+        onNavigate={onNavigate}
+        onBack={() => setSubView("new")}
+      />
+    )
+  }
+
+  // ── Render — nuevo pedido ────────────────────────────────────────────────
 
   const departments = Array.from(
     new Map(
@@ -307,36 +326,117 @@ export default function OrderPage({ onNavigate }: {
       <AppHeader page="orders" onNavigate={onNavigate} />
 
       {/* BARRA DE ACCIONES */}
-      <div style={{ backgroundColor: "#fff", borderBottom: "1px solid #e0e0e0", padding: "0 32px", display: "flex", alignItems: "center", height: "52px", gap: "12px" }}>
+      <div style={{
+        backgroundColor: "#fff",
+        borderBottom: "1px solid #e0e0e0",
+        padding: "0 32px",
+        display: "flex",
+        alignItems: "center",
+        height: "52px",
+        gap: "12px",
+      }}>
         <span style={{ fontSize: "15px", fontWeight: 600, color: "#111" }}>🛒 Nuevo pedido</span>
         {syncBadge}
+
         <div style={{ marginLeft: "auto", display: "flex", gap: "10px", alignItems: "center" }}>
+          {/* Botón Historial */}
+          <button
+            onClick={() => setSubView("history")}
+            style={{
+              padding: "7px 14px",
+              backgroundColor: "#fff",
+              color: "#555",
+              border: "1px solid #e0e0e0",
+              borderRadius: "6px",
+              fontSize: "13px",
+              fontWeight: 500,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              transition: "border-color 0.15s, background-color 0.15s",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.borderColor = "#aaa"
+              e.currentTarget.style.backgroundColor = "#fafafa"
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = "#e0e0e0"
+              e.currentTarget.style.backgroundColor = "#fff"
+            }}
+          >
+            📋 Historial
+          </button>
+
           {total > 0 && (
             <button
               onClick={handleDiscard}
-              style={{ padding: "7px 14px", backgroundColor: "#fff", color: "#dc2626", border: "1px solid #fca5a5", borderRadius: "6px", fontSize: "13px", fontWeight: 500, cursor: "pointer" }}
+              style={{
+                padding: "7px 14px",
+                backgroundColor: "#fff",
+                color: "#dc2626",
+                border: "1px solid #fca5a5",
+                borderRadius: "6px",
+                fontSize: "13px",
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
             >
               ✕ Descartar
             </button>
           )}
+
           <div ref={dropdownRef} style={{ position: "relative", display: "flex" }}>
             <button
               onClick={exportPDF}
               disabled={total === 0 || isSaving}
-              style={{ padding: "7px 18px", backgroundColor: total > 0 && !isSaving ? "#2563eb" : "#ccc", color: "#fff", border: "none", borderRadius: "6px 0 0 6px", fontSize: "13px", fontWeight: 600, cursor: total > 0 && !isSaving ? "pointer" : "not-allowed", borderRight: "1px solid rgba(255,255,255,0.25)" }}
+              style={{
+                padding: "7px 18px",
+                backgroundColor: total > 0 && !isSaving ? "#2563eb" : "#ccc",
+                color: "#fff",
+                border: "none",
+                borderRadius: "6px 0 0 6px",
+                fontSize: "13px",
+                fontWeight: 600,
+                cursor: total > 0 && !isSaving ? "pointer" : "not-allowed",
+                borderRight: "1px solid rgba(255,255,255,0.25)",
+              }}
             >
               📄 Exportar PDF y confirmar
             </button>
             <button
               onClick={() => setDropdownOpen(o => !o)}
               disabled={total === 0 || isSaving}
-              style={{ padding: "7px 10px", backgroundColor: total > 0 && !isSaving ? "#2563eb" : "#ccc", color: "#fff", border: "none", borderRadius: "0 6px 6px 0", fontSize: "11px", cursor: total > 0 && !isSaving ? "pointer" : "not-allowed" }}
+              style={{
+                padding: "7px 10px",
+                backgroundColor: total > 0 && !isSaving ? "#2563eb" : "#ccc",
+                color: "#fff",
+                border: "none",
+                borderRadius: "0 6px 6px 0",
+                fontSize: "11px",
+                cursor: total > 0 && !isSaving ? "pointer" : "not-allowed",
+              }}
             >▾</button>
             {dropdownOpen && (
-              <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "8px", boxShadow: "0 8px 24px rgba(0,0,0,0.10)", minWidth: "220px", zIndex: 100, overflow: "hidden" }}>
+              <div style={{
+                position: "absolute",
+                top: "calc(100% + 6px)",
+                right: 0,
+                backgroundColor: "#fff",
+                border: "1px solid #e0e0e0",
+                borderRadius: "8px",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.10)",
+                minWidth: "220px",
+                zIndex: 100,
+                overflow: "hidden",
+              }}>
                 <button
                   onClick={confirmOnly}
-                  style={{ display: "block", width: "100%", padding: "12px 16px", background: "none", border: "none", textAlign: "left", fontSize: "13px", color: "#333", cursor: "pointer", lineHeight: 1.4 }}
+                  style={{
+                    display: "block", width: "100%", padding: "12px 16px",
+                    background: "none", border: "none", textAlign: "left",
+                    fontSize: "13px", color: "#333", cursor: "pointer", lineHeight: 1.4,
+                  }}
                   onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#f5f5f5")}
                   onMouseLeave={e => (e.currentTarget.style.backgroundColor = "")}
                 >
@@ -350,7 +450,15 @@ export default function OrderPage({ onNavigate }: {
       </div>
 
       {/* CONTENIDO */}
-      <main style={{ maxWidth: "1200px", margin: "0 auto", padding: "24px", display: "grid", gridTemplateColumns: "260px 1fr 300px", gap: "16px", alignItems: "start" }}>
+      <main style={{
+        maxWidth: "1200px",
+        margin: "0 auto",
+        padding: "24px",
+        display: "grid",
+        gridTemplateColumns: "260px 1fr 300px",
+        gap: "16px",
+        alignItems: "start",
+      }}>
 
         {/* COLUMNA 1: LISTA DE PRODUCTOS */}
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -365,7 +473,15 @@ export default function OrderPage({ onNavigate }: {
             <select
               value={deptFilter ?? ""}
               onChange={e => setDeptFilter(e.target.value ? Number(e.target.value) : null)}
-              style={{ width: "100%", padding: "8px 12px", borderRadius: "8px", border: `1px solid ${deptFilter ? "#2563eb" : "#e0e0e0"}`, fontSize: "13px", boxSizing: "border-box", backgroundColor: deptFilter ? "#eff6ff" : "#fff", cursor: "pointer", color: deptFilter ? "#1d4ed8" : "#888", fontWeight: deptFilter ? 600 : 400 }}
+              style={{
+                width: "100%", padding: "8px 12px", borderRadius: "8px",
+                border: `1px solid ${deptFilter ? "#2563eb" : "#e0e0e0"}`,
+                fontSize: "13px", boxSizing: "border-box",
+                backgroundColor: deptFilter ? "#eff6ff" : "#fff",
+                cursor: "pointer",
+                color: deptFilter ? "#1d4ed8" : "#888",
+                fontWeight: deptFilter ? 600 : 400,
+              }}
             >
               <option value="">Todos los departamentos</option>
               {departments.map(([id, nombre]) => (
@@ -384,12 +500,22 @@ export default function OrderPage({ onNavigate }: {
                 <div
                   key={p.id}
                   onClick={() => setSelectedProduct(p)}
-                  style={{ padding: "10px 14px", borderBottom: "1px solid #f0f0f0", cursor: "pointer", backgroundColor: isSelected ? "#eff6ff" : "#fff", transition: "background 0.1s", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}
+                  style={{
+                    padding: "10px 14px", borderBottom: "1px solid #f0f0f0",
+                    cursor: "pointer",
+                    backgroundColor: isSelected ? "#eff6ff" : "#fff",
+                    transition: "background 0.1s",
+                    display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px",
+                  }}
                   onMouseEnter={e => { if (!isSelected) e.currentTarget.style.backgroundColor = "#f9f9f9" }}
                   onMouseLeave={e => { e.currentTarget.style.backgroundColor = isSelected ? "#eff6ff" : "#fff" }}
                 >
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontSize: "13px", fontWeight: isSelected ? 600 : 500, color: isSelected ? "#1d4ed8" : "#333", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <div style={{
+                      fontSize: "13px", fontWeight: isSelected ? 600 : 500,
+                      color: isSelected ? "#1d4ed8" : "#333",
+                      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                    }}>
                       {p.nombre}
                     </div>
                     {p.color && <div style={{ fontSize: "11px", color: "#aaa", marginTop: "2px" }}>{p.color}</div>}
@@ -408,7 +534,7 @@ export default function OrderPage({ onNavigate }: {
           <div style={{ fontSize: "11px", fontWeight: 700, color: "#888", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "10px" }}>Cantidades por talla</div>
           {!selectedProduct ? (
             <div style={{ backgroundColor: "#fff", border: "1px dashed #d1d5db", borderRadius: "12px", padding: "60px 40px", textAlign: "center", color: "#bbb" }}>
-              <div style={{ fontSize: "40px", marginBottom: "12px" }}>👗</div>
+              <div style={{ fontSize: "40px", marginBottom: "12px" }}>📦</div>
               <div style={{ fontSize: "14px", fontWeight: 500 }}>Selecciona un producto de la lista</div>
               <div style={{ fontSize: "12px", marginTop: "4px", color: "#d1d5db" }}>para añadirlo al pedido</div>
             </div>
@@ -443,7 +569,12 @@ export default function OrderPage({ onNavigate }: {
                     const qty = draftItems[t.id] || 0
                     const hasQty = qty > 0
                     return (
-                      <div key={t.id} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px", borderRadius: "8px", backgroundColor: hasQty ? "#eff6ff" : "#fafafa", border: `1px solid ${hasQty ? "#bfdbfe" : "#f0f0f0"}`, transition: "background-color 0.15s, border-color 0.15s" }}>
+                      <div key={t.id} style={{
+                        display: "flex", alignItems: "center", gap: "12px", padding: "10px 14px", borderRadius: "8px",
+                        backgroundColor: hasQty ? "#eff6ff" : "#fafafa",
+                        border: `1px solid ${hasQty ? "#bfdbfe" : "#f0f0f0"}`,
+                        transition: "background-color 0.15s, border-color 0.15s",
+                      }}>
                         <div style={{ width: "44px", flexShrink: 0, fontWeight: 700, fontSize: "15px", color: hasQty ? "#1d4ed8" : "#374151" }}>{t.talla}</div>
                         <div style={{ flex: 1, fontSize: "12px", color: "#9ca3af" }}>
                           stock: <span style={{ fontWeight: 600, color: "#6b7280" }}>{t.stock}</span>
@@ -530,7 +661,12 @@ export default function OrderPage({ onNavigate }: {
 }
 
 function badgeStyle(bg: string, color: string, border: string): React.CSSProperties {
-  return { display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color, backgroundColor: bg, border: `1px solid ${border}`, borderRadius: "20px", padding: "3px 10px", fontWeight: 500 }
+  return {
+    display: "inline-flex", alignItems: "center", gap: "6px",
+    fontSize: "12px", color, backgroundColor: bg,
+    border: `1px solid ${border}`, borderRadius: "20px",
+    padding: "3px 10px", fontWeight: 500,
+  }
 }
 
 const spinnerStyle: React.CSSProperties = {
