@@ -23,14 +23,13 @@ fn save_product_image(
 
     let file_path = images_dir.join(format!("{}.jpg", product_id));
 
-    // En save_product_image (fallback con bytes)
     let img = ImageReader::new(Cursor::new(data))
         .with_guessed_format()
         .map_err(|e| e.to_string())?
         .decode()
         .map_err(|e| e.to_string())?;
 
-    let resized = img.thumbnail(600, 600); // ← thumbnail + Triangle implícito
+    let resized = img.thumbnail(600, 600);
 
     resized
         .save_with_format(file_path, image::ImageFormat::Jpeg)
@@ -58,7 +57,6 @@ fn save_product_image_from_path(
 
     let dest_path = images_dir.join(format!("{}.jpg", product_id));
 
-    // En save_product_image_from_path
     let img = ImageReader::open(&src_path)
         .map_err(|e| format!("No se pudo abrir la imagen: {}", e))?
         .with_guessed_format()
@@ -66,7 +64,7 @@ fn save_product_image_from_path(
         .decode()
         .map_err(|e| format!("No se pudo decodificar la imagen: {}", e))?;
 
-    let resized = img.thumbnail(600, 600); // ← thumbnail + Triangle implícito
+    let resized = img.thumbnail(600, 600);
 
     resized
         .save_with_format(dest_path, image::ImageFormat::Jpeg)
@@ -132,28 +130,60 @@ fn backup_database(app: tauri::AppHandle, dest_path: String) -> Result<String, S
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![save_product_image, save_product_image_from_path, read_product_image, delete_product_image, backup_database])
+        .invoke_handler(tauri::generate_handler![
+            save_product_image,
+            save_product_image_from_path,
+            read_product_image,
+            delete_product_image,
+            backup_database
+        ])
         .plugin(
             Builder::default()
                 .add_migrations(
                     "sqlite:inventario.db",
                     vec![
+                        // -------------------------------------------------------
+                        // Migración única: schema completo final
+                        //
+                        // Consolida las antiguas migraciones 1-7.
+                        // Las columnas añadidas por ALTER TABLE en migraciones
+                        // 2, 3, 4 y 6 ya están incluidas en la definición
+                        // inicial de cada tabla.
+                        // La lógica de migración de datos de la migración 7
+                        // (INSERT INTO producto_presentaciones desde productos_almacen)
+                        // se omite porque en una instalación limpia no hay datos
+                        // previos que migrar.
+                        //
+                        // IMPORTANTE: si ya tienes una base de datos en producción
+                        // con las migraciones 1-7 aplicadas, NO uses este archivo
+                        // directamente — el plugin de migraciones de Tauri lleva
+                        // un registro de la versión aplicada y saltará esta
+                        // migración si detecta que ya está en un número superior.
+                        // En ese caso añade una migración 8 con los cambios nuevos
+                        // o haz un reset de la base de datos.
+                        // -------------------------------------------------------
                         Migration {
                             version: 1,
                             description: "schema completo",
                             sql: "
+                                PRAGMA busy_timeout = 10000;
+                                PRAGMA journal_mode = WAL;
+
+                                -- ── Módulo inventario de ropa ──────────────────
+
                                 CREATE TABLE IF NOT EXISTS departamentos (
                                     id     INTEGER PRIMARY KEY,
                                     nombre TEXT NOT NULL
                                 );
 
                                 CREATE TABLE IF NOT EXISTS productos (
-                                    id             INTEGER PRIMARY KEY,
-                                    codigo         TEXT,
-                                    nombre         TEXT NOT NULL,
+                                    id              INTEGER PRIMARY KEY,
+                                    codigo          TEXT,
+                                    nombre          TEXT NOT NULL,
                                     departamento_id INTEGER REFERENCES departamentos(id),
-                                    color          TEXT,
-                                    foto           TEXT
+                                    color           TEXT,
+                                    foto            TEXT,
+                                    precio          DECIMAL(10,2) DEFAULT NULL
                                 );
 
                                 CREATE TABLE IF NOT EXISTS tallas (
@@ -168,22 +198,29 @@ pub fn run() {
                                     id       INTEGER PRIMARY KEY,
                                     talla_id INTEGER NOT NULL REFERENCES tallas(id),
                                     cambio   INTEGER NOT NULL,
-                                    origen   TEXT NOT NULL DEFAULT 'manual',
+                                    origen   TEXT    NOT NULL DEFAULT 'manual',
                                     fecha    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
                                 );
 
+                                -- borrador (migración 2) y notas (migración 3) incluidos
                                 CREATE TABLE IF NOT EXISTS pedidos (
                                     id             INTEGER PRIMARY KEY,
-                                    fecha          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+                                    fecha          TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
                                     recibido       INTEGER NOT NULL DEFAULT 0,
-                                    fecha_recibido TEXT
+                                    fecha_recibido TEXT,
+                                    borrador       INTEGER NOT NULL DEFAULT 0,
+                                    notas          TEXT
                                 );
 
+                                -- cantidad_acordada, cantidad_recibida, estado (migración 4) incluidos
                                 CREATE TABLE IF NOT EXISTS pedido_items (
-                                    id        INTEGER PRIMARY KEY,
-                                    pedido_id INTEGER NOT NULL REFERENCES pedidos(id),
-                                    talla_id  INTEGER NOT NULL REFERENCES tallas(id),
-                                    cantidad  INTEGER NOT NULL
+                                    id                INTEGER PRIMARY KEY,
+                                    pedido_id         INTEGER NOT NULL REFERENCES pedidos(id),
+                                    talla_id          INTEGER NOT NULL REFERENCES tallas(id),
+                                    cantidad          INTEGER NOT NULL,
+                                    cantidad_acordada INTEGER,
+                                    cantidad_recibida INTEGER NOT NULL DEFAULT 0,
+                                    estado            TEXT    NOT NULL DEFAULT 'pendiente'
                                 );
 
                                 CREATE TABLE IF NOT EXISTS colores (
@@ -191,51 +228,20 @@ pub fn run() {
                                     nombre TEXT NOT NULL UNIQUE
                                 );
 
-                                INSERT INTO colores (nombre) VALUES
+                                INSERT OR IGNORE INTO colores (nombre) VALUES
                                     ('Azul marino'),
                                     ('Azul celeste'),
                                     ('Blanco'),
                                     ('Negro'),
                                     ('Rojo'),
                                     ('Verde');
-                            ",
-                            kind: MigrationKind::Up,
-                        },
-                        Migration {
-                            version: 2,
-                            description: "columna borrador en pedidos",
-                            sql: "
-                                ALTER TABLE pedidos ADD COLUMN borrador INTEGER NOT NULL DEFAULT 0;
-                            ",
-                            kind: MigrationKind::Up,
-                        },
-                        Migration {
-                            version: 3,
-                            description: "notas en pedidos",
-                            sql: "
-                                ALTER TABLE pedidos ADD COLUMN notas TEXT;
-                            ",
-                            kind: MigrationKind::Up,
-                        },
-                        Migration {
-                            version: 4,
-                            description: "recepción parcial y modificaciones por línea",
-                            sql: "
-                                ALTER TABLE pedido_items ADD COLUMN cantidad_acordada INTEGER;
-                                ALTER TABLE pedido_items ADD COLUMN cantidad_recibida INTEGER NOT NULL DEFAULT 0;
-                                ALTER TABLE pedido_items ADD COLUMN estado TEXT NOT NULL DEFAULT 'pendiente';
-                            ",
-                            kind: MigrationKind::Up,
-                        },
-                        Migration {
-                            version: 5,
-                            description: "modulos gasolina y productos",
-                            sql: "
-                                -- GASOLINA
+
+                                -- ── Módulo gasolina ────────────────────────────
+
                                 CREATE TABLE IF NOT EXISTS vehiculos (
                                     id        INTEGER PRIMARY KEY,
-                                    matricula TEXT NOT NULL,
-                                    nombre    TEXT NOT NULL,
+                                    matricula TEXT    NOT NULL,
+                                    nombre    TEXT    NOT NULL,
                                     activo    INTEGER NOT NULL DEFAULT 1
                                 );
 
@@ -247,19 +253,22 @@ pub fn run() {
                                     notas       TEXT
                                 );
 
-                                -- PRODUCTOS
+                                -- ── Módulo productos de almacén ────────────────
+
                                 CREATE TABLE IF NOT EXISTS categorias_producto (
                                     id     INTEGER PRIMARY KEY,
                                     nombre TEXT NOT NULL UNIQUE
                                 );
 
+                                -- precio (migración 6) incluido
                                 CREATE TABLE IF NOT EXISTS productos_almacen (
-                                    id             INTEGER PRIMARY KEY,
-                                    referencia     TEXT NOT NULL,
-                                    nombre         TEXT NOT NULL,
-                                    categoria_id   INTEGER NOT NULL REFERENCES categorias_producto(id),
-                                    unidad_medida  TEXT NOT NULL,
-                                    activo         INTEGER NOT NULL DEFAULT 1
+                                    id            INTEGER PRIMARY KEY,
+                                    referencia    TEXT    NOT NULL,
+                                    nombre        TEXT    NOT NULL,
+                                    categoria_id  INTEGER NOT NULL REFERENCES categorias_producto(id),
+                                    unidad_medida TEXT    NOT NULL,
+                                    activo        INTEGER NOT NULL DEFAULT 1,
+                                    precio        DECIMAL(10,2) DEFAULT NULL
                                 );
 
                                 CREATE TABLE IF NOT EXISTS departamentos_prod (
@@ -267,99 +276,50 @@ pub fn run() {
                                     nombre TEXT NOT NULL UNIQUE
                                 );
 
+                                -- presentacion_id (migración 7) incluido
                                 CREATE TABLE IF NOT EXISTS salidas_productos (
-                                    id               INTEGER PRIMARY KEY,
-                                    producto_id      INTEGER NOT NULL REFERENCES productos_almacen(id),
-                                    departamento_id  INTEGER NOT NULL REFERENCES departamentos_prod(id),
-                                    cantidad         INTEGER NOT NULL DEFAULT 0,
-                                    mes              INTEGER NOT NULL CHECK(mes BETWEEN 1 AND 12),
-                                    anio             INTEGER NOT NULL
+                                    id              INTEGER PRIMARY KEY,
+                                    producto_id     INTEGER NOT NULL REFERENCES productos_almacen(id),
+                                    departamento_id INTEGER NOT NULL REFERENCES departamentos_prod(id),
+                                    cantidad        INTEGER NOT NULL DEFAULT 0,
+                                    mes             INTEGER NOT NULL CHECK(mes BETWEEN 1 AND 12),
+                                    anio            INTEGER NOT NULL,
+                                    presentacion_id INTEGER REFERENCES producto_presentaciones(id)
                                 );
 
                                 CREATE UNIQUE INDEX IF NOT EXISTS idx_salidas_unica
                                     ON salidas_productos(producto_id, departamento_id, mes, anio);
+
+                                CREATE INDEX IF NOT EXISTS idx_salidas_presentacion
+                                    ON salidas_productos(presentacion_id);
+
+                                -- ── Módulo presentaciones ──────────────────────
+
+                                CREATE TABLE IF NOT EXISTS unidades_presentacion (
+                                    id     INTEGER PRIMARY KEY,
+                                    nombre TEXT NOT NULL UNIQUE
+                                );
+
+                                INSERT OR IGNORE INTO unidades_presentacion (nombre) VALUES
+                                    ('UNIDAD'),
+                                    ('CAJA'),
+                                    ('FARDO');
+
+                                CREATE TABLE IF NOT EXISTS producto_presentaciones (
+                                    id          INTEGER PRIMARY KEY,
+                                    producto_id INTEGER NOT NULL REFERENCES productos_almacen(id),
+                                    unidad_id   INTEGER NOT NULL REFERENCES unidades_presentacion(id),
+                                    precio      DECIMAL(10,2) DEFAULT NULL,
+                                    UNIQUE(producto_id, unidad_id)
+                                );
+
+                                -- ── Ajustes de la aplicación ───────────────────
+
+                                CREATE TABLE IF NOT EXISTS settings (
+                                    key   TEXT PRIMARY KEY,
+                                    value TEXT NOT NULL
+                                );
                             ",
-                            kind: MigrationKind::Up,
-                        },
-                        Migration {
-                            version: 6,
-                            description: "añadir columna precio a productos_almacen",
-                            sql: "
-                                ALTER TABLE productos_almacen ADD COLUMN precio DECIMAL(10,2) DEFAULT NULL;
-                            ",
-                            kind: MigrationKind::Up,
-                        },
-                        Migration {
-                            version: 7,
-                            description: "unidades de presentación y presentación de productos",
-                            sql: "
-                            CREATE TABLE IF NOT EXISTS unidades_presentacion (
-                                id INTEGER PRIMARY KEY,
-                                nombre TEXT NOT NULL UNIQUE
-                            );
-
-                            INSERT OR IGNORE INTO unidades_presentacion (nombre) VALUES ('UNIDAD'), ('CAJA'), ('FARDO');
-
-                            CREATE TABLE IF NOT EXISTS producto_presentaciones (
-                                id INTEGER PRIMARY KEY,
-                                producto_id INTEGER NOT NULL REFERENCES productos_almacen(id),
-                                unidad_id INTEGER NOT NULL REFERENCES unidades_presentacion(id),
-                                precio DECIMAL(10,2) DEFAULT NULL,
-                                UNIQUE(producto_id, unidad_id)
-                            );
-
-                            -- Migrar datos existentes: para cada producto que tenga unidad_medida,
-                            -- crear una presentación con esa unidad (buscar o crear en unidades_presentacion)
-                            -- y copiar el precio existente a producto_presentaciones.
-                            INSERT INTO producto_presentaciones (producto_id, unidad_id, precio)
-                            SELECT
-                                p.id,
-                                COALESCE((SELECT id FROM unidades_presentacion WHERE nombre = p.unidad_medida LIMIT 1),
-                                         (SELECT id FROM unidades_presentacion WHERE nombre = 'UNIDAD' LIMIT 1)),
-                                p.precio
-                            FROM productos_almacen p
-                            WHERE p.unidad_medida IS NOT NULL
-                            AND NOT EXISTS (
-                                SELECT 1 FROM producto_presentaciones pp
-                                WHERE pp.producto_id = p.id
-                                AND pp.unidad_id = (
-                                    COALESCE((SELECT id FROM unidades_presentacion WHERE nombre = p.unidad_medida LIMIT 1),
-                                           (SELECT id FROM unidades_presentacion WHERE nombre = 'UNIDAD' LIMIT 1))
-                                )
-                            );
-
-                            -- La tabla salidas_productos añade presentacion_id:
-                            ALTER TABLE salidas_productos ADD COLUMN presentacion_id INTEGER REFERENCES producto_presentaciones(id);
-
-                            -- Crear índice para mejor rendimiento en búsquedas por presentación
-                            CREATE INDEX IF NOT EXISTS idx_salidas_presentacion ON salidas_productos(presentacion_id);
-
-                            -- Actualizar registros existentes de salidas_productos para asignarles la presentación correspondiente
-                            -- (asumiendo que usaban la unidad_medida original del producto)
-                            UPDATE salidas_productos
-                            SET presentacion_id = (
-                                SELECT pp.id FROM producto_presentaciones pp
-                                JOIN unidades_presentacion up ON pp.unidad_id = up.id
-                                WHERE pp.producto_id = salidas_productos.producto_id
-                                AND up.nombre = (
-                                    SELECT p.unidad_medida
-                                    FROM productos_almacen p
-                                    WHERE p.id = salidas_productos.producto_id
-                                )
-                                LIMIT 1
-                            )
-                            WHERE presentacion_id IS NULL
-                            AND EXISTS (
-                                SELECT 1 FROM producto_presentaciones pp
-                                JOIN unidades_presentacion up ON pp.unidad_id = up.id
-                                WHERE pp.producto_id = salidas_productos.producto_id
-                                AND up.nombre = (
-                                    SELECT p.unidad_medida
-                                    FROM productos_almacen p
-                                    WHERE p.id = salidas_productos.producto_id
-                                )
-                            );
-                        ",
                             kind: MigrationKind::Up,
                         },
                     ],

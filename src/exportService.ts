@@ -71,23 +71,23 @@ function pdfHeader(doc: jsPDF, titulo: string, subtitulo?: string) {
   doc.line(ML, 12, PW - MR, 12)
 
   doc.setFont("helvetica", "bold")
-  doc.setFontSize(9)
+  doc.setFontSize(11)
   doc.setTextColor(...C.negro)
   doc.text("Gestión de Ropa", ML, 9)
 
   doc.setFont("helvetica", "normal")
-  doc.setFontSize(8.5)
+  doc.setFontSize(10)
   doc.setTextColor(...C.gris)
   doc.text(getToday(), PW - MR, 9, { align: "right" })
 
   doc.setFont("helvetica", "bold")
-  doc.setFontSize(14)
+  doc.setFontSize(17)
   doc.setTextColor(...C.negro)
   doc.text(titulo, ML, 22)
 
   if (subtitulo) {
     doc.setFont("helvetica", "normal")
-    doc.setFontSize(8.5)
+    doc.setFontSize(10)
     doc.setTextColor(...C.gris)
     doc.text(subtitulo, ML, 28)
   }
@@ -107,7 +107,7 @@ function pdfFooter(doc: jsPDF) {
     doc.setLineWidth(0.3)
     doc.line(ML, 286, PW - MR, 286)
     doc.setFont("helvetica", "normal")
-    doc.setFontSize(7.5)
+    doc.setFontSize(9)
     doc.setTextColor(...C.grisClar)
     doc.text("Gestión de Ropa", ML, 290)
     doc.text(`Página ${i} de ${pages}`, PW - MR, 290, { align: "right" })
@@ -131,19 +131,19 @@ export async function exportInventarioPDF() {
 
   // Cabecera de tabla
   doc.setFillColor(...C.fondoCab)
-  doc.rect(ML, y, CW, 7, "F")
+  doc.rect(ML, y, CW, 8, "F")
   doc.setFont("helvetica", "bold")
-  doc.setFontSize(7.5)
+  doc.setFontSize(9)
   doc.setTextColor(...C.gris)
-  doc.text("CÓDIGO",        ML + 2,       y + 5)
-  doc.text("PRENDA",        ML + 26,      y + 5)
-  doc.text("COLOR",         ML + 96,      y + 5)
-  doc.text("DEPARTAMENTO",  ML + 126,     y + 5)
-  doc.text("STOCK",         PW - MR - 2,  y + 5, { align: "right" })
-  y += 9
+  doc.text("CÓDIGO",        ML + 2,       y + 6)
+  doc.text("PRENDA",        ML + 26,      y + 6)
+  doc.text("COLOR",         ML + 96,      y + 6)
+  doc.text("DEPARTAMENTO",  ML + 126,     y + 6)
+  doc.text("STOCK",         PW - MR - 2,  y + 6, { align: "right" })
+  y += 10
 
   doc.setFont("helvetica", "normal")
-  doc.setFontSize(9)
+  doc.setFontSize(10)
 
   data.forEach((item: any, idx: number) => {
     if (y > 278) {
@@ -154,35 +154,35 @@ export async function exportInventarioPDF() {
 
     if (idx % 2 === 0) {
       doc.setFillColor(...C.fondoFil)
-      doc.rect(ML, y - 1, CW, 7, "F")
+      doc.rect(ML, y - 1, CW, 8, "F")
     }
 
     doc.setTextColor(...C.gris)
-    doc.text(item.codigo || "—", ML + 2, y + 4)
+    doc.text(item.codigo || "—", ML + 2, y + 5)
 
     doc.setTextColor(...C.negro)
-    doc.text(doc.splitTextToSize(item.nombre, 66)[0], ML + 26, y + 4)
+    doc.text(doc.splitTextToSize(item.nombre, 66)[0], ML + 26, y + 5)
 
     doc.setTextColor(...C.gris)
-    doc.text(item.color || "—",        ML + 96,  y + 4)
-    doc.text(item.departamento || "—", ML + 126, y + 4)
+    doc.text(item.color || "—",        ML + 96,  y + 5)
+    doc.text(item.departamento || "—", ML + 126, y + 5)
 
     const bajo = item.stock <= umbral
     doc.setFont("helvetica", bajo ? "bold" : "normal")
     doc.setTextColor(...(bajo ? C.alerta : C.negro))
-    doc.text(String(item.stock), PW - MR - 2, y + 4, { align: "right" })
+    doc.text(String(item.stock), PW - MR - 2, y + 5, { align: "right" })
     doc.setFont("helvetica", "normal")
     doc.setTextColor(...C.negro)
 
     doc.setDrawColor(...C.linea)
     doc.setLineWidth(0.2)
-    doc.line(ML, y + 6.5, PW - MR, y + 6.5)
-    y += 7.5
+    doc.line(ML, y + 7.5, PW - MR, y + 7.5)
+    y += 9
   })
 
   y += 5
   doc.setFont("helvetica", "bold")
-  doc.setFontSize(8.5)
+  doc.setFontSize(10)
   doc.setTextColor(...C.negro)
   doc.text(`Total: ${data.length} prendas, ${totalUd} unidades en stock.`, ML + 2, y)
   if (bajos > 0) {
@@ -236,16 +236,16 @@ export async function exportTallasPDF() {
     // Línea 1: nombre completo (con color si lo tiene)
     const nombreCompleto = p.nombre + (p.color ? "  —  " + p.color : "")
     doc.setFont("helvetica", "bold")
-    doc.setFontSize(9.5)
+    doc.setFontSize(11)
     doc.setTextColor(...C.negro)
     doc.text(nombreCompleto, ML, y + 5)
 
     // Línea 2: código en gris pequeño (sin departamento)
     if (p.codigo) {
       doc.setFont("helvetica", "normal")
-      doc.setFontSize(7.5)
+      doc.setFontSize(9)
       doc.setTextColor(...C.grisClar)
-      doc.text(p.codigo, ML, y + 11)
+      doc.text(p.codigo, ML, y + 12)
     }
 
     y += p.codigo ? 14 : 9
@@ -271,14 +271,14 @@ export async function exportTallasPDF() {
       doc.rect(x, y - 1, colW - 1, colH, "S")
 
       doc.setFont("helvetica", "bold")
-      doc.setFontSize(7.5)
+      doc.setFontSize(9)
       doc.setTextColor(...(bajo ? C.alerta : C.negro))
-      doc.text(t.talla, x + (colW - 1) / 2, y + 3, { align: "center" })
+      doc.text(t.talla, x + (colW - 1) / 2, y + 3.5, { align: "center" })
 
       doc.setFont("helvetica", "normal")
-      doc.setFontSize(7)
+      doc.setFontSize(8.5)
       doc.setTextColor(...C.gris)
-      doc.text(String(t.stock), x + (colW - 1) / 2, y + 6.5, { align: "center" })
+      doc.text(String(t.stock), x + (colW - 1) / 2, y + 7, { align: "center" })
 
       x += colW
     }
@@ -326,19 +326,19 @@ export async function exportMovimientosPDF() {
   let y = startY(true)
 
   doc.setFillColor(...C.fondoCab)
-  doc.rect(ML, y, CW, 7, "F")
+  doc.rect(ML, y, CW, 8, "F")
   doc.setFont("helvetica", "bold")
-  doc.setFontSize(7.5)
+  doc.setFontSize(9)
   doc.setTextColor(...C.gris)
-  doc.text("FECHA",      ML + 2,       y + 5)
-  doc.text("PRENDA",     ML + 40,      y + 5)
-  doc.text("TALLA",      ML + 126,     y + 5)
-  doc.text("TIPO",       ML + 146,     y + 5)
-  doc.text("MOVIM.",     PW - MR - 2,  y + 5, { align: "right" })
-  y += 9
+  doc.text("FECHA",      ML + 2,       y + 6)
+  doc.text("PRENDA",     ML + 40,      y + 6)
+  doc.text("TALLA",      ML + 126,     y + 6)
+  doc.text("TIPO",       ML + 146,     y + 6)
+  doc.text("MOVIM.",     PW - MR - 2,  y + 6, { align: "right" })
+  y += 10
 
   doc.setFont("helvetica", "normal")
-  doc.setFontSize(8.5)
+  doc.setFontSize(10)
 
   data.forEach((m: any, idx: number) => {
     if (y > 278) {
@@ -349,7 +349,7 @@ export async function exportMovimientosPDF() {
 
     if (idx % 2 === 0) {
       doc.setFillColor(...C.fondoFil)
-      doc.rect(ML, y - 1, CW, 7, "F")
+      doc.rect(ML, y - 1, CW, 8, "F")
     }
 
     const fecha = m.fecha ? new Date(m.fecha).toLocaleString("es-ES", {
@@ -358,25 +358,25 @@ export async function exportMovimientosPDF() {
     }) : "—"
 
     doc.setTextColor(...C.gris)
-    doc.text(fecha, ML + 2, y + 4)
+    doc.text(fecha, ML + 2, y + 5)
 
     doc.setTextColor(...C.negro)
-    doc.text(doc.splitTextToSize(m.producto + (m.color ? " / " + m.color : ""), 82)[0], ML + 40, y + 4)
+    doc.text(doc.splitTextToSize(m.producto + (m.color ? " / " + m.color : ""), 82)[0], ML + 40, y + 5)
 
     doc.setTextColor(...C.gris)
-    doc.text(m.talla,                              ML + 126, y + 4)
-    doc.text(m.cambio > 0 ? "Entrada" : "Salida", ML + 146, y + 4)
+    doc.text(m.talla,                              ML + 126, y + 5)
+    doc.text(m.cambio > 0 ? "Entrada" : "Salida", ML + 146, y + 5)
 
     doc.setFont("helvetica", "bold")
     doc.setTextColor(...(m.cambio > 0 ? C.negro : C.alerta))
-    doc.text(`${m.cambio > 0 ? "+" : ""}${m.cambio}`, PW - MR - 2, y + 4, { align: "right" })
+    doc.text(`${m.cambio > 0 ? "+" : ""}${m.cambio}`, PW - MR - 2, y + 5, { align: "right" })
 
     doc.setFont("helvetica", "normal")
     doc.setTextColor(...C.negro)
     doc.setDrawColor(...C.linea)
     doc.setLineWidth(0.2)
-    doc.line(ML, y + 6.5, PW - MR, y + 6.5)
-    y += 7.5
+    doc.line(ML, y + 7.5, PW - MR, y + 7.5)
+    y += 9
   })
 
   pdfFooter(doc)

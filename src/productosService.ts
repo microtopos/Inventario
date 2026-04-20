@@ -33,19 +33,17 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
     } catch (error: any) {
       lastError = error;
 
-      // Verificar si es un error de bloqueo (SQLITE_BUSY, SQLITE_LOCKED)
       const errorMsg = error?.message || String(error);
       const isLockError =
         errorMsg.includes("database is locked") ||
         errorMsg.includes("SQLITE_BUSY") ||
         errorMsg.includes("SQLITE_LOCKED") ||
-        error?.code === 5; // SQLITE_BUSY código 5
+        error?.code === 5;
 
       if (!isLockError || i === maxRetries - 1) {
         throw error;
       }
 
-      // Esperar antes de reintentar (backoff exponencial: 200ms, 400ms, 800ms)
       const delay = 200 * Math.pow(2, i);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
@@ -56,10 +54,8 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
 
 async function getDb(): Promise<Database> {
   const db = await Database.load("sqlite:inventario.db");
-  // Configurar busy_timeout para manejar bloqueos
   try {
     await db.execute("PRAGMA busy_timeout = 10000");
-    // Asegurar modo WAL para permitir lecturas concurrentes
     await db.execute("PRAGMA journal_mode = WAL");
   } catch (e) {
     // Ignorar errores al configurar pragmas
@@ -67,7 +63,6 @@ async function getDb(): Promise<Database> {
   return db;
 }
 
-// Wrapper con retry para operaciones que pueden encontrar locked DB
 export async function getDbWithRetry(): Promise<Database> {
   return withRetry(getDb);
 }
@@ -84,6 +79,7 @@ export interface SalidaProducto {
   cantidad: number;
   mes: number;   // 1–12
   anio: number;
+  presentacion_id?: number | null;
   // join helpers
   producto_nombre?: string;
   producto_referencia?: string;
@@ -98,7 +94,7 @@ export interface NuevaSalida {
   cantidad: number;
   mes: number;
   anio: number;
-  presentacion_id?: number;
+  presentacion_id?: number | null;
 }
 
 export interface FiltrosSalida {
@@ -144,7 +140,6 @@ export async function actualizarCategoria(
 }
 
 export async function eliminarCategoria(id: number): Promise<void> {
-  // Solo se puede eliminar si no tiene productos asociados
   const db = await getDbWithRetry();
   const rows = await db.select<{ total: number }[]>(
     "SELECT COUNT(*) AS total FROM productos_almacen WHERE categoria_id = ? AND activo = 1",
@@ -219,11 +214,11 @@ export async function actualizarProducto(
   const campos: string[] = [];
   const params: (string | number | null)[] = [];
 
-  if (datos.referencia !== undefined) { campos.push("referencia = ?"); params.push(datos.referencia.trim()); }
-  if (datos.nombre !== undefined)     { campos.push("nombre = ?");     params.push(datos.nombre.trim()); }
-  if (datos.categoria_id !== undefined) { campos.push("categoria_id = ?"); params.push(datos.categoria_id); }
+  if (datos.referencia !== undefined)   { campos.push("referencia = ?");   params.push(datos.referencia.trim()); }
+  if (datos.nombre !== undefined)        { campos.push("nombre = ?");        params.push(datos.nombre.trim()); }
+  if (datos.categoria_id !== undefined)  { campos.push("categoria_id = ?");  params.push(datos.categoria_id); }
   if (datos.unidad_medida !== undefined) { campos.push("unidad_medida = ?"); params.push(datos.unidad_medida.trim()); }
-  if (datos.precio !== undefined) { campos.push("precio = ?"); params.push(datos.precio); }
+  if (datos.precio !== undefined)        { campos.push("precio = ?");        params.push(datos.precio); }
 
   if (campos.length === 0) return;
 
@@ -311,6 +306,7 @@ export async function getSalidas(
   return db.select<SalidaProducto[]>(
     `SELECT
        s.id, s.producto_id, s.departamento_id, s.cantidad, s.mes, s.anio,
+       s.presentacion_id,
        p.nombre AS producto_nombre,
        p.referencia AS producto_referencia,
        p.unidad_medida,
@@ -328,46 +324,42 @@ export async function getSalidas(
 
 /**
  * Inserta o actualiza una salida (upsert).
- * Si ya existe (producto+departamento+mes+año+presentacion_id), actualiza la cantidad.
- * Si cantidad = 0, elimina el registro para no acumular basura.
- * Si se especifica presentacion_id, se usa para la unicidad; sino, se usa producto_id+departamento_id+mes+anio.
+ *
+ * La unicidad depende de si se proporciona presentacion_id:
+ *   - CON presentacion_id: unicidad por (producto_id, departamento_id, presentacion_id, mes, anio)
+ *   - SIN presentacion_id: unicidad por (producto_id, departamento_id, mes, anio)
+ *
+ * Si cantidad = 0, elimina el registro.
  */
 export async function upsertSalida(datos: NuevaSalida): Promise<void> {
   const db = await getDbWithRetry();
 
   if (datos.cantidad === 0) {
-    // Eliminar registro existente
-    if (datos.presentacion_id !== undefined) {
+    if (datos.presentacion_id != null) {
       await db.execute(
         `DELETE FROM salidas_productos
-         WHERE presentacion_id = ?`,
-        [datos.presentacion_id]
+         WHERE producto_id = ? AND departamento_id = ? AND presentacion_id = ? AND mes = ? AND anio = ?`,
+        [datos.producto_id, datos.departamento_id, datos.presentacion_id, datos.mes, datos.anio]
       );
     } else {
       await db.execute(
         `DELETE FROM salidas_productos
-         WHERE producto_id = ? AND departamento_id = ? AND mes = ? AND anio = ?`,
+         WHERE producto_id = ? AND departamento_id = ? AND presentacion_id IS NULL AND mes = ? AND anio = ?`,
         [datos.producto_id, datos.departamento_id, datos.mes, datos.anio]
       );
     }
     return;
   }
 
-  if (datos.presentacion_id !== undefined) {
-    // Usar presentacion_id para la unicidad
+  if (datos.presentacion_id != null) {
     await db.execute(
       `INSERT INTO salidas_productos (producto_id, departamento_id, presentacion_id, cantidad, mes, anio)
        VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(presentacion_id)
-       DO UPDATE SET cantidad = excluded.cantidad,
-                     producto_id = excluded.producto_id,
-                     departamento_id = excluded.departamento_id,
-                     mes = excluded.mes,
-                     anio = excluded.anio`,
+       ON CONFLICT(producto_id, departamento_id, presentacion_id, mes, anio)
+       DO UPDATE SET cantidad = excluded.cantidad`,
       [datos.producto_id, datos.departamento_id, datos.presentacion_id, datos.cantidad, datos.mes, datos.anio]
     );
   } else {
-    // Comportamiento original: unicidad por producto+departamento+mes+anio
     await db.execute(
       `INSERT INTO salidas_productos (producto_id, departamento_id, cantidad, mes, anio)
        VALUES (?, ?, ?, ?, ?)
@@ -393,7 +385,6 @@ export interface ConsumoMensualDepartamento {
   total_cantidad: number;
 }
 
-/** Consumo mensual total por departamento — para gráfico Recharts */
 export async function getConsumoMensualPorDepartamento(
   filtros: FiltrosSalida = {}
 ): Promise<ConsumoMensualDepartamento[]> {
@@ -431,15 +422,9 @@ export interface MatrizConsumo {
   producto_nombre: string;
   unidad_medida: string;
   categoria_nombre: string;
-  // clave dinámica: "dep_{departamento_id}" → cantidad
   [key: string]: number | string;
 }
 
-/**
- * Devuelve una matriz producto × departamento para un mes/año concreto.
- * Útil para la vista de tabla editable estilo Excel.
- * Las columnas de departamento se añaden como dep_{id}.
- */
 export async function getMatrizConsumo(
   anio: number,
   mes: number,
@@ -478,7 +463,6 @@ export async function getMatrizConsumo(
     params
   );
 
-  // Agrupar en mapa producto → fila
   const mapa = new Map<number, MatrizConsumo>();
 
   for (const fila of salidas) {
@@ -500,12 +484,11 @@ export async function getMatrizConsumo(
 export interface ResumenDepartamento {
   departamento_id: number;
   departamento_nombre: string;
-  total_salidas: number;       // número de registros
-  total_cantidad: number;      // suma de unidades
+  total_salidas: number;
+  total_cantidad: number;
   productos_distintos: number;
 }
 
-/** Resumen por departamento en un periodo — para tabla de estadísticas */
 export async function getResumenPorDepartamento(
   filtros: FiltrosSalida = {}
 ): Promise<ResumenDepartamento[]> {
@@ -514,10 +497,10 @@ export async function getResumenPorDepartamento(
   const condiciones: string[] = [];
   const params: (string | number)[] = [];
 
-  if (filtros.anio)       { condiciones.push("s.anio = ?");    params.push(filtros.anio); }
-  if (filtros.anio_desde) { condiciones.push("s.anio >= ?");   params.push(filtros.anio_desde); }
-  if (filtros.anio_hasta) { condiciones.push("s.anio <= ?");   params.push(filtros.anio_hasta); }
-  if (filtros.categoria_id) { condiciones.push("p.categoria_id = ?"); params.push(filtros.categoria_id); }
+  if (filtros.anio)        { condiciones.push("s.anio = ?");          params.push(filtros.anio); }
+  if (filtros.anio_desde)  { condiciones.push("s.anio >= ?");         params.push(filtros.anio_desde); }
+  if (filtros.anio_hasta)  { condiciones.push("s.anio <= ?");         params.push(filtros.anio_hasta); }
+  if (filtros.categoria_id){ condiciones.push("p.categoria_id = ?");  params.push(filtros.categoria_id); }
 
   const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : "";
 
@@ -538,73 +521,75 @@ export async function getResumenPorDepartamento(
   );
 }
 
-// ─── Funciones adicionales para rediseño ───────────────────────────────────────
+// ─── Funciones adicionales ────────────────────────────────────────────────────
 
-/**
- * Elimina un producto y todas sus salidas asociadas.
- */
 export async function deleteProduct(productId: number): Promise<void> {
   const db = await getDbWithRetry();
   await db.execute("DELETE FROM salidas_productos WHERE producto_id = ?", [productId]);
+  await db.execute("DELETE FROM producto_presentaciones WHERE producto_id = ?", [productId]);
   await db.execute("DELETE FROM productos_almacen WHERE id = ?", [productId]);
 }
 
 /**
- * Obtiene todas las salidas de un año específico, opcionalmente filtradas por departamento y presentación.
- * Devuelve un mapa para fácil acceso: Map<producto_id, Map<mes, cantidad>>
+ * Obtiene todas las salidas de un año/departamento, desglosadas por presentación.
+ *
+ * Devuelve un mapa con clave compuesta "productoId_presentacionId"
+ * (o "productoId_null" si no tiene presentación) → mes → cantidad.
+ *
+ * Ejemplo de clave: "12_3" = producto 12, presentación 3
+ *                   "12_null" = producto 12 sin presentación
  */
 export async function getSalidasByYear(
   year: number,
-  departamentoId?: number,
-  presentacionId?: number
-): Promise<Map<number, Map<number, number>>> {
+  departamentoId?: number
+): Promise<Map<string, Map<number, number>>> {
   const db = await getDbWithRetry();
 
-  let condiciones: string[] = ["s.anio = ?"];
-  const params: (number | undefined)[] = [year];
+  const condiciones: string[] = ["s.anio = ?"];
+  const params: (number | null)[] = [year];
 
   if (departamentoId !== undefined) {
     condiciones.push("s.departamento_id = ?");
     params.push(departamentoId);
   }
 
-  if (presentacionId !== undefined) {
-    condiciones.push("s.presentacion_id = ?");
-    params.push(presentacionId);
-  }
-
-  const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : "";
+  const where = `WHERE ${condiciones.join(" AND ")}`;
 
   const rows = await db.select<{
     producto_id: number;
+    presentacion_id: number | null;
     mes: number;
     cantidad: number;
   }[]>(
     `SELECT
-       s.producto_id, s.mes, s.cantidad
+       s.producto_id,
+       s.presentacion_id,
+       s.mes,
+       s.cantidad
      FROM salidas_productos s
      ${where}
-     ORDER BY s.producto_id, s.mes`,
+     ORDER BY s.producto_id, s.presentacion_id, s.mes`,
     params
   );
 
-  // Construir mapa anidado: producto_id -> mes -> cantidad
-  const resultado = new Map<number, Map<number, number>>();
+  const resultado = new Map<string, Map<number, number>>();
 
   for (const row of rows) {
-    if (!resultado.has(row.producto_id)) {
-      resultado.set(row.producto_id, new Map());
+    const clave = `${row.producto_id}_${row.presentacion_id ?? "null"}`;
+    if (!resultado.has(clave)) {
+      resultado.set(clave, new Map());
     }
-    resultado.get(row.producto_id)!.set(row.mes, row.cantidad);
+    resultado.get(clave)!.set(row.mes, row.cantidad);
   }
 
   return resultado;
 }
 
-/**
- * Obtiene los años distintos de los que existen datos en la tabla de salidas,
- * ordenados de más a menos. Devuelve como máximo los 5 más recientes.
- */
+/** Construye la clave del mapa de salidas para un producto + presentación */
+export function claveSalida(productoId: number, presentacionId: number | null | undefined): string {
+  return `${productoId}_${presentacionId ?? "null"}`;
+}
+
 export async function getAniosDisponibles(): Promise<number[]> {
   const db = await getDbWithRetry();
   const rows = await db.select<{ anio: number }[]>(
@@ -613,12 +598,6 @@ export async function getAniosDisponibles(): Promise<number[]> {
   return rows.map(r => r.anio);
 }
 
-/**
- * Función de utilidad para importar/actualizar productos desde Excel.
- * Crea o actualiza un producto y devuelve su ID.
- * NOTA: El precio solo se establece al crear un producto nuevo. Al actualizar,
- * se preserva el precio existente para no sobrescribir datos manuales.
- */
 export async function ensureProduct(
   referencia: string,
   nombre: string,
@@ -628,30 +607,26 @@ export async function ensureProduct(
 ): Promise<number> {
   const db = await getDbWithRetry();
 
-  // Buscar si ya existe
   const existente = await db.select<{ id: number; precio?: number | null }[]>(
     "SELECT id, precio FROM productos_almacen WHERE referencia = ?",
     [referencia.trim()]
   );
 
   if (existente.length > 0) {
-    // Actualizar: NO sobrescribir precio si ya existe (mantener valor manual)
     const producto = existente[0];
     await actualizarProducto(producto.id, {
       nombre: nombre.trim(),
       categoria_id: categoriaId,
       unidad_medida: unidadMedida.trim(),
-      // Solo actualizar precio si se proporciona explícitamente un valor no nulo
       ...(precio !== undefined && precio !== null && { precio }),
     });
     return producto.id;
   } else {
-    // Crear nuevo
     return await crearProducto(referencia.trim(), nombre.trim(), categoriaId, unidadMedida.trim(), precio);
   }
 }
 
-// ─── Nuevas funciones para unidades de presentación ──────────────────────────
+// ─── Unidades de presentación ─────────────────────────────────────────────────
 
 export interface UnidadPresentacion {
   id: number;
@@ -659,15 +634,13 @@ export interface UnidadPresentacion {
 }
 
 export interface ProductoPresentacion {
-  id: number;
+  id: number;         // id en producto_presentaciones
+  producto_id: number;
   unidad_id: number;
-  nombre: string;
+  nombre: string;     // nombre de la unidad (join)
   precio: number | null;
 }
 
-/**
- * Obtiene todas las unidades de presentación disponibles
- */
 export async function getUnidadesPresentacion(): Promise<UnidadPresentacion[]> {
   const db = await getDbWithRetry();
   return db.select<UnidadPresentacion[]>(
@@ -675,9 +648,6 @@ export async function getUnidadesPresentacion(): Promise<UnidadPresentacion[]> {
   );
 }
 
-/**
- * Crea una nueva unidad de presentación
- */
 export async function crearUnidadPresentacion(nombre: string): Promise<number> {
   const db = await getDbWithRetry();
   const result = await db.execute(
@@ -691,13 +661,15 @@ export async function crearUnidadPresentacion(nombre: string): Promise<number> {
 }
 
 /**
- * Obtiene las presentaciones de un producto específico
+ * Obtiene las presentaciones configuradas para un producto específico,
+ * incluyendo el nombre de la unidad y su precio.
  */
 export async function getPresentacionesDeProducto(productoId: number): Promise<ProductoPresentacion[]> {
   const db = await getDbWithRetry();
   return db.select<ProductoPresentacion[]>(
     `SELECT
        pp.id,
+       pp.producto_id,
        pp.unidad_id,
        up.nombre,
        pp.precio
@@ -710,9 +682,43 @@ export async function getPresentacionesDeProducto(productoId: number): Promise<P
 }
 
 /**
- * Inserta o actualiza una presentación de producto
+ * Obtiene las presentaciones de TODOS los productos en una sola query.
+ * Más eficiente que llamar getPresentacionesDeProducto por cada producto.
+ * Devuelve un mapa: producto_id → ProductoPresentacion[]
  */
-export async function upsertPresentacion(productoId: number, unidadId: number, precio: number | null): Promise<number> {
+export async function getAllPresentaciones(): Promise<Map<number, ProductoPresentacion[]>> {
+  const db = await getDbWithRetry();
+  const rows = await db.select<ProductoPresentacion[]>(
+    `SELECT
+       pp.id,
+       pp.producto_id,
+       pp.unidad_id,
+       up.nombre,
+       pp.precio
+     FROM producto_presentaciones pp
+     JOIN unidades_presentacion up ON up.id = pp.unidad_id
+     ORDER BY pp.producto_id, up.nombre`
+  );
+
+  const mapa = new Map<number, ProductoPresentacion[]>();
+  for (const row of rows) {
+    if (!mapa.has(row.producto_id)) {
+      mapa.set(row.producto_id, []);
+    }
+    mapa.get(row.producto_id)!.push(row);
+  }
+  return mapa;
+}
+
+/**
+ * Inserta o actualiza una presentación de producto (precio por unidad).
+ * Si ya existe (producto_id + unidad_id), actualiza el precio.
+ */
+export async function upsertPresentacion(
+  productoId: number,
+  unidadId: number,
+  precio: number | null
+): Promise<number> {
   const db = await getDbWithRetry();
   const result = await db.execute(
     `INSERT INTO producto_presentaciones (producto_id, unidad_id, precio)
@@ -721,28 +727,25 @@ export async function upsertPresentacion(productoId: number, unidadId: number, p
      DO UPDATE SET precio = excluded.precio`,
     [productoId, unidadId, precio]
   );
+
   if (result.lastInsertId === undefined) {
-    // Si es un UPDATE, lastInsertId será undefined, necesitamos obtener el ID existente
     const rows = await db.select<{ id: number }[]>(
       "SELECT id FROM producto_presentaciones WHERE producto_id = ? AND unidad_id = ?",
       [productoId, unidadId]
     );
-    if (rows.length > 0) {
-      return rows[0].id;
-    }
+    if (rows.length > 0) return rows[0].id;
     throw new Error("No se pudo insertar o actualizar la presentación");
   }
   return result.lastInsertId;
 }
 
 /**
- * Elimina una presentación de producto
- * @throws Error si la presentación tiene salidas asociadas
+ * Elimina una presentación de producto.
+ * Lanza error si tiene salidas asociadas.
  */
 export async function deletePresentacion(presentacionId: number): Promise<void> {
   const db = await getDbWithRetry();
 
-  // Verificar si tiene salidas asociadas
   const rows = await db.select<{ count: number }[]>(
     "SELECT COUNT(*) AS count FROM salidas_productos WHERE presentacion_id = ?",
     [presentacionId]

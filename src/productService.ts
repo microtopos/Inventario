@@ -21,11 +21,11 @@ export async function updateStock(tallaId: number, stock: number) {
   await db.execute("INSERT INTO movimientos (talla_id, cambio) VALUES (?, ?)", [tallaId, diff])
 }
 
-export async function createProduct(nombre: string, codigo: string, departamento: number) {
+export async function createProduct(nombre: string, codigo: string, departamento: number, precio: number | null = null) {
   const db = await getDB()
   await db.execute(
-    `INSERT INTO productos (codigo, nombre, departamento_id) VALUES (?, ?, ?)`,
-    [codigo || null, nombre, departamento]
+    `INSERT INTO productos (codigo, nombre, departamento_id, precio) VALUES (?, ?, ?, ?)`,
+    [codigo || null, nombre, departamento, precio ?? null]
   )
 }
 
@@ -109,12 +109,12 @@ export async function undoMovimientos(movimientoIds: number[]): Promise<void> {
 
 export async function updateProduct(
   productId: number,
-  fields: { nombre: string; codigo: string; departamento_id: number | null }
+  fields: { nombre: string; codigo: string; departamento_id: number | null; precio: number | null }
 ) {
   const db = await getDB()
   await db.execute(
-    "UPDATE productos SET nombre = ?, codigo = ?, departamento_id = ? WHERE id = ?",
-    [fields.nombre || null, fields.codigo || null, fields.departamento_id, productId]
+    "UPDATE productos SET nombre = ?, codigo = ?, departamento_id = ?, precio = ? WHERE id = ?",
+    [fields.nombre || null, fields.codigo || null, fields.departamento_id, fields.precio ?? null, productId]
   )
 }
 

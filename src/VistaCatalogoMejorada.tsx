@@ -11,24 +11,28 @@ import {
   crearDepartamentoProd,
   crearCategoria,
   ensureProduct,
-  actualizarProducto,
   getSalidasByYear,
   getAniosDisponibles,
   getUnidadesPresentacion,
+  getAllPresentaciones,
   upsertPresentacion,
+  deletePresentacion,
+  crearUnidadPresentacion,
+  claveSalida,
   type CategoriaProducto,
   type ProductoAlmacen,
   type DepartamentoProd,
   type UnidadPresentacion,
+  type ProductoPresentacion,
 } from "./productosService"
 import { ModalProducto } from "./ProductModal"
 import { ModalSalida } from "./SalidaModal"
 
 async function getOrCreateCategoriaId(nombre: string): Promise<number> {
-  const cats = await getCategorias();
-  const existente = cats.find(c => c.nombre.toUpperCase() === nombre.toUpperCase());
-  if (existente) return existente.id;
-  return await crearCategoria(nombre);
+  const cats = await getCategorias()
+  const existente = cats.find(c => c.nombre.toUpperCase() === nombre.toUpperCase())
+  if (existente) return existente.id
+  return await crearCategoria(nombre)
 }
 
 const MESES = [
@@ -36,100 +40,105 @@ const MESES = [
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
 ]
 
-// VistaCatalogoMejorada.tsx — Mejoras de visualización
-// ============================================================================
-// Paleta de colores para consumo (heatmap)
+// ─── Colores heatmap ──────────────────────────────────────────────────────────
+
 function getConsumoColor(valor: number, maxValor: number): string {
   if (valor === 0) return "#ffffff"
   const intensidad = Math.min(valor / (maxValor || 1), 1)
-  // De amarillo claro a verde oscuro
-  if (intensidad < 0.25) return "#fef9c3" // amarillo muy claro
-  if (intensidad < 0.5) return "#fef08a"  // amarillo
-  if (intensidad < 0.75) return "#bef264"  // verde lima
-  return "#65a30d"                        // verde oscuro
+  if (intensidad < 0.25) return "#fef9c3"
+  if (intensidad < 0.5)  return "#fef08a"
+  if (intensidad < 0.75) return "#bef264"
+  return "#65a30d"
 }
 
 function getConsumoTextColor(valor: number): string {
   return valor > 0 ? "#1a1a1a" : "#9ca3af"
 }
 
-// Helper para calcular el valor máximo de consumo en la vista actual (para escalado de colores)
-function calcularMaximoConsumo(productosFiltrados: ProductoAlmacen[], getConsumo: (id: number, mes: number) => number): number {
-  let max = 0
-  for (const prod of productosFiltrados) {
-    for (let mes = 1; mes <= 12; mes++) {
-      max = Math.max(max, getConsumo(prod.id, mes))
-    }
-  }
-  return max
-}
+// ─── Constantes ───────────────────────────────────────────────────────────────
 
-// Total de columnas: Ref + Nombre + Precio + Categoría + Unidad + 12 meses + Total + Acciones
+// Ref + Nombre + Precio + Categoría + Unidad + 12 meses + Total + Acciones
 const TOTAL_COLS = 20
 
-// Componente principal
+// ─── Componente principal ────────────────────────────────────────────────────
+
 export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepartamentoCreado?: () => void }) {
   const toast = useToast()
   const { confirm, dialog } = useConfirm()
+
+  // ── Modales ──
   const [showSalidaModal, setShowSalidaModal] = useState(false)
-  const [showAddUnitModal, setShowAddUnitModal] = useState(false)
-  const [editingProductForUnit, setEditingProductForUnit] = useState<number | null>(null)
+  const [editingProductId, setEditingProductId] = useState<number | null>(null)
+
+  // Modal añadir presentación a un producto
+  const [showPresModal, setShowPresModal] = useState(false)
+  const [presModalProductoId, setPresModalProductoId] = useState<number | null>(null)
+  const [presModalUnidadId, setPresModalUnidadId] = useState<number | "">("")
+  const [presModalPrecio, setPresModalPrecio] = useState("")
+  // Modal nueva unidad global
+  const [showNewUnitModal, setShowNewUnitModal] = useState(false)
   const [newUnitName, setNewUnitName] = useState("")
 
-  // Estados
+  // ── Datos principales ──
   const [categorias, setCategorias] = useState<CategoriaProducto[]>([])
   const [productos, setProductos] = useState<ProductoAlmacen[]>([])
   const [departamentos, setDepartamentos] = useState<DepartamentoProd[]>([])
+  const [unidadesPresentacion, setUnidadesPresentacion] = useState<UnidadPresentacion[]>([])
+  // mapa producto_id → presentaciones configuradas
+  const [presentacionesPorProducto, setPresentacionesPorProducto] = useState<Map<number, ProductoPresentacion[]>>(new Map())
+
+  // ── Filtros ──
   const [departamentoId, setDepartamentoId] = useState<number | "">("")
   const [year, setYear] = useState(new Date().getFullYear())
   const [searchTerm, setSearchTerm] = useState("")
   const [expandedCategories, setExpandedCategories] = useState<Set<number>>(new Set())
-  const [editingProductId, setEditingProductId] = useState<number | null>(null)
+
+  // ── Presentación activa por producto (qué fila se muestra) ──
+  // producto_id → presentacion_id (null = "sin presentación")
+  const [presentacionActiva, setPresentacionActiva] = useState<Map<number, number | null>>(new Map())
+
+  // ── Salidas: mapa "productoId_presentacionId" → mes → cantidad ──
+  const [salidasMap, setSalidasMap] = useState<Map<string, Map<number, number>>>(new Map())
+
+  // ── UI helpers ──
   const [loading, setLoading] = useState(true)
-  const [savingCell, setSavingCell] = useState<{ productoId: number; mes: number } | null>(null)
+  const [savingCell, setSavingCell] = useState<{ clave: string; mes: number } | null>(null)
   const [showNewDeptInput, setShowNewDeptInput] = useState(false)
   const [newDeptName, setNewDeptName] = useState("")
   const [isImporting, setIsImporting] = useState(false)
   const [availableYears, setAvailableYears] = useState<number[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [deptSearchTerm, setDeptSearchTerm] = useState("")
-  const [showDeptDropdown, setShowDeptDropdown] = useState(false)
-  const deptInputRef = useRef<HTMLDivElement>(null)
-
-  // Mapa de salidas: producto_id -> mes -> cantidad
-  const [salidasMap, setSalidasMap] = useState<Map<number, Map<number, number>>>(new Map())
-
-  // Estados para presentaciones
-  const [unidadesPresentacion, setUnidadesPresentacion] = useState<UnidadPresentacion[]>([])
-  // Mapa de precios por producto y unidad: producto_id -> (unidad_id -> precio)
-  const [preciosPorProductoUnidad, setPreciosPorProductoUnidad] = useState<Map<number, Map<number, number>>>(new Map())
-  // Mapa de presentaciones por producto: producto_id -> presentacion[]
-  const [presentacionesPorProducto, setPresentacionesPorProducto] = useState<Map<number, ProductoPresentacion[]>>(new Map())
-  // Mapa de presentacion seleccionada por producto: producto_id -> presentacion_id
-  const [presentacionSeleccionada, setPresentacionSeleccionada] = useState<Map<number, number>>(new Map())
-  // Mapa de salidas por presentación: presentacion_id -> mes -> cantidad
-
-  // Ref para almacenar el departamento/año para el cual están cargados los datos actuales
   const cachedDeptYearRef = useRef<{ dept: number | ""; year: number } | null>(null)
 
-  // Carga inicial de datos (useCallback para usar en useEffect)
+  // ─── Carga inicial ────────────────────────────────────────────────────────
+
   const loadInitialData = useCallback(async () => {
     setLoading(true)
     try {
-      const [cats, prods, depts, anios, unidades] = await Promise.all([
+      const [cats, prods, depts, anios, unidades, todasPresentaciones] = await Promise.all([
         getCategorias(),
-        getProductos(false), // todos, incluyendo inactivos para verlos
+        getProductos(false),
         getDepartamentosProd(),
         getAniosDisponibles(),
         getUnidadesPresentacion(),
+        getAllPresentaciones(),
       ])
       setCategorias(cats)
       setProductos(prods)
       setDepartamentos(depts)
       setAvailableYears(anios)
       setUnidadesPresentacion(unidades)
-      // Expandir todas las categorías por defecto
+      setPresentacionesPorProducto(todasPresentaciones)
       setExpandedCategories(new Set(cats.map(c => c.id)))
+
+      // Inicializar presentación activa: primer elemento de cada producto (o null si no tiene)
+      const activaInicial = new Map<number, number | null>()
+      for (const prod of prods) {
+        const lista = todasPresentaciones.get(prod.id) ?? []
+        activaInicial.set(prod.id, lista.length > 0 ? lista[0].id : null)
+      }
+      setPresentacionActiva(activaInicial)
+
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     } finally {
@@ -137,269 +146,340 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }, [toast])
 
-  // Cargar salidas para departamento/año específico
+  // ─── Carga de salidas ──────────────────────────────────────────────────────
+
   const cargarSalidas = useCallback(async () => {
     if (departamentoId === "") {
-      // Cuando no hay departamento seleccionado, limpiar el mapa y la caché
       setSalidasMap(new Map())
       cachedDeptYearRef.current = null
       return
     }
 
-    const deptAlMomento = departamentoId
-    const yearAlMomento = year
-
-    // Si ya tenemos datos cargados para este departamento/año, no hacer nada
-    if (cachedDeptYearRef.current?.dept === deptAlMomento && cachedDeptYearRef.current.year === yearAlMomento) {
-      return
-    }
+    if (
+      cachedDeptYearRef.current?.dept === departamentoId &&
+      cachedDeptYearRef.current.year === year
+    ) return
 
     try {
-      // Cargar salidas globales para el departamento/año
-      const mapa = await getSalidasByYear(yearAlMomento, Number(deptAlMomento));
-      setSalidasMap(mapa);
-
-      // Actualizar caché
-      cachedDeptYearRef.current = { dept: deptAlMomento, year: yearAlMomento }
+      const mapa = await getSalidasByYear(year, Number(departamentoId))
+      setSalidasMap(mapa)
+      cachedDeptYearRef.current = { dept: departamentoId, year }
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
-      // En caso de error, limpiar la caché para permitir reintento
       cachedDeptYearRef.current = null
       setSalidasMap(new Map())
     }
-  }, [departamentoId, year, toast, presentacionesPorProducto])
+  }, [departamentoId, year, toast])
 
-  // Carga inicial
-  useEffect(() => {
-    loadInitialData()
-  }, [loadInitialData])
+  useEffect(() => { loadInitialData() }, [loadInitialData])
 
-  // Cada vez que cambia departamento o año, recargar salidas
   useEffect(() => {
     if (departamentoId === "") {
-      // Limpiar cuando no hay departamento seleccionado
       setSalidasMap(new Map())
       cachedDeptYearRef.current = null
     }
   }, [departamentoId])
 
   useEffect(() => {
-    if (departamentoId !== "" && year) {
-      cargarSalidas()
-    }
+    if (departamentoId !== "" && year) cargarSalidas()
   }, [departamentoId, year, cargarSalidas])
 
-  // Cuando cambian las presentaciones de un producto, actualizar la selección si es necesario
-  useEffect(() => {
-    // Esta función se ejecutará cuando presentacionesPorProducto cambie
-    // Pero necesitamos evitar bucles infinitos, así que la ejecutamos solo cuando sea necesario
-    // Por ahora, la llamaremos manualmente cuando cargamos las presentaciones
-  }, [presentacionesPorProducto])
-
-  // Auto-seleccionar el primer departamento cuando se carga la lista
+  // Auto-seleccionar primer departamento
   useEffect(() => {
     if (departamentoId === "" && departamentos.length > 0) {
       setDepartamentoId(departamentos[0].id)
     }
   }, [departamentos, departamentoId])
 
-  // Cerrar dropdown al hacer clic fuera
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (deptInputRef.current && !deptInputRef.current.contains(e.target as Node)) {
-        setShowDeptDropdown(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+  // ─── Helpers de presentación ──────────────────────────────────────────────
 
-  // Recargar lista de departamentos desde BD
-  const handleDepartamentoCreado = async () => {
+  /** Presentación actualmente seleccionada para un producto */
+  function getPresActiva(productoId: number): ProductoPresentacion | null {
+    const presId = presentacionActiva.get(productoId)
+    if (presId == null) return null
+    return presentacionesPorProducto.get(productoId)?.find(p => p.id === presId) ?? null
+  }
+
+  /** Salidas para la presentación activa de un producto en un mes */
+  function getConsumo(productoId: number, mes: number): number {
+    const presId = presentacionActiva.get(productoId) ?? null
+    const clave = claveSalida(productoId, presId)
+    return salidasMap.get(clave)?.get(mes) ?? 0
+  }
+
+  // ─── Actualizar celda ─────────────────────────────────────────────────────
+
+  const handleCellChange = useCallback(async (
+    productoId: number,
+    mes: number,
+    valorStr: string
+  ) => {
+    if (departamentoId === "") return
+    const valor = Number(valorStr)
+    if (isNaN(valor) || valor < 0) return
+
+    const presId = presentacionActiva.get(productoId) ?? null
+    const clave = claveSalida(productoId, presId)
+
+    setSavingCell({ clave, mes })
     try {
-      const depts = await getDepartamentosProd()
-      setDepartamentos(depts)
-      // Notificar al padre si existe callback
-      if (onDepartamentoCreado) {
-        onDepartamentoCreado()
-      }
+      await upsertSalida({
+        producto_id: productoId,
+        departamento_id: Number(departamentoId),
+        presentacion_id: presId,
+        cantidad: valor,
+        mes,
+        anio: year,
+      })
+
+      setSalidasMap(prev => {
+        const nuevo = new Map(prev)
+        if (!nuevo.has(clave)) nuevo.set(clave, new Map())
+        const mesMap = nuevo.get(clave)!
+        if (valor === 0) mesMap.delete(mes)
+        else mesMap.set(mes, valor)
+        return nuevo
+      })
+
+      cachedDeptYearRef.current = { dept: Number(departamentoId), year }
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    } finally {
+      setSavingCell(null)
+    }
+  }, [departamentoId, year, presentacionActiva, toast])
+
+  // ─── Eliminar producto ────────────────────────────────────────────────────
+
+  async function handleDeleteProduct(producto: ProductoAlmacen) {
+    const ok = await confirm(
+      `¿Eliminar el producto "${producto.referencia}"?`,
+      { confirmLabel: "Eliminar", danger: true, detail: "Se borrarán también todos los registros de salida y presentaciones asociados." }
+    )
+    if (!ok) return
+    try {
+      await deleteProduct(producto.id)
+      setProductos(prev => prev.filter(p => p.id !== producto.id))
+      setSalidasMap(prev => {
+        const nuevo = new Map(prev)
+        // Limpiar todas las claves de este producto
+        for (const k of [...nuevo.keys()]) {
+          if (k.startsWith(`${producto.id}_`)) nuevo.delete(k)
+        }
+        return nuevo
+      })
+      setPresentacionesPorProducto(prev => {
+        const nuevo = new Map(prev)
+        nuevo.delete(producto.id)
+        return nuevo
+      })
+      cachedDeptYearRef.current = { dept: Number(departamentoId), year }
+      toast.success("Producto eliminado")
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     }
   }
 
-  // Departamentos filtrados por búsqueda
-  const departamentosFiltrados = useMemo(() => {
-    if (!deptSearchTerm.trim()) return departamentos
-    const term = deptSearchTerm.toLowerCase()
-    return departamentos.filter(dep =>
-      dep.nombre.toLowerCase().includes(term)
-    )
-  }, [departamentos, deptSearchTerm])
+  // ─── Gestión de presentaciones ────────────────────────────────────────────
 
-  const handleImportClick = () => {
-    if (fileInputRef.current) {
-      fileInputRef.current.click();
+  function abrirModalPresentacion(productoId: number) {
+    setPresModalProductoId(productoId)
+    setPresModalUnidadId("")
+    setPresModalPrecio("")
+    setShowPresModal(true)
+  }
+
+  async function handleGuardarPresentacion() {
+    if (presModalProductoId == null || presModalUnidadId === "") return
+    const precio = presModalPrecio.trim() !== "" ? parseFloat(presModalPrecio.replace(",", ".")) : null
+    if (precio !== null && isNaN(precio)) {
+      toast.error("Error", "El precio no es un número válido")
+      return
     }
-  };
+    try {
+      const presId = await upsertPresentacion(presModalProductoId, Number(presModalUnidadId), precio)
+
+      // Refrescar presentaciones del producto
+      const nuevaLista: ProductoPresentacion[] = [
+        ...(presentacionesPorProducto.get(presModalProductoId) ?? []).filter(p => p.unidad_id !== Number(presModalUnidadId)),
+        {
+          id: presId,
+          producto_id: presModalProductoId,
+          unidad_id: Number(presModalUnidadId),
+          nombre: unidadesPresentacion.find(u => u.id === Number(presModalUnidadId))?.nombre ?? "",
+          precio,
+        }
+      ].sort((a, b) => a.nombre.localeCompare(b.nombre))
+
+      setPresentacionesPorProducto(prev => {
+        const nuevo = new Map(prev)
+        nuevo.set(presModalProductoId!, nuevaLista)
+        return nuevo
+      })
+
+      // Si el producto no tenía presentación activa, activar esta
+      if (!presentacionActiva.has(presModalProductoId) || presentacionActiva.get(presModalProductoId) == null) {
+        setPresentacionActiva(prev => {
+          const nuevo = new Map(prev)
+          nuevo.set(presModalProductoId!, presId)
+          return nuevo
+        })
+      }
+
+      setShowPresModal(false)
+      toast.success("Presentación guardada")
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }
+
+  async function handleEliminarPresentacion(productoId: number, pres: ProductoPresentacion) {
+    const ok = await confirm(
+      `¿Eliminar la presentación "${pres.nombre}" de este producto?`,
+      { confirmLabel: "Eliminar", danger: true, detail: "Solo se puede eliminar si no tiene salidas registradas." }
+    )
+    if (!ok) return
+    try {
+      await deletePresentacion(pres.id)
+      const nuevaLista = (presentacionesPorProducto.get(productoId) ?? []).filter(p => p.id !== pres.id)
+      setPresentacionesPorProducto(prev => {
+        const nuevo = new Map(prev)
+        nuevo.set(productoId, nuevaLista)
+        return nuevo
+      })
+      // Si era la activa, pasar a la primera disponible o null
+      if (presentacionActiva.get(productoId) === pres.id) {
+        setPresentacionActiva(prev => {
+          const nuevo = new Map(prev)
+          nuevo.set(productoId, nuevaLista[0]?.id ?? null)
+          return nuevo
+        })
+      }
+      toast.success("Presentación eliminada")
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }
+
+  async function handleCrearUnidadGlobal() {
+    if (!newUnitName.trim()) return
+    try {
+      const id = await crearUnidadPresentacion(newUnitName.trim())
+      const nuevaUnidad: UnidadPresentacion = { id, nombre: newUnitName.trim() }
+      setUnidadesPresentacion(prev => [...prev, nuevaUnidad].sort((a, b) => a.nombre.localeCompare(b.nombre)))
+      setNewUnitName("")
+      setShowNewUnitModal(false)
+      toast.success("Unidad creada", `"${nuevaUnidad.nombre}" ya está disponible`)
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }
+
+  // ─── Importación Excel ────────────────────────────────────────────────────
+
+  const handleImportClick = () => fileInputRef.current?.click()
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+    const file = e.target.files?.[0]
+    if (!file) return
     if (departamentoId === "" || departamentoId <= 0) {
-      toast.error("Error", "Selecciona un departamento válido antes de importar");
-      return;
+      toast.error("Error", "Selecciona un departamento válido antes de importar")
+      return
     }
-
-    setIsImporting(true);
+    setIsImporting(true)
     try {
-      const buffer = await file.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array" });
-      const sheetName = workbook.SheetNames[0];
-      const worksheet = workbook.Sheets[sheetName];
-      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+      const buffer = await file.arrayBuffer()
+      const workbook = XLSX.read(buffer, { type: "array" })
+      const sheetName = workbook.SheetNames[0]
+      const worksheet = workbook.Sheets[sheetName]
+      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
 
       const monthMap: { [key: string]: number } = {
-        'ENE': 1, 'ENERO': 1,
-        'FEB': 2, 'FEBRERO': 2,
-        'MAR': 3, 'MARZO': 3,
-        'ABR': 4, 'ABRIL': 4,
-        'MAY': 5, 'MAYO': 5,
-        'JUN': 6, 'JUNIO': 6,
-        'JUL': 7, 'JULIO': 7,
-        'AGO': 8, 'AGOSTO': 8,
+        'ENE': 1, 'ENERO': 1, 'FEB': 2, 'FEBRERO': 2, 'MAR': 3, 'MARZO': 3,
+        'ABR': 4, 'ABRIL': 4, 'MAY': 5, 'MAYO': 5, 'JUN': 6, 'JUNIO': 6,
+        'JUL': 7, 'JULIO': 7, 'AGO': 8, 'AGOSTO': 8,
         'SET': 9, 'SEP': 9, 'SEPTIEMBRE': 9,
-        'OCT': 10, 'OCTUBRE': 10,
-        'NOV': 11, 'NOVIEMBRE': 11,
-        'DIC': 12, 'DICIEMBRE': 12,
-      };
-      const monthNames = Object.keys(monthMap);
-      let headerRowIndex = -1;
+        'OCT': 10, 'OCTUBRE': 10, 'NOV': 11, 'NOVIEMBRE': 11, 'DIC': 12, 'DICIEMBRE': 12,
+      }
+      const monthNames = Object.keys(monthMap)
+
+      let headerRowIndex = -1
       for (let i = 0; i < Math.min(10, data.length); i++) {
-        const currentRow = data[i] || [];
-        const rowStr = currentRow.map(c => String(c || '')).join(' ').toUpperCase();
-        if (monthNames.some(m => rowStr.includes(m))) {
-          headerRowIndex = i;
-          break;
-        }
+        const rowStr = (data[i] as any[]).map(c => String(c || '')).join(' ').toUpperCase()
+        if (monthNames.some(m => rowStr.includes(m))) { headerRowIndex = i; break }
       }
-      if (headerRowIndex === -1) {
-        throw new Error("No se encontró encabezado con meses en el archivo");
-      }
+      if (headerRowIndex === -1) throw new Error("No se encontró encabezado con meses en el archivo")
 
-      const headerRow = data[headerRowIndex];
-      const detectedMonths: { idx: number; month: number }[] = [];
+      const headerRow = data[headerRowIndex] as any[]
+      const detectedMonths: { idx: number; month: number }[] = []
       headerRow.forEach((col: any, idx: number) => {
-        const colStr = String(col || '').toUpperCase().trim();
+        const colStr = String(col || '').toUpperCase().trim()
         for (const [name, monthNum] of Object.entries(monthMap)) {
-          if (colStr.includes(name)) {
-            detectedMonths.push({ idx, month: monthNum });
-            break;
-          }
+          if (colStr.includes(name)) { detectedMonths.push({ idx, month: monthNum }); break }
         }
-      });
-      if (detectedMonths.length === 0) {
-        throw new Error("No se detectaron columnas de meses");
-      }
+      })
+      if (detectedMonths.length === 0) throw new Error("No se detectaron columnas de meses")
 
-      const categoriesSeen: string[] = [];
-      const productos: any[] = [];
-      let currentCategory = "SIN CATEGORÍA";
+      let currentCategory = "SIN CATEGORÍA"
+      const productosExcel: any[] = []
 
       for (let i = headerRowIndex + 1; i < data.length; i++) {
-        const row = data[i];
-        if (!row || row.length === 0) continue;
+        const row = data[i] as any[]
+        if (!row || row.length === 0) continue
+        const refStr = (row[0] ?? '').toString().trim()
+        const descStr = (row[1] ?? '').toString().trim()
+        if (refStr !== '' && descStr === '') { currentCategory = refStr; continue }
+        if (refStr === '') continue
 
-        const ref = row[0];
-        const desc = row[1];
-        const refStr = (ref ?? '').toString().trim();
-        const descStr = (desc ?? '').toString().trim();
-
-        if (refStr !== '' && descStr === '') {
-          currentCategory = refStr;
-          if (!categoriesSeen.includes(currentCategory)) {
-            categoriesSeen.push(currentCategory);
-          }
-          continue;
-        }
-
-        if (refStr === '') continue;
-
-        const prod = {
-          referencia: refStr,
-          nombre: descStr,
-          categoria_nombre: currentCategory,
-          unidad_medida: "UNIDAD",
-          meses: {} as { [key: number]: number },
-        };
-
+        const prod: any = { referencia: refStr, nombre: descStr, categoria_nombre: currentCategory, unidad_medida: "UNIDAD", meses: {} }
         for (const { idx, month } of detectedMonths) {
-          const val = row[idx];
-          if (val !== undefined && val !== null) {
-            const str = String(val).trim();
-            if (str) {
-              const num = parseInt(str.split(' ')[0], 10);
-              if (!isNaN(num) && num > 0) {
-                prod.meses[month] = num;
-              }
-            }
+          const val = row[idx]
+          if (val != null) {
+            const num = parseInt(String(val).trim().split(' ')[0], 10)
+            if (!isNaN(num) && num > 0) prod.meses[month] = num
           }
         }
-        productos.push(prod);
+        productosExcel.push(prod)
       }
 
-      if (productos.length === 0) {
-        throw new Error("No se encontraron productos para importar");
-      }
+      if (productosExcel.length === 0) throw new Error("No se encontraron productos para importar")
 
-      const batchSize = 10;
-      let importedCount = 0;
-      for (let i = 0; i < productos.length; i++) {
-        const prod = productos[i];
+      let importedCount = 0
+      for (let i = 0; i < productosExcel.length; i++) {
+        const prod = productosExcel[i]
         try {
-          const catId = await getOrCreateCategoriaId(prod.categoria_nombre || "SIN CATEGORÍA");
-          const productoId = await ensureProduct(
-            prod.referencia,
-            prod.nombre,
-            catId,
-            prod.unidad_medida || "UNIDAD"
-          );
+          const catId = await getOrCreateCategoriaId(prod.categoria_nombre || "SIN CATEGORÍA")
+          const productoId = await ensureProduct(prod.referencia, prod.nombre, catId, prod.unidad_medida || "UNIDAD")
           for (const [mes, cantidad] of Object.entries(prod.meses)) {
             await upsertSalida({
               producto_id: productoId,
               departamento_id: departamentoId as number,
-              cantidad,
+              cantidad: cantidad as number,
               mes: Number(mes),
               anio: year,
-            });
+            })
           }
-          importedCount++;
-        } catch (err) {
-          // Error ya mostrado en toast superior, solo incrementar contador
           importedCount++
-        }
-
-        if ((i + 1) % batchSize === 0 && i < productos.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 150));
+        } catch { importedCount++ }
+        if ((i + 1) % 10 === 0 && i < productosExcel.length - 1) {
+          await new Promise(r => setTimeout(r, 150))
         }
       }
 
-      toast.success("Importación completada", `Se importaron ${importedCount} productos`);
-      await loadInitialData();
-      await cargarSalidas();
+      toast.success("Importación completada", `Se importaron ${importedCount} productos`)
+      await loadInitialData()
+      cachedDeptYearRef.current = null
+      await cargarSalidas()
     } catch (err: any) {
-      toast.error("Error importando archivo", err.message || String(err));
+      toast.error("Error importando archivo", err.message || String(err))
     } finally {
-      setIsImporting(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
+      setIsImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
     }
-  };
+  }
 
+  // ─── Filtrado y agrupación ────────────────────────────────────────────────
 
-  // Productos filtrados por búsqueda y departamento (departamento no filtra productos, solo las salidas)
   const productosFiltrados = useMemo(() => {
     if (!searchTerm.trim()) return productos
     const term = searchTerm.toLowerCase()
@@ -409,124 +489,22 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     )
   }, [productos, searchTerm])
 
-  // Agrupación por categoría
   const productosPorCategoria = useMemo(() => {
     const mapa = new Map<number, ProductoAlmacen[]>()
     for (const prod of productosFiltrados) {
-      if (!mapa.has(prod.categoria_id)) {
-        mapa.set(prod.categoria_id, [])
-      }
+      if (!mapa.has(prod.categoria_id)) mapa.set(prod.categoria_id, [])
       mapa.get(prod.categoria_id)!.push(prod)
     }
     return mapa
   }, [productosFiltrados])
 
-  // Toggle categoría
   const toggleCategory = (catId: number) => {
     const nuevo = new Set(expandedCategories)
-    if (nuevo.has(catId)) {
-      nuevo.delete(catId)
-    } else {
-      nuevo.add(catId)
-    }
+    if (nuevo.has(catId)) nuevo.delete(catId)
+    else nuevo.add(catId)
     setExpandedCategories(nuevo)
   }
 
-  // Obtener consumo para un producto y mes (usando salidas globales)
-  function getConsumo(productoId: number, mes: number): number {
-    const prodMap = salidasMap.get(productoId)
-    return prodMap?.get(mes) ?? 0
-  }
-
-  // Actualizar consumo de una celda
-  const handleCellChange = useCallback(async (productoId: number, mes: number, valorStr: string) => {
-    if (departamentoId === "") return
-    const valor = Number(valorStr)
-    if (isNaN(valor) || valor < 0) return
-
-    setSavingCell({ productoId, mes })
-
-    try {
-      // Obtener la presentación seleccionada para este producto
-      const presentacionId = presentacionSeleccionada.get(productoId)
-
-      await upsertSalida({
-        producto_id: productoId,
-        departamento_id: Number(departamentoId),
-        presentacion_id: presentacionId !== undefined ? presentacionId : null,
-        cantidad: valor,
-        mes,
-        anio: year,
-      })
-      // Actualizar mapa global de salidas
-      setSalidasMap(prev => {
-        const nuevo = new Map(prev)
-        if (!nuevo.has(productoId)) {
-          nuevo.set(productoId, new Map())
-        }
-        const prodMap = nuevo.get(productoId)!
-        if (valor === 0) {
-          prodMap.delete(mes)
-        } else {
-          prodMap.set(mes, valor)
-        }
-        return nuevo
-      })
-
-      // Actualizar mapa general de salidas (por compatibilidad)
-      setSalidasMap(prev => {
-        const nuevo = new Map(prev)
-        if (!nuevo.has(productoId)) {
-          nuevo.set(productoId, new Map())
-        }
-        const prodMap = nuevo.get(productoId)!
-        if (valor === 0) {
-          prodMap.delete(mes)
-        } else {
-          prodMap.set(mes, valor)
-        }
-        return nuevo
-      })
-
-      // Mantener la caché actualizada (seguimos en el mismo dept/año)
-      if (cachedDeptYearRef.current?.dept === Number(departamentoId) && cachedDeptYearRef.current.year === year) {
-        cachedDeptYearRef.current = { dept: Number(departamentoId), year }
-      }
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    } finally {
-      setSavingCell(null)
-    }
-  }, [departamentoId, year, toast, presentacionSeleccionada])
-
-  async function handleDeleteProduct(producto: ProductoAlmacen) {
-    const ok = await confirm(
-      `¿Eliminar el producto "${producto.referencia}"?`,
-      { confirmLabel: "Eliminar", danger: true, detail: "Se borrarán también todos los registros de salida asociados." }
-    )
-    if (!ok) return
-    try {
-      await deleteProduct(producto.id)
-      setProductos(prev => prev.filter(p => p.id !== producto.id))
-      // También eliminar del mapa de salidas
-      setSalidasMap(prev => {
-        const nuevo = new Map(prev)
-        nuevo.delete(producto.id)
-        return nuevo
-      })
-
-      // Mantener la caché actualizada (seguimos en el mismo dept/año)
-      if (cachedDeptYearRef.current?.dept === Number(departamentoId) && cachedDeptYearRef.current.year === year) {
-        cachedDeptYearRef.current = { dept: Number(departamentoId), year }
-      }
-
-      toast.success("Producto eliminado")
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    }
-  }
-
-  // Calcular totales por mes
   const totalesPorMes = useMemo(() => {
     const totals = new Array(12).fill(0)
     for (const prod of productosFiltrados) {
@@ -535,256 +513,146 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       }
     }
     return totals
-  }, [productosFiltrados])
+  }, [productosFiltrados, salidasMap, presentacionActiva])
 
-  // Calcular máximo consumo para escalado de colores (evita colores muy saturados)
   const maxConsumo = useMemo(() => {
-    return calcularMaximoConsumo(productosFiltrados, getConsumo)
-  }, [productosFiltrados])
+    let max = 0
+    for (const prod of productosFiltrados) {
+      for (let mes = 1; mes <= 12; mes++) {
+        max = Math.max(max, getConsumo(prod.id, mes))
+      }
+    }
+    return max
+  }, [productosFiltrados, salidasMap, presentacionActiva])
 
   if (loading) {
     return <div style={{ padding: "40px", textAlign: "center", color: "#94a3b8" }}>Cargando datos...</div>
   }
 
+  // ─── Render ───────────────────────────────────────────────────────────────
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 64px)" }}>
-      <input
-        type="file"
-        ref={fileInputRef}
-        style={{ display: 'none' }}
-        accept=".xlsx,.xls,.csv"
-        onChange={handleFileSelected}
-      />
+      <input type="file" ref={fileInputRef} style={{ display: "none" }} accept=".xlsx,.xls,.csv" onChange={handleFileSelected} />
 
-      {/* Barra superior de controles — card */}
+      {/* ── Barra de controles ── */}
       <div style={{
-        backgroundColor: "#fff",
-        border: "1px solid #f1f5f9",
-        borderRadius: "16px",
-        padding: "16px 20px",
-        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
-        marginBottom: "16px",
+        backgroundColor: "#fff", border: "1px solid #f1f5f9", borderRadius: "16px",
+        padding: "16px 20px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", marginBottom: "16px",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
-        <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
-          {/* Buscador */}
-          <input
-            type="text"
-            placeholder="🔍 Buscar referencia o nombre..."
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
-            style={{
-              padding: "10px 14px",
-              border: "1.5px solid #e2e8f0",
-              borderRadius: "10px",
-              fontSize: "14px",
-              minWidth: "260px",
-              transition: "border-color 0.15s",
-              backgroundColor: "#fff",
-              outline: "none",
-              color: "#334155",
-            }}
-          />
-          {/* Selector de departamento nativo */}
-          <select
-            value={departamentoId === "" ? "__todos__" : departamentoId}
-            onChange={(e) => {
-              const value = e.target.value;
-              if (value === "__nuevo__") {
-                setShowNewDeptInput(true);
-              } else if (value === "__todos__") {
-                setDepartamentoId("");
-              } else {
-                setDepartamentoId(Number(value));
-              }
-            }}
-            style={{
-              padding: "10px 14px",
-              border: "2px solid #e5e7eb",
-              borderRadius: "10px",
-              backgroundColor: "#fff",
-              minWidth: "260px",
-              fontSize: "14px",
-              cursor: "pointer"
-            }}
-          >
-            <option value="__todos__">Todos los departamentos</option>
-            {departamentos.map(dep => (
-              <option key={dep.id} value={dep.id}>
-                {dep.nombre}
-              </option>
-            ))}
-            <option value="__nuevo__">+ Crear departamento...</option>
-          </select>
+          <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
 
-          {showNewDeptInput && (
-            <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "8px" }}>
-              <input
-                type="text"
-                placeholder="Nombre del departamento..."
-                value={newDeptName}
-                onChange={(e) => setNewDeptName(e.target.value)}
-                style={{
-                  padding: "10px 14px",
-                  border: "1.5px solid #e2e8f0",
-                  borderRadius: "10px",
-                  fontSize: "14px",
-                  flex: 1,
-                }}
-              />
-              <button
-                onClick={async () => {
-                  if (!newDeptName.trim()) return
-                  try {
-                    const deptId = await crearDepartamentoProd(newDeptName.trim())
-                    setDepartamentos([...departamentos, { id: deptId, nombre: newDeptName.trim() }])
-                    setDepartamentoId(deptId)
-                    setShowNewDeptInput(false)
-                    setNewDeptName("")
-                    handleDepartamentoCreado()
-                  } catch (e: any) {
-                    toast.error("Error", e?.message ?? "Error al crear departamento")
-                  }
-                }}
-                style={{
-                  padding: "10px 16px",
-                  border: "none",
-                  borderRadius: "10px",
-                  backgroundColor: "#16a34a",
-                  color: "#fff",
-                  fontSize: "14px",
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                Crear
-              </button>
-            </div>
-          )}
+            {/* Buscador */}
+            <input
+              type="text"
+              placeholder="🔍 Buscar referencia o nombre..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              style={{
+                padding: "10px 14px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
+                fontSize: "14px", minWidth: "260px", backgroundColor: "#fff", outline: "none", color: "#334155",
+              }}
+            />
 
-          {/* Selector año */}
-          <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-            <label style={{ fontSize: "14px", color: "#666" }}>Año:</label>
+            {/* Selector departamento */}
             <select
-              value={year}
-              onChange={e => setYear(Number(e.target.value))}
-              style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "14px" }}
+              value={departamentoId === "" ? "__todos__" : departamentoId}
+              onChange={e => {
+                const v = e.target.value
+                if (v === "__nuevo__") setShowNewDeptInput(true)
+                else if (v === "__todos__") setDepartamentoId("")
+                else setDepartamentoId(Number(v))
+              }}
+              style={{
+                padding: "10px 14px", border: "2px solid #e5e7eb", borderRadius: "10px",
+                backgroundColor: "#fff", minWidth: "260px", fontSize: "14px", cursor: "pointer",
+              }}
             >
-              {availableYears.length > 0 ? (
-                availableYears.map(y => (
-                  <option key={y} value={y}>{y}</option>
-                ))
-              ) : (
-                <option value={year}>{year}</option>
-              )}
+              <option value="__todos__">Todos los departamentos</option>
+              {departamentos.map(dep => <option key={dep.id} value={dep.id}>{dep.nombre}</option>)}
+              <option value="__nuevo__">+ Crear departamento...</option>
             </select>
-          </div>
-        </div>
 
-        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <button
-            onClick={handleImportClick}
-            disabled={isImporting}
-            style={{
-              padding: "10px 16px",
-              border: "1.5px solid #e2e8f0",
-              borderRadius: "10px",
-              backgroundColor: "#fff",
-              fontSize: "13px",
-              fontWeight: 500,
-              cursor: isImporting ? "not-allowed" : "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              color: "#475569",
-              opacity: isImporting ? 0.5 : 1,
-              transition: "all 0.15s",
-            }}
-          >
-            {isImporting ? "Importando..." : "📥 Importar Excel"}
-          </button>
-          <button
-            onClick={() => setShowSalidaModal(true)}
-            style={{
-              padding: "10px 20px",
-              border: "none",
-              borderRadius: "10px",
-              backgroundColor: "#f97316",
-              color: "#fff",
-              fontSize: "13px",
-              fontWeight: 600,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              boxShadow: "0 2px 8px rgba(249,115,22,0.25)",
-              transition: "all 0.15s"
-            }}
-          >
-            + Nueva Salida
-          </button>
-          <button
-            onClick={() => setEditingProductId("nuevo" as any)}
-            style={{
-              padding: "10px 20px",
-              border: "none",
-              borderRadius: "10px",
-              backgroundColor: "#16a34a",
-              color: "#fff",
-              fontSize: "13px",
-              fontWeight: 600,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              boxShadow: "0 2px 8px rgba(249,115,22,0.25)",
-              transition: "all 0.15s",
-              marginLeft: "auto",
-            }}
-          >
-            + nuevo producto
-          </button>
-        </div>
+            {showNewDeptInput && (
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <input
+                  type="text"
+                  placeholder="Nombre del departamento..."
+                  value={newDeptName}
+                  onChange={e => setNewDeptName(e.target.value)}
+                  style={{ padding: "10px 14px", border: "1.5px solid #e2e8f0", borderRadius: "10px", fontSize: "14px" }}
+                />
+                <button
+                  onClick={async () => {
+                    if (!newDeptName.trim()) return
+                    try {
+                      const deptId = await crearDepartamentoProd(newDeptName.trim())
+                      setDepartamentos([...departamentos, { id: deptId, nombre: newDeptName.trim() }])
+                      setDepartamentoId(deptId)
+                      setShowNewDeptInput(false)
+                      setNewDeptName("")
+                      if (onDepartamentoCreado) onDepartamentoCreado()
+                    } catch (e: any) {
+                      toast.error("Error", e?.message ?? "Error al crear departamento")
+                    }
+                  }}
+                  style={{ padding: "10px 16px", border: "none", borderRadius: "10px", backgroundColor: "#16a34a", color: "#fff", fontSize: "14px", fontWeight: 600, cursor: "pointer" }}
+                >Crear</button>
+              </div>
+            )}
+
+            {/* Selector año */}
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <label style={{ fontSize: "14px", color: "#666" }}>Año:</label>
+              <select
+                value={year}
+                onChange={e => setYear(Number(e.target.value))}
+                style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "14px" }}
+              >
+                {availableYears.length > 0
+                  ? availableYears.map(y => <option key={y} value={y}>{y}</option>)
+                  : <option value={year}>{year}</option>}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <button
+              onClick={handleImportClick}
+              disabled={isImporting}
+              style={{ padding: "10px 16px", border: "1.5px solid #e2e8f0", borderRadius: "10px", backgroundColor: "#fff", fontSize: "13px", fontWeight: 500, cursor: isImporting ? "not-allowed" : "pointer", color: "#475569", opacity: isImporting ? 0.5 : 1 }}
+            >{isImporting ? "Importando..." : "📥 Importar Excel"}</button>
+
+            <button
+              onClick={() => setShowSalidaModal(true)}
+              style={{ padding: "10px 20px", border: "none", borderRadius: "10px", backgroundColor: "#f97316", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+            >+ Nueva Salida</button>
+
+            <button
+              onClick={() => setShowNewUnitModal(true)}
+              style={{ padding: "10px 16px", border: "1.5px solid #6366f1", borderRadius: "10px", backgroundColor: "#fff", color: "#6366f1", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+              title="Gestionar tipos de unidad disponibles"
+            >📦 Nueva unidad</button>
+
+            <button
+              onClick={() => setEditingProductId("nuevo" as any)}
+              style={{ padding: "10px 20px", border: "none", borderRadius: "10px", backgroundColor: "#16a34a", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+            >+ Nuevo producto</button>
+          </div>
         </div>
       </div>
 
-      {/* Tabla */}
+      {/* ── Tabla / Placeholder ── */}
       {departamentoId === "" ? (
-        <div style={{
-          padding: "60px",
-          textAlign: "center",
-          color: "#6b7280",
-          backgroundColor: "#fff",
-          border: "2px dashed #e5e7eb",
-          borderRadius: "16px",
-          flex: 1,
-        }}>
-          <div style={{ fontSize: "18px", fontWeight: 600, marginBottom: "12px" }}>
-            📊 Selecciona un departamento
-          </div>
-          <div style={{ fontSize: "14px" }}>
-            Elige un departamento del menú desplegable para ver y editar los consumos mensuales.
-          </div>
+        <div style={{ padding: "60px", textAlign: "center", color: "#6b7280", backgroundColor: "#fff", border: "2px dashed #e5e7eb", borderRadius: "16px", flex: 1 }}>
+          <div style={{ fontSize: "18px", fontWeight: 600, marginBottom: "12px" }}>📊 Selecciona un departamento</div>
+          <div style={{ fontSize: "14px" }}>Elige un departamento del menú desplegable para ver y editar los consumos mensuales.</div>
         </div>
       ) : (
-        <div style={{
-          backgroundColor: "#fff",
-          border: "2px solid #e5e7eb",
-          borderRadius: "16px",
-          boxShadow: "0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)",
-          overflowY: "auto",
-          flex: 1,
-          minHeight: 0,
-        }}>
-          {/* Contenedor horizontal con scrollbar arriba (rotateX trick) */}
-          <div style={{
-            overflowX: "auto",
-            overflowY: "visible",
-            transform: "rotateX(180deg)",
-          }}>
-          {/* Contra-rotación para que el contenido se vea normal */}
+        <div style={{ backgroundColor: "#fff", border: "2px solid #e5e7eb", borderRadius: "16px", boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)", overflowY: "auto", flex: 1, minHeight: 0 }}>
+          <div style={{ overflowX: "auto", overflowY: "visible", transform: "rotateX(180deg)" }}>
           <div style={{ transform: "rotateX(180deg)" }}>
-
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "13px", whiteSpace: "nowrap" }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr>
@@ -792,7 +660,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                 <th style={{ ...thStyle, position: "sticky", left: "110px", zIndex: 2, minWidth: "220px", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)" }}>Nombre</th>
                 <th style={{ ...thStyle, minWidth: "100px" }}>Precio (€)</th>
                 <th style={{ ...thStyle, minWidth: "120px" }}>Categoría</th>
-                <th style={{ ...thStyle, minWidth: "80px" }}>Unidad</th>
+                <th style={{ ...thStyle, minWidth: "140px" }}>Presentación</th>
                 {MESES.map((mes, i) => (
                   <th key={i} style={{ ...thStyle, minWidth: "70px", textAlign: "center" }}>{mes}</th>
                 ))}
@@ -810,148 +678,118 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                   <Fragment key={cat.id}>
                     {/* Fila de categoría */}
                     <tr
-                      style={{
-                        backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc",
-                        cursor: "pointer",
-                        borderBottom: "1px solid #f1f5f9",
-                        transition: "background-color 0.15s"
-                      }}
+                      style={{ backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}
                       onClick={() => toggleCategory(cat.id)}
                       onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eff6ff" }}
                       onMouseLeave={e => { e.currentTarget.style.backgroundColor = isExpanded ? "#eff6ff" : "#f8fafc" }}
                     >
-                      <td colSpan={TOTAL_COLS} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", verticalAlign: "middle", position: "sticky", left: 0, backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", zIndex: 1 }}>
+                      <td colSpan={TOTAL_COLS} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", position: "sticky", left: 0, backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", zIndex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <span style={{
-                            fontSize: "12px",
-                            transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)",
-                            transition: "transform 0.2s",
-                            color: "#3b82f6"
-                          }}>▶</span>
+                          <span style={{ fontSize: "12px", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", color: "#3b82f6" }}>▶</span>
                           <span style={{ fontSize: "13px" }}>{cat.nombre}</span>
-                          <span style={{
-                            fontSize: "10px",
-                            padding: "2px 8px",
-                            borderRadius: "10px",
-                            backgroundColor: isExpanded ? "#dbeafe" : "#e2e8f0",
-                            color: isExpanded ? "#2563eb" : "#64748b",
-                            fontWeight: 600
-                          }}>{prodsEnCat.length}</span>
+                          <span style={{ fontSize: "10px", padding: "2px 8px", borderRadius: "10px", backgroundColor: isExpanded ? "#dbeafe" : "#e2e8f0", color: isExpanded ? "#2563eb" : "#64748b", fontWeight: 600 }}>{prodsEnCat.length}</span>
                         </div>
                       </td>
                     </tr>
 
-                    {/* Filas de productos (solo si expandida) */}
+                    {/* Filas de productos */}
                     {isExpanded && prodsEnCat.map(prod => {
                       const totalProd = MESES.reduce((sum, _, idx) => sum + getConsumo(prod.id, idx + 1), 0)
+                      const presActiva = getPresActiva(prod.id)
+                      const listaPresProducto = presentacionesPorProducto.get(prod.id) ?? []
+
                       return (
                         <tr
                           key={prod.id}
-                          style={{
-                            borderBottom: "1px solid #f1f5f9",
-                            backgroundColor: prod.activo === false ? "#fafafa" : "#fff",
-                            transition: "background-color 0.15s"
-                          }}
+                          style={{ borderBottom: "1px solid #f1f5f9", backgroundColor: prod.activo === false ? "#fafafa" : "#fff" }}
                           onMouseEnter={e => { if (prod.activo !== false) e.currentTarget.style.backgroundColor = "#f8fafc" }}
                           onMouseLeave={e => { if (prod.activo !== false) e.currentTarget.style.backgroundColor = "#fff" }}
                         >
+                          {/* Referencia */}
                           <td style={{ ...tdStyle, position: "sticky", left: 0, zIndex: 3, backgroundColor: "#fff", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.12)" }}>
                             <div style={{ fontWeight: 700, color: prod.activo === false ? "#9ca3af" : "#1d4ed8", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
                               {prod.referencia}
                               {prod.activo === false && (
-                                <span style={{
-                                  fontSize: "10px",
-                                  padding: "2px 6px",
-                                  borderRadius: "4px",
-                                  backgroundColor: "#f3f4f6",
-                                  color: "#6b7280",
-                                  fontWeight: 500,
-                                  border: "1px solid #e5e7eb"
-                                }}>INACTIVO</span>
+                                <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>INACTIVO</span>
                               )}
                             </div>
                           </td>
+
+                          {/* Nombre */}
                           <td style={{ ...tdStyle, position: "sticky", left: "110px", zIndex: 2, backgroundColor: "#fff", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.08)" }}>
-                            <div style={{
-                              fontSize: "13px",
-                              color: prod.activo === false ? "#9ca3af" : "#1f2937",
-                              fontWeight: prod.activo === false ? 400 : 500
-                            }}>
+                            <div style={{ fontSize: "13px", color: prod.activo === false ? "#9ca3af" : "#1f2937", fontWeight: prod.activo === false ? 400 : 500 }}>
                               {prod.nombre}
                             </div>
                           </td>
-                          <td style={{ ...tdStyle, textAlign: "right", fontSize: "13px", color: "#666" }}>
-                            {/* Precio de la presentación seleccionada */}
-                            {(() => {
-                              const presId = presentacionSeleccionada.get(prod.id);
-                              if (!presId) return "-";
 
-                              const pres = presentacionesPorProducto.get(prod.id)?.find(p => p.id === presId);
-                              if (!pres) return "-";
-
-                              return pres.precio !== null
-                                ? pres.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €"
-                                : "-";
-                            })()}
+                          {/* Precio de la presentación activa */}
+                          <td style={{ ...tdStyle, textAlign: "right", fontSize: "13px" }}>
+                            {presActiva?.precio != null
+                              ? <span style={{ fontWeight: 600, color: "#059669" }}>
+                                  {presActiva.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                                </span>
+                              : <span style={{ color: "#9ca3af" }}>—</span>}
                           </td>
-                          <td style={{ ...tdStyle }}>
-                            {(() => {
-                              // Mostrar el nombre de la categoría del producto
-                              return prod.categoria_nombre || "-";
-                            })()}
-                          </td>
-                          <td style={{ ...tdStyle }}>
-                            {/* Selector de unidad de presentación */}
-                            {(() => {
-                              const presId = presentacionSeleccionada.get(prod.id);
-                              const presList = unidadesPresentacion;
 
-                              if (presList.length === 0) {
-                                return "-";
-                              }
+                          {/* Categoría */}
+                          <td style={{ ...tdStyle }}>{prod.categoria_nombre || "—"}</td>
 
-                              return (
-                                <select
-                                  value={presId !== undefined ? presId : presList[0]?.id || ""}
-                                  onChange={(e) => {
-                                    const value = Number(e.target.value);
-                                    if (value === -2) {
-                                      // Valor -2 es "Añadir tipo..." - abrir modal
-                                      setEditingProductForUnit(prod.id);
-                                      setShowAddUnitModal(true);
-                                      return;
-                                    }
-                                    // Guardar selección
-                                    const nuevaSeleccion = new Map(presentacionSeleccionada);
-                                    nuevaSeleccion.set(prod.id, value);
-                                    setPresentacionSeleccionada(nuevaSeleccion);
-                                  }}
-                                  style={{
-                                    padding: "4px 6px",
-                                    border: "1px solid #d1d5db",
-                                    borderRadius: "4px",
-                                    backgroundColor: "#fff",
-                                    fontSize: "12px",
-                                    minWidth: "80px"
-                                  }}
-                                >
-                                  <option value="">Seleccionar unidad...</option>
-                                  {presList.map(pres => (
-                                    <option key={pres.id} value={pres.id}>
-                                      {pres.nombre}{preciosPorProductoUnidad.get(prod.id)?.get(pres.id) !== undefined ? ` — ${preciosPorProductoUnidad.get(prod.id)?.get(pres.id)?.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : ""}
-                                    </option>
-                                  ))}
-                                  <option value="-2">Añadir tipo...</option>
-                                </select>
-                              );
-                            })()}
+                          {/* Selector de presentación */}
+                          <td style={{ ...tdStyle, minWidth: "160px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                              {listaPresProducto.length === 0 ? (
+                                <button
+                                  onClick={() => abrirModalPresentacion(prod.id)}
+                                  style={{ fontSize: "11px", padding: "3px 8px", border: "1px dashed #6366f1", borderRadius: "4px", backgroundColor: "#ede9fe", color: "#6366f1", cursor: "pointer" }}
+                                >+ Añadir presentación</button>
+                              ) : (
+                                <>
+                                  <select
+                                    value={presentacionActiva.get(prod.id) ?? ""}
+                                    onChange={e => {
+                                      const v = Number(e.target.value)
+                                      setPresentacionActiva(prev => { const n = new Map(prev); n.set(prod.id, v); return n })
+                                    }}
+                                    style={{ padding: "3px 6px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "12px", minWidth: "90px", maxWidth: "110px" }}
+                                  >
+                                    {listaPresProducto.map(p => (
+                                      <option key={p.id} value={p.id}>
+                                        {p.nombre}{p.precio != null ? ` (${p.precio.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €)` : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {/* Botón editar/añadir presentación */}
+                                  <button
+                                    onClick={() => abrirModalPresentacion(prod.id)}
+                                    title="Añadir o editar presentación"
+                                    style={{ fontSize: "13px", padding: "2px 5px", border: "1px solid #e5e7eb", borderRadius: "4px", backgroundColor: "#fff", cursor: "pointer", color: "#6366f1" }}
+                                  >＋</button>
+                                  {/* Botón eliminar presentación activa */}
+                                  {presActiva && (
+                                    <button
+                                      onClick={() => handleEliminarPresentacion(prod.id, presActiva)}
+                                      title="Eliminar presentación seleccionada"
+                                      style={{ fontSize: "13px", padding: "2px 5px", border: "1px solid #fca5a5", borderRadius: "4px", backgroundColor: "#fff", cursor: "pointer", color: "#dc2626" }}
+                                    >✕</button>
+                                  )}
+                                </>
+                              )}
+                            </div>
                           </td>
+
+                          {/* Celdas de meses */}
                           {MESES.map((_, idx) => {
                             const mes = idx + 1
+                            const presId = presentacionActiva.get(prod.id) ?? null
+                            const clave = claveSalida(prod.id, presId)
                             const valor = getConsumo(prod.id, mes)
-                            const isSaving = savingCell?.productoId === prod.id && savingCell?.mes === mes
-                            const bgColor = getConsumoColor(valor, maxConsumo)
+                            const isSaving = savingCell?.clave === clave && savingCell?.mes === mes
+                            const bgColor = listaPresProducto.length === 0
+                              ? "#fafafa"
+                              : getConsumoColor(valor, maxConsumo)
                             const textColor = getConsumoTextColor(valor)
+                            const sinPresentacion = listaPresProducto.length === 0
+
                             return (
                               <td key={mes} style={{ padding: "4px", textAlign: "center", backgroundColor: bgColor }}>
                                 <input
@@ -959,25 +797,21 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                                   min="0"
                                   value={valor}
                                   onChange={e => handleCellChange(prod.id, mes, e.target.value)}
-                                  disabled={isSaving}
+                                  disabled={isSaving || sinPresentacion}
+                                  title={sinPresentacion ? "Añade una presentación primero" : undefined}
                                   style={{
-                                    width: "60px",
-                                    padding: "4px",
-                                    border: "1px solid #d1d5db",
-                                    borderRadius: "4px",
-                                    textAlign: "center",
-                                    fontSize: "12px",
-                                    backgroundColor: isSaving ? "#f5f5f5" : "rgba(255,255,255,0.92)",
-                                    color: textColor,
+                                    width: "60px", padding: "4px", border: "1px solid #d1d5db", borderRadius: "4px",
+                                    textAlign: "center", fontSize: "12px",
+                                    backgroundColor: (isSaving || sinPresentacion) ? "#f5f5f5" : "rgba(255,255,255,0.92)",
+                                    color: sinPresentacion ? "#d1d5db" : textColor,
                                     fontWeight: valor > 0 ? 600 : 400,
-                                    cursor: "pointer",
-                                    transition: "all 0.15s",
+                                    cursor: sinPresentacion ? "not-allowed" : "pointer",
                                     outline: "none",
                                     boxShadow: valor > 0 ? "0 0 0 1px rgba(34,197,94,0.25)" : "none",
                                     borderColor: valor > 0 ? "#93c5fd" : "#d1d5db",
                                   }}
                                   onMouseEnter={e => {
-                                    if (!isSaving) {
+                                    if (!isSaving && !sinPresentacion) {
                                       e.currentTarget.style.borderColor = "#3b82f6"
                                       e.currentTarget.style.boxShadow = `0 0 0 2px ${valor > 0 ? "rgba(59,130,246,0.2)" : "rgba(59,130,246,0.12)"}`
                                     }
@@ -990,30 +824,23 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                               </td>
                             )
                           })}
-                          <td style={{
-                            ...tdStyle,
-                            textAlign: "right",
-                            fontWeight: 700,
-                            fontSize: "13px",
-                            color: "#059669",
-                            backgroundColor: totalProd > 0 ? "#ecfdf5" : "transparent"
-                          }}>
+
+                          {/* Total */}
+                          <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, fontSize: "13px", color: "#059669", backgroundColor: totalProd > 0 ? "#ecfdf5" : "transparent" }}>
                             {totalProd.toLocaleString()}
                           </td>
+
+                          {/* Acciones */}
                           <td style={{ ...tdStyle, position: "sticky", right: 0, zIndex: 3, backgroundColor: "#fff", boxShadow: "-2px 0 4px -2px rgba(0,0,0,0.12)" }}>
                             <div style={{ display: "flex", gap: "6px", justifyContent: "center" }}>
                               <button
                                 onClick={() => setEditingProductId(prod.id)}
                                 style={{ padding: "4px 10px", border: "1px solid #e5e7eb", borderRadius: "6px", backgroundColor: "#fff", fontSize: "12px", cursor: "pointer", color: "#444" }}
-                              >
-                                Editar
-                              </button>
+                              >Editar</button>
                               <button
                                 onClick={() => handleDeleteProduct(prod)}
                                 style={{ padding: "4px 10px", border: "1px solid #fca5a5", borderRadius: "6px", backgroundColor: "#fff", fontSize: "12px", cursor: "pointer", color: "#dc2626" }}
-                              >
-                                Eliminar
-                              </button>
+                              >Eliminar</button>
                             </div>
                           </td>
                         </tr>
@@ -1028,9 +855,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                 <tr style={{ backgroundColor: "#111827", fontWeight: 700 }}>
                   <td colSpan={5} style={{ padding: "14px", textAlign: "right", color: "#f9fafb", fontSize: "13px" }}>TOTALES</td>
                   {totalesPorMes.map((total, i) => (
-                    <td key={i} style={{ padding: "14px", textAlign: "center", color: "#fbbf24", fontSize: "14px" }}>
-                      {total.toLocaleString()}
-                    </td>
+                    <td key={i} style={{ padding: "14px", textAlign: "center", color: "#fbbf24", fontSize: "14px" }}>{total.toLocaleString()}</td>
                   ))}
                   <td style={{ padding: "14px", textAlign: "right", color: "#fbbf24", fontSize: "14px" }}>
                     {totalesPorMes.reduce((a, b) => a + b, 0).toLocaleString()}
@@ -1039,21 +864,11 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                 </tr>
               )}
 
-              {/* Mensaje si no hay productos */}
               {productosFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={TOTAL_COLS} style={{
-                    padding: "60px",
-                    textAlign: "center",
-                    color: "#6b7280",
-                    backgroundColor: "#fafafa"
-                  }}>
-                    <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "8px" }}>
-                      No se encontraron productos
-                    </div>
-                    <div style={{ fontSize: "13px" }}>
-                      {searchTerm ? "Intenta con otro término de búsqueda" : "Agrega productos usando el botón '+ Nuevo producto'"}
-                    </div>
+                  <td colSpan={TOTAL_COLS} style={{ padding: "60px", textAlign: "center", color: "#6b7280", backgroundColor: "#fafafa" }}>
+                    <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "8px" }}>No se encontraron productos</div>
+                    <div style={{ fontSize: "13px" }}>{searchTerm ? "Intenta con otro término de búsqueda" : "Agrega productos usando el botón '+ Nuevo producto'"}</div>
                   </td>
                 </tr>
               )}
@@ -1063,15 +878,17 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           </div>
         </div>
       )}
+
       {dialog}
 
-      {/* Modales */}
+      {/* ── Modal: Editar producto ── */}
       {editingProductId !== null && (
         <ModalProducto
-          producto={editingProductId === "nuevo" ? null : productos.find(p => p.id === editingProductId) || null}
+          producto={editingProductId === ("nuevo" as any) ? null : productos.find(p => p.id === editingProductId) || null}
           onClose={() => setEditingProductId(null)}
           onSaved={async () => {
             await loadInitialData()
+            cachedDeptYearRef.current = null
             await cargarSalidas()
             setEditingProductId(null)
           }}
@@ -1079,126 +896,161 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         />
       )}
 
+      {/* ── Modal: Nueva salida ── */}
       {showSalidaModal && (
         <ModalSalida
           onClose={async () => {
             setShowSalidaModal(false)
             await loadInitialData()
+            cachedDeptYearRef.current = null
             await cargarSalidas()
           }}
         />
       )}
 
-      {/* Modal para añadir nueva unidad de presentación */}
-      {showAddUnitModal && editingProductForUnit !== null && (
-        <div onClick={() => setShowAddUnitModal(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300 }}>
-          <div style={{
-            position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-            backgroundColor: "#fff", borderRadius: "12px", width: "360px",
-            maxWidth: "calc(100vw - 32px)", boxShadow: "0 20px 48px rgba(0,0,0,0.15)",
-            zIndex: 301, overflow: "hidden"
-          }}>
-            <div style={{ height: "4px", backgroundColor: "#16a34a" }} />
+      {/* ── Modal: Añadir/editar presentación a producto ── */}
+      {showPresModal && presModalProductoId !== null && (() => {
+        const prod = productos.find(p => p.id === presModalProductoId)
+        const listaExistente = presentacionesPorProducto.get(presModalProductoId) ?? []
+        const unidadesDisponibles = unidadesPresentacion.filter(
+          u => !listaExistente.some(e => e.unidad_id === u.id)
+        )
+        return (
+          <div onClick={() => setShowPresModal(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div onClick={e => e.stopPropagation()} style={{ backgroundColor: "#fff", borderRadius: "14px", width: "400px", maxWidth: "calc(100vw - 32px)", boxShadow: "0 20px 48px rgba(0,0,0,0.15)", overflow: "hidden" }}>
+              <div style={{ height: "4px", backgroundColor: "#6366f1" }} />
+              <div style={{ padding: "24px" }}>
+                <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "0 0 6px" }}>Añadir presentación</h2>
+                <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 20px" }}>
+                  {prod?.referencia} — {prod?.nombre}
+                </p>
+
+                {/* Presentaciones existentes */}
+                {listaExistente.length > 0 && (
+                  <div style={{ marginBottom: "20px" }}>
+                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>
+                      Presentaciones configuradas
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                      {listaExistente.map(p => (
+                        <div key={p.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", backgroundColor: "#f8fafc", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
+                          <span style={{ fontSize: "13px", fontWeight: 500 }}>{p.nombre}</span>
+                          <span style={{ fontSize: "13px", color: "#059669", fontWeight: 600 }}>
+                            {p.precio != null ? `${p.precio.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €` : "sin precio"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Selector unidad */}
+                <div style={{ marginBottom: "14px" }}>
+                  <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Tipo de unidad</label>
+                  {unidadesDisponibles.length === 0 ? (
+                    <div style={{ fontSize: "13px", color: "#64748b", padding: "10px", backgroundColor: "#f1f5f9", borderRadius: "6px" }}>
+                      Todas las unidades ya están asignadas a este producto.{" "}
+                      <span
+                        onClick={() => { setShowPresModal(false); setShowNewUnitModal(true) }}
+                        style={{ color: "#6366f1", cursor: "pointer", fontWeight: 600 }}
+                      >Crear nueva unidad →</span>
+                    </div>
+                  ) : (
+                    <select
+                      value={presModalUnidadId}
+                      onChange={e => setPresModalUnidadId(Number(e.target.value) as any)}
+                      style={{ width: "100%", padding: "10px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "14px" }}
+                    >
+                      <option value="">Seleccionar...</option>
+                      {unidadesDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
+                    </select>
+                  )}
+                </div>
+
+                {/* Precio */}
+                <div style={{ marginBottom: "20px" }}>
+                  <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Precio (€) — opcional</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={presModalPrecio}
+                    onChange={e => setPresModalPrecio(e.target.value)}
+                    placeholder="Ej: 12,50"
+                    style={{ width: "100%", padding: "10px 14px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "14px", boxSizing: "border-box" }}
+                  />
+                </div>
+
+                <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+                  <button
+                    onClick={() => setShowPresModal(false)}
+                    style={{ padding: "8px 16px", borderRadius: "6px", border: "1px solid #d1d5db", backgroundColor: "#fff", color: "#666", cursor: "pointer" }}
+                  >Cancelar</button>
+                  <button
+                    onClick={handleGuardarPresentacion}
+                    disabled={presModalUnidadId === ""}
+                    style={{ padding: "8px 20px", borderRadius: "6px", border: "none", backgroundColor: presModalUnidadId === "" ? "#a5b4fc" : "#6366f1", color: "#fff", fontWeight: 600, cursor: presModalUnidadId === "" ? "not-allowed" : "pointer" }}
+                  >Guardar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* ── Modal: Nueva unidad global ── */}
+      {showNewUnitModal && (
+        <div onClick={() => setShowNewUnitModal(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={e => e.stopPropagation()} style={{ backgroundColor: "#fff", borderRadius: "14px", width: "360px", maxWidth: "calc(100vw - 32px)", boxShadow: "0 20px 48px rgba(0,0,0,0.15)", overflow: "hidden" }}>
+            <div style={{ height: "4px", backgroundColor: "#6366f1" }} />
             <div style={{ padding: "24px" }}>
-              <h2 style={{ fontSize: "16px", fontWeight: 700, margin: "0 0 20px" }}>
-                Añadir nueva unidad de presentación
-              </h2>
+              <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "0 0 6px" }}>Nueva unidad de presentación</h2>
+              <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 20px" }}>
+                Esta unidad estará disponible para asignar a cualquier producto (p.ej. Litro, Garrafa 5L, Spray, Pastilla…)
+              </p>
               <div style={{ marginBottom: "20px" }}>
-                <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>
-                  Nombre de la unidad
-                </label>
+                <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Nombre</label>
                 <input
                   type="text"
                   value={newUnitName}
-                  onChange={(e) => setNewUnitName(e.target.value)}
-                  style={{
-                    padding: "10px 14px",
-                    border: "1.5px solid #e2e8f0",
-                    borderRadius: "8px",
-                    fontSize: "14px",
-                    width: "100%",
-                    boxSizing: "border-box"
-                  }}
-                  placeholder="Ej: Kilogramo, Litro, Docena"
+                  onChange={e => setNewUnitName(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") handleCrearUnidadGlobal() }}
+                  placeholder="Ej: Garrafa 5L"
+                  style={{ width: "100%", padding: "10px 14px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "14px", boxSizing: "border-box" }}
                 />
               </div>
+              {/* Lista de unidades ya existentes */}
+              {unidadesPresentacion.length > 0 && (
+                <div style={{ marginBottom: "16px" }}>
+                  <div style={{ fontSize: "11px", fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>
+                    Unidades existentes
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                    {unidadesPresentacion.map(u => (
+                      <span key={u.id} style={{ fontSize: "12px", padding: "3px 8px", borderRadius: "20px", backgroundColor: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0" }}>
+                        {u.nombre}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+                <button onClick={() => { setShowNewUnitModal(false); setNewUnitName("") }} style={{ padding: "8px 16px", borderRadius: "6px", border: "1px solid #d1d5db", backgroundColor: "#fff", color: "#666", cursor: "pointer" }}>Cancelar</button>
                 <button
-                  onClick={() => {
-                    setShowAddUnitModal(false)
-                    setNewUnitName("")
-                    setEditingProductForUnit(null)
-                  }}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: "6px",
-                    border: "1px solid #d1d5db",
-                    backgroundColor: "#fff",
-                    color: "#666"
-                  }}
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={async () => {
-                    if (!newUnitName.trim()) return;
-
-                    try {
-                      // Crear la nueva unidad de presentación
-                      const db = await import("./productosService").then(mod => mod.getDbWithRetry());
-                      const result = await db.execute(
-                        "INSERT INTO unidades_presentacion (nombre) VALUES (?)",
-                        [newUnitName.trim()]
-                      );
-
-                      if (result.lastInsertId === undefined) {
-                        throw new Error("No se pudo crear la unidad");
-                      }
-
-                      const newUnitId = result.lastInsertId;
-
-                      // Obtener presentaciones actuales del producto
-                      const presentaciones = await getPresentacionesDeProducto(editingProductForUnit);
-
-                      // Añadir la nueva presentación para este producto
-                      await upsertPresentacion(editingProductForUnit, newUnitId, null);
-
-                      // Seleccionar la nueva presentación para este producto
-                      const nuevaSeleccion = new Map(presentacionSeleccionada);
-                      nuevaSeleccion.set(editingProductForUnit, newUnitId);
-                      setPresentacionSeleccionada(nuevaSeleccion);
-
-                      // Cerrar modal
-                      setShowAddUnitModal(false);
-                      setNewUnitName("");
-                      setEditingProductForUnit(null);
-
-                    } catch (e: any) {
-                      toast.error("Error", e?.message ?? String(e))
-                    }
-                  }}
-                  style={{
-                    padding: "8px 16px",
-                    borderRadius: "6px",
-                    border: "none",
-                    backgroundColor: "#16a34a",
-                    color: "#fff",
-                    fontWeight: 600
-                  }}
-                >
-                  Añadir
-                </button>
+                  onClick={handleCrearUnidadGlobal}
+                  disabled={!newUnitName.trim()}
+                  style={{ padding: "8px 20px", borderRadius: "6px", border: "none", backgroundColor: newUnitName.trim() ? "#6366f1" : "#a5b4fc", color: "#fff", fontWeight: 600, cursor: newUnitName.trim() ? "pointer" : "not-allowed" }}
+                >Crear</button>
               </div>
             </div>
           </div>
         </div>
       )}
-
     </div>
   )
 }
 
-// Estilos reutilizables mejorados
+// ─── Estilos reutilizables ────────────────────────────────────────────────────
+
 const thStyle: React.CSSProperties = {
   padding: "12px 16px",
   textAlign: "left",
