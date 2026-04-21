@@ -900,16 +900,24 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       )}
 
       {/* ── Modal: Nueva salida ── */}
-      {showSalidaModal && (
-        <ModalSalida
-          onClose={async () => {
-            setShowSalidaModal(false)
-            await loadInitialData()
-            cachedDeptYearRef.current = null
-            await cargarSalidas()
-          }}
-        />
-      )}
+{showSalidaModal && (
+  <ModalSalida
+    onClose={() => setShowSalidaModal(false)}
+    onSaved={({ productoId, presentacionId, cantidad, mes, anio: anioGuardado }) => {
+      if (anioGuardado !== year) return
+      const clave = claveSalida(productoId, presentacionId, presentacionId)
+      setSalidasMap(prev => {
+        const nuevo = new Map(prev)
+        if (!nuevo.has(clave)) nuevo.set(clave, new Map())
+        const mesMap = nuevo.get(clave)!
+        if (cantidad === 0) mesMap.delete(mes)
+        else mesMap.set(mes, cantidad)
+        return nuevo
+      })
+      cachedDeptYearRef.current = { dept: Number(departamentoId), year }
+    }}
+  />
+)}
 
       {/* ── Modal: Añadir/editar presentación a producto ── */}
       {showPresModal && presModalProductoId !== null && (() => {

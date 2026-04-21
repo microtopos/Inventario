@@ -581,7 +581,11 @@ export async function getSalidasByYear(
   const resultado = new Map<string, Map<number, number>>();
 
   for (const row of rows) {
-    const clave = `${row.producto_id}_${row.presentacion_id ?? "null"}`;
+    const clave = claveSalida(
+      row.producto_id,
+      row.presentacion_id,
+      row.tipo_unidad != null ? String(row.tipo_unidad) : null
+    );
     if (!resultado.has(clave)) {
       resultado.set(clave, new Map());
     }
