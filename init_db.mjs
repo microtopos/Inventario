@@ -135,11 +135,10 @@ async function initDatabase() {
           departamento_id INTEGER NOT NULL REFERENCES departamentos_prod(id),
           cantidad        INTEGER NOT NULL DEFAULT 0,
           mes             INTEGER NOT NULL CHECK(mes BETWEEN 1 AND 12),
-          anio            INTEGER NOT NULL
+          anio            INTEGER NOT NULL,
+          tipo_unidad     TEXT DEFAULT NULL,
+          UNIQUE(producto_id, departamento_id, tipo_unidad, mes, anio)
       );
-
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_salidas_unica
-          ON salidas_productos(producto_id, departamento_id, mes, anio);
     `);
 
     console.log('   ✅ Tablas de productos de limpieza creadas');
@@ -173,7 +172,7 @@ async function initDatabase() {
     console.log('\n✅ Listo.');
     process.exit(0);
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('❌ Error durante la inicialización:', error.message);
     process.exit(1);
   }

@@ -3,10 +3,12 @@ import { useToast } from "./Toast"
 import {
   getProductos,
   getDepartamentosProd,
+  getUnidadesPresentacion,
   upsertSalida,
   crearDepartamentoProd,
   type ProductoAlmacen,
   type DepartamentoProd,
+  type UnidadPresentacion,
 } from "./productosService"
 
 const inputStyle: React.CSSProperties = {
@@ -40,10 +42,12 @@ export function ModalSalida({ onClose }: { onClose: () => void }) {
   const toast = useToast()
   const [productos, setProductos] = useState<ProductoAlmacen[]>([])
   const [departamentos, setDepartamentos] = useState<DepartamentoProd[]>([])
+  const [unidadesPresentacion, setUnidadesPresentacion] = useState<UnidadPresentacion[]>([])
   const [loadingData, setLoadingData] = useState(true)
   const [saving, setSaving] = useState(false)
   const [productoId, setProductoId] = useState<number>(0)
   const [departamentoId, setDepartamentoId] = useState<number>(0)
+  const [unidadTipoId, setUnidadTipoId] = useState<number | "">("")
   const [cantidad, setCantidad] = useState<string>("")
   const [mes, setMes] = useState<number>(new Date().getMonth() + 1)
   const [anio, setAnio] = useState<number>(new Date().getFullYear())
@@ -57,12 +61,14 @@ export function ModalSalida({ onClose }: { onClose: () => void }) {
   async function loadInitialData() {
     setLoadingData(true)
     try {
-      const [prods, depts] = await Promise.all([
+      const [prods, depts, unidades] = await Promise.all([
         getProductos(true),
         getDepartamentosProd(),
+        getUnidadesPresentacion(),
       ])
       setProductos(prods)
       setDepartamentos(depts)
+      setUnidadesPresentacion(unidades)
       if (prods.length > 0) setProductoId(prods[0].id)
       if (depts.length > 0) setDepartamentoId(depts[0].id)
     } catch (e: any) {
@@ -74,7 +80,7 @@ export function ModalSalida({ onClose }: { onClose: () => void }) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!productoId || !departamentoId || !cantidad || isNaN(Number(cantidad)) || Number(cantidad) <= 0) {
+    if (!productoId || !departamentoId || !unidadTipoId || !cantidad || isNaN(Number(cantidad)) || Number(cantidad) <= 0) {
       toast.error("Error", "Complete todos los campos con valores válidos")
       return
     }
@@ -83,9 +89,11 @@ export function ModalSalida({ onClose }: { onClose: () => void }) {
       await upsertSalida({
         producto_id: productoId,
         departamento_id: departamentoId,
+        presentacion_id: null,                              // este modal no gestiona presentaciones de producto
         cantidad: Number(cantidad),
         mes,
         anio,
+        tipo_unidad: unidadTipoId !== "" ? String(unidadTipoId) : null,  // TEXT con el id como string, o null
       })
       toast.success("Salida registrada")
       onClose()
@@ -119,20 +127,6 @@ export function ModalSalida({ onClose }: { onClose: () => void }) {
           ) : (
             <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-                {/* Producto */}
-                <div style={{ gridColumn: "1 / -1" }}>
-                  <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Producto</label>
-                  <select
-                    value={productoId}
-                    onChange={e => setProductoId(Number(e.target.value))}
-                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
-                  >
-                    {productos.map(p => (
-                      <option key={p.id} value={p.id}>{p.referencia} — {p.nombre}</option>
-                    ))}
-                  </select>
-                </div>
-
                 {/* Departamento */}
                 <div style={{ gridColumn: "1 / -1" }}>
                   <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Departamento</label>
@@ -194,6 +188,34 @@ export function ModalSalida({ onClose }: { onClose: () => void }) {
                       <option value="nuevo">➕ Crear nuevo departamento...</option>
                     </select>
                   )}
+                </div>
+
+                {/* Producto */}
+                <div style={{ gridColumn: "1 / -1" }}>
+                  <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Producto</label>
+                  <select
+                    value={productoId}
+                    onChange={e => setProductoId(Number(e.target.value))}
+                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                  >
+                    {productos.map(p => (
+                      <option key={p.id} value={p.id}>{p.referencia} — {p.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Tipo de unidad */}
+                <div>
+                  <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Tipo de unidad</label>
+                  <select
+                    value={unidadTipoId}
+                    onChange={e => setUnidadTipoId(Number(e.target.value) as any)}
+                    style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
+                  >
+                    {unidadesPresentacion.map(u => (
+                      <option key={u.id} value={u.id}>{u.nombre}</option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Cantidad */}

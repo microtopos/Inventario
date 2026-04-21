@@ -142,30 +142,11 @@ pub fn run() {
                 .add_migrations(
                     "sqlite:inventario.db",
                     vec![
-                        // -------------------------------------------------------
-                        // Migración única: schema completo final
-                        //
-                        // Consolida las antiguas migraciones 1-7.
-                        // Las columnas añadidas por ALTER TABLE en migraciones
-                        // 2, 3, 4 y 6 ya están incluidas en la definición
-                        // inicial de cada tabla.
-                        // La lógica de migración de datos de la migración 7
-                        // (INSERT INTO producto_presentaciones desde productos_almacen)
-                        // se omite porque en una instalación limpia no hay datos
-                        // previos que migrar.
-                        //
-                        // IMPORTANTE: si ya tienes una base de datos en producción
-                        // con las migraciones 1-7 aplicadas, NO uses este archivo
-                        // directamente — el plugin de migraciones de Tauri lleva
-                        // un registro de la versión aplicada y saltará esta
-                        // migración si detecta que ya está en un número superior.
-                        // En ese caso añade una migración 8 con los cambios nuevos
-                        // o haz un reset de la base de datos.
-                        // -------------------------------------------------------
                         Migration {
                             version: 1,
                             description: "schema completo",
                             sql: "
+                                PRAGMA foreign_keys = ON;
                                 PRAGMA busy_timeout = 10000;
                                 PRAGMA journal_mode = WAL;
 
@@ -180,7 +161,7 @@ pub fn run() {
                                     id              INTEGER PRIMARY KEY,
                                     codigo          TEXT,
                                     nombre          TEXT NOT NULL,
-                                    departamento_id INTEGER REFERENCES departamentos(id),
+                                    departamento_id INTEGER REFERENCES departamentos(id) ON DELETE CASCADE,
                                     color           TEXT,
                                     foto            TEXT,
                                     precio          DECIMAL(10,2) DEFAULT NULL
@@ -188,7 +169,7 @@ pub fn run() {
 
                                 CREATE TABLE IF NOT EXISTS tallas (
                                     id          INTEGER PRIMARY KEY,
-                                    producto_id INTEGER NOT NULL REFERENCES productos(id),
+                                    producto_id INTEGER NOT NULL REFERENCES productos(id) ON DELETE CASCADE,
                                     talla       TEXT    NOT NULL,
                                     stock       INTEGER NOT NULL DEFAULT 0,
                                     UNIQUE(producto_id, talla)
@@ -196,13 +177,12 @@ pub fn run() {
 
                                 CREATE TABLE IF NOT EXISTS movimientos (
                                     id       INTEGER PRIMARY KEY,
-                                    talla_id INTEGER NOT NULL REFERENCES tallas(id),
+                                    talla_id INTEGER NOT NULL REFERENCES tallas(id) ON DELETE CASCADE,
                                     cambio   INTEGER NOT NULL,
                                     origen   TEXT    NOT NULL DEFAULT 'manual',
                                     fecha    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
                                 );
 
-                                -- borrador (migración 2) y notas (migración 3) incluidos
                                 CREATE TABLE IF NOT EXISTS pedidos (
                                     id             INTEGER PRIMARY KEY,
                                     fecha          TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
@@ -212,11 +192,10 @@ pub fn run() {
                                     notas          TEXT
                                 );
 
-                                -- cantidad_acordada, cantidad_recibida, estado (migración 4) incluidos
                                 CREATE TABLE IF NOT EXISTS pedido_items (
                                     id                INTEGER PRIMARY KEY,
-                                    pedido_id         INTEGER NOT NULL REFERENCES pedidos(id),
-                                    talla_id          INTEGER NOT NULL REFERENCES tallas(id),
+                                    pedido_id         INTEGER NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
+                                    talla_id          INTEGER NOT NULL REFERENCES tallas(id) ON DELETE CASCADE,
                                     cantidad          INTEGER NOT NULL,
                                     cantidad_acordada INTEGER,
                                     cantidad_recibida INTEGER NOT NULL DEFAULT 0,
@@ -247,11 +226,25 @@ pub fn run() {
 
                                 CREATE TABLE IF NOT EXISTS repostajes (
                                     id          INTEGER PRIMARY KEY,
-                                    vehiculo_id INTEGER NOT NULL REFERENCES vehiculos(id),
+                                    vehiculo_id INTEGER NOT NULL REFERENCES vehiculos(id) ON DELETE CASCADE,
                                     fecha       TEXT    NOT NULL,
                                     coste       REAL    NOT NULL,
                                     notas       TEXT
                                 );
+
+                                -- ── Módulo presentaciones ──────────────────────
+                                -- (debe ir ANTES de productos_almacen y salidas_productos
+                                --  porque estas tablas referencian a las de aquí)
+
+                                CREATE TABLE IF NOT EXISTS unidades_presentacion (
+                                    id     INTEGER PRIMARY KEY,
+                                    nombre TEXT NOT NULL UNIQUE
+                                );
+
+                                INSERT OR IGNORE INTO unidades_presentacion (nombre) VALUES
+                                    ('UNIDAD'),
+                                    ('CAJA'),
+                                    ('FARDO');
 
                                 -- ── Módulo productos de almacén ────────────────
 
@@ -260,7 +253,6 @@ pub fn run() {
                                     nombre TEXT NOT NULL UNIQUE
                                 );
 
-                                -- precio (migración 6) incluido
                                 CREATE TABLE IF NOT EXISTS productos_almacen (
                                     id            INTEGER PRIMARY KEY,
                                     referencia    TEXT    NOT NULL,
@@ -276,42 +268,33 @@ pub fn run() {
                                     nombre TEXT NOT NULL UNIQUE
                                 );
 
-                                -- presentacion_id (migración 7) incluido
-                                CREATE TABLE IF NOT EXISTS salidas_productos (
-                                    id              INTEGER PRIMARY KEY,
-                                    producto_id     INTEGER NOT NULL REFERENCES productos_almacen(id),
-                                    departamento_id INTEGER NOT NULL REFERENCES departamentos_prod(id),
-                                    cantidad        INTEGER NOT NULL DEFAULT 0,
-                                    mes             INTEGER NOT NULL CHECK(mes BETWEEN 1 AND 12),
-                                    anio            INTEGER NOT NULL,
-                                    presentacion_id INTEGER REFERENCES producto_presentaciones(id)
-                                );
-
-                                CREATE UNIQUE INDEX IF NOT EXISTS idx_salidas_unica
-                                    ON salidas_productos(producto_id, departamento_id, mes, anio);
-
-                                CREATE INDEX IF NOT EXISTS idx_salidas_presentacion
-                                    ON salidas_productos(presentacion_id);
-
-                                -- ── Módulo presentaciones ──────────────────────
-
-                                CREATE TABLE IF NOT EXISTS unidades_presentacion (
-                                    id     INTEGER PRIMARY KEY,
-                                    nombre TEXT NOT NULL UNIQUE
-                                );
-
-                                INSERT OR IGNORE INTO unidades_presentacion (nombre) VALUES
-                                    ('UNIDAD'),
-                                    ('CAJA'),
-                                    ('FARDO');
-
                                 CREATE TABLE IF NOT EXISTS producto_presentaciones (
                                     id          INTEGER PRIMARY KEY,
-                                    producto_id INTEGER NOT NULL REFERENCES productos_almacen(id),
-                                    unidad_id   INTEGER NOT NULL REFERENCES unidades_presentacion(id),
+                                    producto_id INTEGER NOT NULL REFERENCES productos_almacen(id) ON DELETE CASCADE,
+                                    unidad_id   INTEGER NOT NULL REFERENCES unidades_presentacion(id) ON DELETE CASCADE,
                                     precio      DECIMAL(10,2) DEFAULT NULL,
                                     UNIQUE(producto_id, unidad_id)
                                 );
+
+                                CREATE TABLE IF NOT EXISTS salidas_productos (
+                                    id              INTEGER PRIMARY KEY,
+                                    producto_id     INTEGER NOT NULL REFERENCES productos_almacen(id) ON DELETE CASCADE,
+                                    departamento_id INTEGER NOT NULL REFERENCES departamentos_prod(id) ON DELETE CASCADE,
+                                    cantidad        INTEGER NOT NULL DEFAULT 0,
+                                    mes             INTEGER NOT NULL CHECK(mes BETWEEN 1 AND 12),
+                                    anio            INTEGER NOT NULL,
+                                    presentacion_id INTEGER REFERENCES producto_presentaciones(id) ON DELETE SET NULL,
+                                    tipo_unidad     INTEGER REFERENCES unidades_presentacion(id)   ON DELETE SET NULL
+                                );
+
+                                CREATE UNIQUE INDEX IF NOT EXISTS idx_salidas_unica_presentacion
+                                    ON salidas_productos(producto_id, departamento_id, presentacion_id, mes, anio);
+
+                                CREATE UNIQUE INDEX IF NOT EXISTS idx_salidas_unica_tipo_unidad
+                                    ON salidas_productos(producto_id, departamento_id, tipo_unidad, mes, anio);
+
+                                CREATE INDEX IF NOT EXISTS idx_salidas_presentacion
+                                    ON salidas_productos(presentacion_id);
 
                                 -- ── Ajustes de la aplicación ───────────────────
 

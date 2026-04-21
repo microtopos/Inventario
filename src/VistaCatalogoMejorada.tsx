@@ -102,7 +102,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
   // ── UI helpers ──
   const [loading, setLoading] = useState(true)
-  const [savingCell, setSavingCell] = useState<{ clave: string; mes: number } | null>(null)
+  const [savingCell, setSavingCell] = useState<{ clave: string; mes: number; tipoUnidad: string | null } | null>(null)
   const [showNewDeptInput, setShowNewDeptInput] = useState(false)
   const [newDeptName, setNewDeptName] = useState("")
   const [isImporting, setIsImporting] = useState(false)
@@ -203,7 +203,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   /** Salidas para la presentación activa de un producto en un mes */
   function getConsumo(productoId: number, mes: number): number {
     const presId = presentacionActiva.get(productoId) ?? null
-    const clave = claveSalida(productoId, presId)
+    const tipoPres = presId !== null ? presId : undefined
+    const clave = claveSalida(productoId, presId, tipoPres)
     return salidasMap.get(clave)?.get(mes) ?? 0
   }
 
@@ -219,9 +220,10 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     if (isNaN(valor) || valor < 0) return
 
     const presId = presentacionActiva.get(productoId) ?? null
-    const clave = claveSalida(productoId, presId)
+    const tipoPres = presId !== null ? presId : undefined
+    const clave = claveSalida(productoId, presId, tipoPres)
 
-    setSavingCell({ clave, mes })
+    setSavingCell({ clave, mes, tipoUnidad: tipoPres })
     try {
       await upsertSalida({
         producto_id: productoId,
@@ -230,6 +232,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         cantidad: valor,
         mes,
         anio: year,
+        tipo_unidad: tipoPres,
       })
 
       setSalidasMap(prev => {

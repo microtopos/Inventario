@@ -95,6 +95,7 @@ export interface NuevaSalida {
   mes: number;
   anio: number;
   presentacion_id?: number | null;
+  tipo_unidad?: number | null;
 }
 
 export interface FiltrosSalida {
@@ -306,7 +307,7 @@ export async function getSalidas(
   return db.select<SalidaProducto[]>(
     `SELECT
        s.id, s.producto_id, s.departamento_id, s.cantidad, s.mes, s.anio,
-       s.presentacion_id,
+       s.presentacion_id, s.tipo_unidad,
        p.nombre AS producto_nombre,
        p.referencia AS producto_referencia,
        p.unidad_medida,
@@ -344,7 +345,7 @@ export async function upsertSalida(datos: NuevaSalida): Promise<void> {
     } else {
       await db.execute(
         `DELETE FROM salidas_productos
-         WHERE producto_id = ? AND departamento_id = ? AND presentacion_id IS NULL AND mes = ? AND anio = ?`,
+         WHERE producto_id = ? AND departamento_id = ? AND presentacion_id IS NULL AND tipo_unidad IS NULL AND mes = ? AND anio = ?`,
         [datos.producto_id, datos.departamento_id, datos.mes, datos.anio]
       );
     }
@@ -353,19 +354,19 @@ export async function upsertSalida(datos: NuevaSalida): Promise<void> {
 
   if (datos.presentacion_id != null) {
     await db.execute(
-      `INSERT INTO salidas_productos (producto_id, departamento_id, presentacion_id, cantidad, mes, anio)
-       VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO salidas_productos (producto_id, departamento_id, presentacion_id, cantidad, mes, anio, tipo_unidad)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(producto_id, departamento_id, presentacion_id, mes, anio)
        DO UPDATE SET cantidad = excluded.cantidad`,
-      [datos.producto_id, datos.departamento_id, datos.presentacion_id, datos.cantidad, datos.mes, datos.anio]
+      [datos.producto_id, datos.departamento_id, datos.presentacion_id, datos.cantidad, datos.mes, datos.anio, datos.tipo_unidad ?? null]
     );
   } else {
     await db.execute(
-      `INSERT INTO salidas_productos (producto_id, departamento_id, cantidad, mes, anio)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(producto_id, departamento_id, mes, anio)
+      `INSERT INTO salidas_productos (producto_id, departamento_id, cantidad, mes, anio, tipo_unidad)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(producto_id, departamento_id, tipo_unidad, mes, anio)
        DO UPDATE SET cantidad = excluded.cantidad`,
-      [datos.producto_id, datos.departamento_id, datos.cantidad, datos.mes, datos.anio]
+      [datos.producto_id, datos.departamento_id, datos.cantidad, datos.mes, datos.anio, datos.tipo_unidad ?? null]
     );
   }
 }
@@ -446,6 +447,7 @@ export async function getMatrizConsumo(
     categoria_nombre: string;
     departamento_id: number;
     cantidad: number;
+    tipo_unidad: number | null;
   }[]>(
     `SELECT
        p.id AS producto_id,
@@ -454,7 +456,8 @@ export async function getMatrizConsumo(
        p.unidad_medida,
        c.nombre AS categoria_nombre,
        s.departamento_id,
-       s.cantidad
+       s.cantidad,
+       s.tipo_unidad
      FROM salidas_productos s
      JOIN productos_almacen p ON p.id = s.producto_id
      JOIN categorias_producto c ON c.id = p.categoria_id
@@ -510,12 +513,13 @@ export async function getResumenPorDepartamento(
        d.nombre AS departamento_nombre,
        COUNT(s.id) AS total_salidas,
        SUM(s.cantidad) AS total_cantidad,
-       COUNT(DISTINCT s.producto_id) AS productos_distintos
+       COUNT(DISTINCT s.producto_id) AS productos_distintos,
+       s.tipo_unidad
      FROM departamentos_prod d
      LEFT JOIN salidas_productos s ON s.departamento_id = d.id
      LEFT JOIN productos_almacen p ON p.id = s.producto_id
      ${where}
-     GROUP BY d.id
+     GROUP BY d.id, s.tipo_unidad
      ORDER BY total_cantidad DESC NULLS LAST`,
     params
   );
@@ -560,12 +564,14 @@ export async function getSalidasByYear(
     presentacion_id: number | null;
     mes: number;
     cantidad: number;
+    tipo_unidad: number | null;
   }[]>(
     `SELECT
        s.producto_id,
        s.presentacion_id,
        s.mes,
-       s.cantidad
+       s.cantidad,
+       s.tipo_unidad
      FROM salidas_productos s
      ${where}
      ORDER BY s.producto_id, s.presentacion_id, s.mes`,
@@ -585,9 +591,9 @@ export async function getSalidasByYear(
   return resultado;
 }
 
-/** Construye la clave del mapa de salidas para un producto + presentación */
-export function claveSalida(productoId: number, presentacionId: number | null | undefined): string {
-  return `${productoId}_${presentacionId ?? "null"}`;
+/** Construye la clave del mapa de salidas para un producto + presentación + tipo_unidad */
+export function claveSalida(productoId: number, presentacionId: number | null | undefined, tipoUnidad?: string | null): string {
+  return `${productoId}_${presentacionId ?? "null"}_${tipoUnidad ?? "null"}`;
 }
 
 export async function getAniosDisponibles(): Promise<number[]> {
