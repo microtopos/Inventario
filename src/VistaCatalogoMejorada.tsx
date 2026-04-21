@@ -108,7 +108,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [isImporting, setIsImporting] = useState(false)
   const [availableYears, setAvailableYears] = useState<number[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const cachedDeptYearRef = useRef<{ dept: number | ""; year: number } | null>(null)
+  const toastRef = useRef(toast)
+  useEffect(() => { toastRef.current = toast })
 
   // ─── Carga inicial ────────────────────────────────────────────────────────
 
@@ -131,7 +132,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       setPresentacionesPorProducto(todasPresentaciones)
       setExpandedCategories(new Set(cats.map(c => c.id)))
 
-      // Inicializar presentación activa: primer elemento de cada producto (o null si no tiene)
       const activaInicial = new Map<number, number | null>()
       for (const prod of prods) {
         const lista = todasPresentaciones.get(prod.id) ?? []
@@ -140,49 +140,31 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       setPresentacionActiva(activaInicial)
 
     } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
+      toastRef.current.error("Error", e?.message ?? String(e))
     } finally {
       setLoading(false)
     }
-  }, [toast])
+  }, []) // sin dependencias → nunca se recrea
 
   // ─── Carga de salidas ──────────────────────────────────────────────────────
 
   const cargarSalidas = useCallback(async () => {
     if (departamentoId === "") {
       setSalidasMap(new Map())
-      cachedDeptYearRef.current = null
       return
     }
-
-    if (
-      cachedDeptYearRef.current?.dept === departamentoId &&
-      cachedDeptYearRef.current.year === year
-    ) return
-
     try {
       const mapa = await getSalidasByYear(year, Number(departamentoId))
       setSalidasMap(mapa)
-      cachedDeptYearRef.current = { dept: departamentoId, year }
     } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-      cachedDeptYearRef.current = null
+      toastRef.current.error("Error", e?.message ?? String(e))
       setSalidasMap(new Map())
     }
-  }, [departamentoId, year, toast])
+  }, [departamentoId, year])
 
   useEffect(() => { loadInitialData() }, [loadInitialData])
 
-  useEffect(() => {
-    if (departamentoId === "") {
-      setSalidasMap(new Map())
-      cachedDeptYearRef.current = null
-    }
-  }, [departamentoId])
-
-  useEffect(() => {
-    if (departamentoId !== "" && year) cargarSalidas()
-  }, [departamentoId, year, cargarSalidas])
+  useEffect(() => { cargarSalidas() }, [departamentoId, year, cargarSalidas])
 
   // Auto-seleccionar primer departamento
   useEffect(() => {
@@ -244,7 +226,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         return nuevo
       })
 
-      cachedDeptYearRef.current = { dept: Number(departamentoId), year }
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     } finally {
@@ -276,7 +257,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         nuevo.delete(producto.id)
         return nuevo
       })
-      cachedDeptYearRef.current = { dept: Number(departamentoId), year }
       toast.success("Producto eliminado")
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
@@ -471,7 +451,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
       toast.success("Importación completada", `Se importaron ${importedCount} productos`)
       await loadInitialData()
-      cachedDeptYearRef.current = null
       await cargarSalidas()
     } catch (err: any) {
       toast.error("Error importando archivo", err.message || String(err))
@@ -891,7 +870,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           onClose={() => setEditingProductId(null)}
           onSaved={async () => {
             await loadInitialData()
-            cachedDeptYearRef.current = null
             await cargarSalidas()
             setEditingProductId(null)
           }}
@@ -914,7 +892,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         else mesMap.set(mes, cantidad)
         return nuevo
       })
-      cachedDeptYearRef.current = { dept: Number(departamentoId), year }
     }}
   />
 )}
