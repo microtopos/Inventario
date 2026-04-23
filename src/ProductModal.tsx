@@ -1,8 +1,6 @@
 import { useState, useEffect } from "react"
 import { useToast } from "./Toast"
-import { useConfirm } from "./ConfirmDialog"
 import {
-  getCategorias,
   actualizarProducto,
   crearProducto,
   getUnidadesPresentacion,

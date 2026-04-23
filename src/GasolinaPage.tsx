@@ -6,8 +6,8 @@ import { useToast } from "./Toast"
 import { usePagination } from "./usePagination"
 import {
   getVehiculos, crearVehiculo, actualizarVehiculo,
-  desactivarVehiculo, reactivarVehiculo,
-  getRepostajes, getRepostajesPaginados, crearRepostaje, actualizarRepostaje, eliminarRepostaje,
+  desactivarVehiculo,
+  getRepostajesPaginados, crearRepostaje, actualizarRepostaje, eliminarRepostaje,
   getResumenPorVehiculo,
   type Vehiculo, type Repostaje, type FiltrosRepostaje, type ResumenVehiculo,
 } from "./gasolinaService"
@@ -442,14 +442,7 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
     getVehiculos(true).then(setVehiculos)
     cargarEstadisticas()
   }
-
-  async function handleReactivar(v: Vehiculo) {
-    await reactivarVehiculo(v.id)
-    toast.success("Vehículo reactivado")
-    getVehiculos(true).then(setVehiculos)
-    cargarEstadisticas()
-  }
-
+  
   const vehiculosVisibles = vehiculos.filter(v => v.activo === 1)
   const totalFiltrado = repostajes.reduce((s, r) => s + r.coste, 0)
 

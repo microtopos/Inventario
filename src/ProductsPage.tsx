@@ -4,7 +4,6 @@ import type { Page } from "./AppHeader"
 import { useToast } from "./Toast"
 import {
   getCategorias,
-  getProductos,
   getDepartamentosProd,
   upsertSalida,
   getConsumoMensualPorDepartamento,
@@ -13,7 +12,6 @@ import {
   getSalidas,
   crearDepartamentoProd,
   type CategoriaProducto,
-  type ProductoAlmacen,
   type DepartamentoProd,
   type ConsumoMensualDepartamento,
   type MatrizConsumo,
@@ -40,26 +38,6 @@ const COLORS = [
   "#ea580c", "#0891b2", "#4ade80", "#f59e0b",
 ]
 
-function ChartTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div style={{
-      backgroundColor: "#fff",
-      border: "1px solid #e0e0e0",
-      borderRadius: "8px",
-      padding: "10px 12px",
-      boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-      fontSize: "12px",
-    }}>
-      <p style={{ margin: "0 0 4px", fontWeight: 600, color: "#111" }}>{label}</p>
-      {payload.map((entry: any, i: number) => (
-        <p key={i} style={{ margin: 0, color: entry.color }}>
-          {entry.name}: <strong>{entry.value.toLocaleString()}</strong>
-        </p>
-      ))}
-    </div>
-  )
-}
 
 function PieTooltip({ active, payload }: any) {
   const p = payload[0]
@@ -84,36 +62,6 @@ function PieTooltip({ active, payload }: any) {
   )
 }
 
-function pivotByMes(rows: { mes: string; departamento: string; total: number }[]) {
-  const byMes = new Map<string, any>()
-  const departmentsSet = new Set<string>()
-
-  for (const row of rows) {
-    departmentsSet.add(row.departamento)
-    if (!byMes.has(row.mes)) byMes.set(row.mes, { mes: row.mes })
-    byMes.get(row.mes)[row.departamento] = row.total
-  }
-
-  const departments = Array.from(departmentsSet).sort((a, b) => a.localeCompare(b))
-  const data = Array.from(byMes.values())
-  return { departments, data }
-}
-
-function sumByDepartamento(pivot: ReturnType<typeof pivotByMes>) {
-  const totals: Record<string, number> = {}
-  for (const row of pivot.data) {
-    for (const [dept, val] of Object.entries(row)) {
-      if (dept !== "mes" && typeof val === "number") {
-        totals[dept] = (totals[dept] ?? 0) + val
-      }
-    }
-  }
-  return totals
-}
-
-function sumPivot(pivot: ReturnType<typeof pivotByMes>): number {
-  return Object.values(sumByDepartamento(pivot)).reduce((a, b) => a + b, 0)
-}
 
 
 // ============================================================================

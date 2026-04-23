@@ -68,7 +68,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
   // ── Modales ──
   const [showSalidaModal, setShowSalidaModal] = useState(false)
-  const [editingProductId, setEditingProductId] = useState<number | null>(null)
+  const [editingProductId, setEditingProductId] = useState<number | "nuevo" | null>(null)
 
   // Modal añadir presentación a un producto
   const [showPresModal, setShowPresModal] = useState(false)
@@ -187,7 +187,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   /** Salidas para la presentación activa de un producto en un mes */
   function getConsumo(productoId: number, mes: number): number {
     const presId = presentacionActiva.get(productoId) ?? null
-    const tipoPres = presId !== null ? presId : undefined
+    const tipoPres = presId !== null ? String(presId) : null
     const clave = claveSalida(productoId, presId, tipoPres)
     return salidasMap.get(clave)?.get(mes) ?? 0
   }
@@ -200,14 +200,13 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     valorStr: string
   ) => {
     if (departamentoIdRef.current === "") return
-    const deptoActual = Number(departamentoId) // ← capturar antes de cualquier await
     const valor = Number(valorStr)
     if (isNaN(valor) || valor < 0) return
   
     const presId = presentacionActiva.get(productoId) ?? null
-    const tipoPres = presId !== null ? presId : undefined
+    const tipoPres = presId !== null ? String(presId) : null
     const clave = claveSalida(productoId, presId, tipoPres)
-  
+
     setSavingCell({ clave, mes, tipoUnidad: tipoPres })
     try {
       await upsertSalida({
@@ -217,8 +216,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         cantidad: valor,
         mes,
         anio: year,
-        tipo_unidad: tipoPres,
-   
+        tipo_unidad: presId,
+
       })
   
       setSalidasMap(prev => {
@@ -369,7 +368,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (departamentoId === "" || departamentoId <= 0) {
+    if (departamentoId === "" || (departamentoId as number) <= 0) {
       toast.error("Error", "Selecciona un departamento válido antes de importar")
       return
     }
@@ -622,7 +621,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             >📦 Nueva unidad</button>
 
             <button
-              onClick={() => setEditingProductId("nuevo" as any)}
+              onClick={() => setEditingProductId("nuevo")}
               style={{ padding: "10px 20px", border: "none", borderRadius: "10px", backgroundColor: "#16a34a", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
             >+ Nuevo producto</button>
           </div>
@@ -687,15 +686,15 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                       return (
                         <tr
                           key={prod.id}
-                          style={{ borderBottom: "1px solid #f1f5f9", backgroundColor: prod.activo === false ? "#fafafa" : "#fff" }}
-                          onMouseEnter={e => { if (prod.activo !== false) e.currentTarget.style.backgroundColor = "#f8fafc" }}
-                          onMouseLeave={e => { if (prod.activo !== false) e.currentTarget.style.backgroundColor = "#fff" }}
+                          style={{ borderBottom: "1px solid #f1f5f9", backgroundColor: prod.activo === 0 ? "#fafafa" : "#fff" }}
+                          onMouseEnter={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = "#f8fafc" }}
+                          onMouseLeave={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = "#fff" }}
                         >
                           {/* Referencia */}
                           <td style={{ ...tdStyle, position: "sticky", left: 0, zIndex: 3, backgroundColor: "#fff", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.12)" }}>
-                            <div style={{ fontWeight: 700, color: prod.activo === false ? "#9ca3af" : "#1d4ed8", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
+                            <div style={{ fontWeight: 700, color: prod.activo === 0 ? "#9ca3af" : "#1d4ed8", fontSize: "13px", display: "flex", alignItems: "center", gap: "6px" }}>
                               {prod.referencia}
-                              {prod.activo === false && (
+                              {prod.activo === 0 && (
                                 <span style={{ fontSize: "10px", padding: "2px 6px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>INACTIVO</span>
                               )}
                             </div>
@@ -703,7 +702,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
                           {/* Nombre */}
                           <td style={{ ...tdStyle, position: "sticky", left: "110px", zIndex: 2, backgroundColor: "#fff", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.08)" }}>
-                            <div style={{ fontSize: "13px", color: prod.activo === false ? "#9ca3af" : "#1f2937", fontWeight: prod.activo === false ? 400 : 500 }}>
+                            <div style={{ fontSize: "13px", color: prod.activo === 0 ? "#9ca3af" : "#1f2937", fontWeight: prod.activo === 0 ? 400 : 500 }}>
                               {prod.nombre}
                             </div>
                           </td>
@@ -767,7 +766,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           {MESES.map((_, idx) => {
                             const mes = idx + 1
                             const presId = presentacionActiva.get(prod.id) ?? null
-                            const clave = claveSalida(prod.id, presId)
+                            const tipoPres = presId !== null ? String(presId) : null
+                            const clave = claveSalida(prod.id, presId, tipoPres)
                             const valor = getConsumo(prod.id, mes)
                             const isSaving = savingCell?.clave === clave && savingCell?.mes === mes
                             const bgColor = listaPresProducto.length === 0
@@ -870,7 +870,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       {/* ── Modal: Editar producto ── */}
       {editingProductId !== null && (
         <ModalProducto
-          producto={editingProductId === ("nuevo" as any) ? null : productos.find(p => p.id === editingProductId) || null}
+          producto={editingProductId === "nuevo" ? null : productos.find(p => p.id === (editingProductId as number)) || null}
           onClose={() => setEditingProductId(null)}
           onSaved={async () => {
             await loadInitialData()
@@ -887,7 +887,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     onClose={() => setShowSalidaModal(false)}
     onSaved={({ productoId, presentacionId, cantidad, mes, anio: anioGuardado }) => {
       if (anioGuardado !== year) return
-      const clave = claveSalida(productoId, presentacionId, presentacionId)
+      const clave = claveSalida(productoId, presentacionId, presentacionId != null ? String(presentacionId) : null)
       setSalidasMap(prev => {
         const nuevo = new Map(prev)
         if (!nuevo.has(clave)) nuevo.set(clave, new Map())
@@ -950,7 +950,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                   ) : (
                     <select
                       value={presModalUnidadId}
-                      onChange={e => setPresModalUnidadId(Number(e.target.value) as any)}
+                      onChange={e => setPresModalUnidadId(Number(e.target.value))}
                       style={{ width: "100%", padding: "10px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "14px" }}
                     >
                       <option value="">Seleccionar...</option>
