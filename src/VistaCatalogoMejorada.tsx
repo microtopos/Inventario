@@ -107,6 +107,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [newDeptName, setNewDeptName] = useState("")
   const [isImporting, setIsImporting] = useState(false)
   const [availableYears, setAvailableYears] = useState<number[]>([])
+  const departamentoIdRef = useRef<number | "" | undefined>(undefined)
+  useEffect(() => { departamentoIdRef.current = departamentoId }, [departamentoId])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const toastRef = useRef(toast)
   useEffect(() => { toastRef.current = toast })
@@ -197,26 +199,28 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     mes: number,
     valorStr: string
   ) => {
-    if (departamentoId === "") return
+    if (departamentoIdRef.current === "") return
+    const deptoActual = Number(departamentoId) // ← capturar antes de cualquier await
     const valor = Number(valorStr)
     if (isNaN(valor) || valor < 0) return
-
+  
     const presId = presentacionActiva.get(productoId) ?? null
     const tipoPres = presId !== null ? presId : undefined
     const clave = claveSalida(productoId, presId, tipoPres)
-
+  
     setSavingCell({ clave, mes, tipoUnidad: tipoPres })
     try {
       await upsertSalida({
         producto_id: productoId,
-        departamento_id: Number(departamentoId),
+        departamento_id: Number(departamentoIdRef.current),
         presentacion_id: presId,
         cantidad: valor,
         mes,
         anio: year,
         tipo_unidad: tipoPres,
+   
       })
-
+  
       setSalidasMap(prev => {
         const nuevo = new Map(prev)
         if (!nuevo.has(clave)) nuevo.set(clave, new Map())
@@ -225,14 +229,14 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         else mesMap.set(mes, valor)
         return nuevo
       })
-
+  
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     } finally {
       setSavingCell(null)
     }
   }, [departamentoId, year, presentacionActiva, toast])
-
+  
   // ─── Eliminar producto ────────────────────────────────────────────────────
 
   async function handleDeleteProduct(producto: ProductoAlmacen) {
@@ -877,9 +881,9 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         />
       )}
 
-      {/* ── Modal: Nueva salida ── */}
 {showSalidaModal && (
   <ModalSalida
+    departamentoInicialId={departamentoId !== "" ? Number(departamentoId) : undefined}
     onClose={() => setShowSalidaModal(false)}
     onSaved={({ productoId, presentacionId, cantidad, mes, anio: anioGuardado }) => {
       if (anioGuardado !== year) return

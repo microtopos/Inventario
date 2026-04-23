@@ -44,8 +44,10 @@ const MESES = [
 export function ModalSalida({
   onClose,
   onSaved,
+  departamentoInicialId,
 }: {
   onClose: () => void
+  departamentoInicialId?: number   // ← nueva
   onSaved?: (params: {
     productoId: number
     presentacionId: number
@@ -107,7 +109,10 @@ useEffect(() => {
       setProductos(prods)
       setDepartamentos(depts)
       setUnidades(unis)
-      if (depts.length > 0) setDepartamentoId(depts[0].id)
+      if (departamentoInicialId && depts.some(d => d.id === departamentoInicialId))
+        setDepartamentoId(departamentoInicialId)
+      else if (depts.length > 0)
+        setDepartamentoId(depts[0].id)
       if (prods.length > 0) setProductoId(prods[0].id)
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
