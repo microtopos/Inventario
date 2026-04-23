@@ -23,13 +23,14 @@ fn save_product_image(
 
     let file_path = images_dir.join(format!("{}.jpg", product_id));
 
+    // En save_product_image (fallback con bytes)
     let img = ImageReader::new(Cursor::new(data))
         .with_guessed_format()
         .map_err(|e| e.to_string())?
         .decode()
         .map_err(|e| e.to_string())?;
 
-    let resized = img.thumbnail(600, 600);
+    let resized = img.thumbnail(600, 600); // ← thumbnail + Triangle implícito
 
     resized
         .save_with_format(file_path, image::ImageFormat::Jpeg)
@@ -57,6 +58,7 @@ fn save_product_image_from_path(
 
     let dest_path = images_dir.join(format!("{}.jpg", product_id));
 
+    // En save_product_image_from_path
     let img = ImageReader::open(&src_path)
         .map_err(|e| format!("No se pudo abrir la imagen: {}", e))?
         .with_guessed_format()
@@ -64,7 +66,7 @@ fn save_product_image_from_path(
         .decode()
         .map_err(|e| format!("No se pudo decodificar la imagen: {}", e))?;
 
-    let resized = img.thumbnail(600, 600);
+    let resized = img.thumbnail(600, 600); // ← thumbnail + Triangle implícito
 
     resized
         .save_with_format(dest_path, image::ImageFormat::Jpeg)
@@ -130,13 +132,7 @@ fn backup_database(app: tauri::AppHandle, dest_path: String) -> Result<String, S
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![
-            save_product_image,
-            save_product_image_from_path,
-            read_product_image,
-            delete_product_image,
-            backup_database
-        ])
+        .invoke_handler(tauri::generate_handler![save_product_image, save_product_image_from_path, read_product_image, delete_product_image, backup_database])
         .plugin(
             Builder::default()
                 .add_migrations(
@@ -146,30 +142,23 @@ pub fn run() {
                             version: 1,
                             description: "schema completo",
                             sql: "
-                                PRAGMA foreign_keys = ON;
-                                PRAGMA busy_timeout = 10000;
-                                PRAGMA journal_mode = WAL;
-
-                                -- ── Módulo inventario de ropa ──────────────────
-
                                 CREATE TABLE IF NOT EXISTS departamentos (
                                     id     INTEGER PRIMARY KEY,
                                     nombre TEXT NOT NULL
                                 );
 
                                 CREATE TABLE IF NOT EXISTS productos (
-                                    id              INTEGER PRIMARY KEY,
-                                    codigo          TEXT,
-                                    nombre          TEXT NOT NULL,
-                                    departamento_id INTEGER REFERENCES departamentos(id) ON DELETE CASCADE,
-                                    color           TEXT,
-                                    foto            TEXT,
-                                    precio          DECIMAL(10,2) DEFAULT NULL
+                                    id             INTEGER PRIMARY KEY,
+                                    codigo         TEXT,
+                                    nombre         TEXT NOT NULL,
+                                    departamento_id INTEGER REFERENCES departamentos(id),
+                                    color          TEXT,
+                                    foto           TEXT
                                 );
 
                                 CREATE TABLE IF NOT EXISTS tallas (
                                     id          INTEGER PRIMARY KEY,
-                                    producto_id INTEGER NOT NULL REFERENCES productos(id) ON DELETE CASCADE,
+                                    producto_id INTEGER NOT NULL REFERENCES productos(id),
                                     talla       TEXT    NOT NULL,
                                     stock       INTEGER NOT NULL DEFAULT 0,
                                     UNIQUE(producto_id, talla)
@@ -177,29 +166,24 @@ pub fn run() {
 
                                 CREATE TABLE IF NOT EXISTS movimientos (
                                     id       INTEGER PRIMARY KEY,
-                                    talla_id INTEGER NOT NULL REFERENCES tallas(id) ON DELETE CASCADE,
+                                    talla_id INTEGER NOT NULL REFERENCES tallas(id),
                                     cambio   INTEGER NOT NULL,
-                                    origen   TEXT    NOT NULL DEFAULT 'manual',
+                                    origen   TEXT NOT NULL DEFAULT 'manual',
                                     fecha    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
                                 );
 
                                 CREATE TABLE IF NOT EXISTS pedidos (
                                     id             INTEGER PRIMARY KEY,
-                                    fecha          TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+                                    fecha          TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
                                     recibido       INTEGER NOT NULL DEFAULT 0,
-                                    fecha_recibido TEXT,
-                                    borrador       INTEGER NOT NULL DEFAULT 0,
-                                    notas          TEXT
+                                    fecha_recibido TEXT
                                 );
 
                                 CREATE TABLE IF NOT EXISTS pedido_items (
-                                    id                INTEGER PRIMARY KEY,
-                                    pedido_id         INTEGER NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
-                                    talla_id          INTEGER NOT NULL REFERENCES tallas(id) ON DELETE CASCADE,
-                                    cantidad          INTEGER NOT NULL,
-                                    cantidad_acordada INTEGER,
-                                    cantidad_recibida INTEGER NOT NULL DEFAULT 0,
-                                    estado            TEXT    NOT NULL DEFAULT 'pendiente'
+                                    id        INTEGER PRIMARY KEY,
+                                    pedido_id INTEGER NOT NULL REFERENCES pedidos(id),
+                                    talla_id  INTEGER NOT NULL REFERENCES tallas(id),
+                                    cantidad  INTEGER NOT NULL
                                 );
 
                                 CREATE TABLE IF NOT EXISTS colores (
@@ -207,23 +191,61 @@ pub fn run() {
                                     nombre TEXT NOT NULL UNIQUE
                                 );
 
-                                INSERT OR IGNORE INTO colores (nombre) VALUES
+                                INSERT INTO colores (nombre) VALUES
                                     ('Azul marino'),
                                     ('Azul celeste'),
                                     ('Blanco'),
                                     ('Negro'),
                                     ('Rojo'),
                                     ('Verde');
-
-                                -- ── Módulo gasolina ────────────────────────────
-
+                            ",
+                            kind: MigrationKind::Up,
+                        },
+                        Migration {
+                            version: 2,
+                            description: "columna borrador en pedidos",
+                            sql: "
+                                ALTER TABLE pedidos ADD COLUMN borrador INTEGER NOT NULL DEFAULT 0;
+                            ",
+                            kind: MigrationKind::Up,
+                        },
+                        Migration {
+                            version: 3,
+                            description: "notas en pedidos",
+                            sql: "
+                                ALTER TABLE pedidos ADD COLUMN notas TEXT;
+                            ",
+                            kind: MigrationKind::Up,
+                        },
+                        Migration {
+                            version: 4,
+                            description: "recepción parcial y modificaciones por línea",
+                            sql: "
+                                ALTER TABLE pedido_items ADD COLUMN cantidad_acordada INTEGER;
+                                ALTER TABLE pedido_items ADD COLUMN cantidad_recibida INTEGER NOT NULL DEFAULT 0;
+                                ALTER TABLE pedido_items ADD COLUMN estado TEXT NOT NULL DEFAULT 'pendiente';
+                            ",
+                            kind: MigrationKind::Up,
+                        },
+                        Migration {
+                            version: 5,
+                            description: "nuevos modulos y columnas v2",
+                            sql: "
+                                PRAGMA foreign_keys = ON;
+                                PRAGMA busy_timeout = 10000;
+                                PRAGMA journal_mode = WAL;
+                        
+                                -- Columnas nuevas en tablas existentes
+                                ALTER TABLE productos ADD COLUMN precio DECIMAL(10,2) DEFAULT NULL;
+                        
+                                -- Módulo gasolina
                                 CREATE TABLE IF NOT EXISTS vehiculos (
                                     id        INTEGER PRIMARY KEY,
                                     matricula TEXT    NOT NULL,
                                     nombre    TEXT    NOT NULL,
                                     activo    INTEGER NOT NULL DEFAULT 1
                                 );
-
+                        
                                 CREATE TABLE IF NOT EXISTS repostajes (
                                     id          INTEGER PRIMARY KEY,
                                     vehiculo_id INTEGER NOT NULL REFERENCES vehiculos(id) ON DELETE CASCADE,
@@ -231,28 +253,24 @@ pub fn run() {
                                     coste       REAL    NOT NULL,
                                     notas       TEXT
                                 );
-
-                                -- ── Módulo presentaciones ──────────────────────
-                                -- (debe ir ANTES de productos_almacen y salidas_productos
-                                --  porque estas tablas referencian a las de aquí)
-
+                        
+                                -- Módulo presentaciones
                                 CREATE TABLE IF NOT EXISTS unidades_presentacion (
                                     id     INTEGER PRIMARY KEY,
                                     nombre TEXT NOT NULL UNIQUE
                                 );
-
+                        
                                 INSERT OR IGNORE INTO unidades_presentacion (nombre) VALUES
                                     ('UNIDAD'),
                                     ('CAJA'),
                                     ('FARDO');
-
-                                -- ── Módulo productos de almacén ────────────────
-
+                        
+                                -- Módulo productos de almacén
                                 CREATE TABLE IF NOT EXISTS categorias_producto (
                                     id     INTEGER PRIMARY KEY,
                                     nombre TEXT NOT NULL UNIQUE
                                 );
-
+                        
                                 CREATE TABLE IF NOT EXISTS productos_almacen (
                                     id            INTEGER PRIMARY KEY,
                                     referencia    TEXT    NOT NULL,
@@ -262,12 +280,12 @@ pub fn run() {
                                     activo        INTEGER NOT NULL DEFAULT 1,
                                     precio        DECIMAL(10,2) DEFAULT NULL
                                 );
-
+                        
                                 CREATE TABLE IF NOT EXISTS departamentos_prod (
                                     id     INTEGER PRIMARY KEY,
                                     nombre TEXT NOT NULL UNIQUE
                                 );
-
+                        
                                 CREATE TABLE IF NOT EXISTS producto_presentaciones (
                                     id          INTEGER PRIMARY KEY,
                                     producto_id INTEGER NOT NULL REFERENCES productos_almacen(id) ON DELETE CASCADE,
@@ -275,7 +293,7 @@ pub fn run() {
                                     precio      DECIMAL(10,2) DEFAULT NULL,
                                     UNIQUE(producto_id, unidad_id)
                                 );
-
+                        
                                 CREATE TABLE IF NOT EXISTS salidas_productos (
                                     id              INTEGER PRIMARY KEY,
                                     producto_id     INTEGER NOT NULL REFERENCES productos_almacen(id) ON DELETE CASCADE,
@@ -286,18 +304,17 @@ pub fn run() {
                                     presentacion_id INTEGER REFERENCES producto_presentaciones(id) ON DELETE SET NULL,
                                     tipo_unidad     INTEGER REFERENCES unidades_presentacion(id)   ON DELETE SET NULL
                                 );
-
+                        
                                 CREATE UNIQUE INDEX IF NOT EXISTS idx_salidas_unica_presentacion
                                     ON salidas_productos(producto_id, departamento_id, presentacion_id, mes, anio);
-
+                        
                                 CREATE UNIQUE INDEX IF NOT EXISTS idx_salidas_unica_tipo_unidad
                                     ON salidas_productos(producto_id, departamento_id, tipo_unidad, mes, anio);
-
+                        
                                 CREATE INDEX IF NOT EXISTS idx_salidas_presentacion
                                     ON salidas_productos(presentacion_id);
-
-                                -- ── Ajustes de la aplicación ───────────────────
-
+                        
+                                -- Settings
                                 CREATE TABLE IF NOT EXISTS settings (
                                     key   TEXT PRIMARY KEY,
                                     value TEXT NOT NULL
