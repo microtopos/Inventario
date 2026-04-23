@@ -289,6 +289,7 @@ export default function ProductDetail({
   const [editingInfo, setEditingInfo] = useState(false)
   const [editNombre, setEditNombre] = useState(product.nombre ?? "")
   const [editCodigo, setEditCodigo] = useState(product.codigo ?? "")
+  const [editPrecio, setEditPrecio] = useState<number | null>(product.precio ?? null)
   const [editColor, setEditColor] = useState(product.color ?? "")
   const [editDepartamentoId, setEditDepartamentoId] = useState<number | null>(product.departamento_id ?? null)
   const [editDepartamentoNombre, setEditDepartamentoNombre] = useState<string>(product.departamento ?? "")
@@ -456,10 +457,12 @@ export default function ProductDetail({
                           nombre: editNombre.trim(),
                           codigo: editCodigo.trim(),
                           departamento_id: editDepartamentoId,
+                          precio: editPrecio,
                         })
                         await updateProductColor(product.id, editColor)
                         product.nombre = editNombre.trim()
                         product.codigo = editCodigo.trim()
+                        product.precio = editPrecio
                         product.color = editColor
                         product.departamento_id = editDepartamentoId
                         product.departamento = editDepartamentoNombre
@@ -528,6 +531,16 @@ export default function ProductDetail({
                 onChange={setEditCodigo}
                 placeholder="Opcional"
                 mono
+              />
+              <Field
+                label="Precio"
+                editing={editingInfo}
+                value={editingInfo
+                  ? (editPrecio !== null ? String(editPrecio) : "")
+                  : (product.precio != null ? `${product.precio} €` : "—")
+                }
+                onChange={(v: string) => setEditPrecio(v === "" ? null : Number(v))}
+                placeholder="Opcional"
               />
               <Field
                 label="Departamento"

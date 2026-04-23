@@ -7,6 +7,7 @@ export async function getInventory(): Promise<any[]> {
       p.id,
       p.codigo,
       p.nombre,
+      p.precio,
       p.departamento_id,
       p.color,
       d.nombre as departamento,

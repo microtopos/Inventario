@@ -13,6 +13,7 @@ export default function ProductForm({ onClose, onSaved, onNavigate }: any) {
   const [nuevaTalla, setNuevaTalla] = useState("")
   const [color, setColor] = useState("")
   const [departamento, setDepartamento] = useState<number | null>(null)
+  const [precio, setPrecio] = useState<number | null>(null)
   const { alert, dialog } = useConfirm()
 
   async function save() {
@@ -22,8 +23,8 @@ export default function ProductForm({ onClose, onSaved, onNavigate }: any) {
     }
     const db = await getDB()
     await db.execute(
-      "INSERT INTO productos (codigo,nombre,departamento_id,color) VALUES (?,?,?,?)",
-      [codigo || null, nombre, departamento, color || null]
+      "INSERT INTO productos (codigo,nombre,departamento_id,color,precio) VALUES (?,?,?,?,?)",
+      [codigo || null, nombre, departamento, color || null, precio ?? null]
     )
     const row: any = await db.select("SELECT last_insert_rowid() as id")
     const productId = row[0].id
@@ -75,6 +76,14 @@ export default function ProductForm({ onClose, onSaved, onNavigate }: any) {
               value={codigo}
               onChange={setCodigo}
               placeholder="Ej: CAM-001"
+            />
+
+            <Field
+              label="Precio (opcional)"
+              editing
+              value={precio !== null ? String(precio) : ""}
+              onChange={(v: string) => setPrecio(v === "" ? null : Number(v))}
+              placeholder="Ej: 19.99"
             />
 
             <Field label="Color" editing>
