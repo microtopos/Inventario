@@ -37,6 +37,7 @@ function agruparItems(items: any[]) {
         nombre: item.producto_nombre,
         codigo: item.producto_codigo,
         color: item.producto_color,
+        producto_precio: item.producto_precio,
         tallas: [],
         total: 0,
       }
@@ -730,14 +731,21 @@ export default function OrderHistoryPage({
                 )}
 
                 {/* TOTALES */}
-                <div style={{ marginTop: "8px", padding: "14px 16px", backgroundColor: "#f9f9f9", borderRadius: "8px", display: "flex", justifyContent: "flex-end", gap: "32px" }}>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: "12px", color: "#888" }}>Líneas</div>
-                    <div style={{ fontSize: "18px", fontWeight: 700, color: "#111" }}>{detailTotalLineas}</div>
+                <div style={{ marginTop: "8px", padding: "14px 16px", backgroundColor: "#f9f9f9", borderRadius: "8px", display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-end" }}>
+                  <div style={{ display: "flex", justifyContent: "flex-end", width: "100%" }}>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: "12px", color: "#888" }}>Líneas</div>
+                      <div style={{ fontSize: "18px", fontWeight: 700, color: "#111" }}>{detailTotalLineas}</div>
+                    </div>
+                    <div style={{ textAlign: "right", marginLeft: "20px" }}>
+                      <div style={{ fontSize: "12px", color: "#888" }}>Total unidades</div>
+                      <div style={{ fontSize: "18px", fontWeight: 700, color: "#111" }}>{detailTotalUnidades}</div>
+                    </div>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: "12px", color: "#888" }}>Total unidades</div>
-                    <div style={{ fontSize: "18px", fontWeight: 700, color: "#111" }}>{detailTotalUnidades}</div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", width: "100%", color: grouped.some(g=>g.producto_precio==null)? "#dc2626" : "#111" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 500 }}>Precio total{grouped.some(g=>g.producto_precio==null) ? " (faltan precios)" : ""}</span>
+                    <span style={{ fontSize: "18px", fontWeight: 700 }}>{
+                      (grouped.reduce((s,g)=> s + (g.producto_precio ?? 0) * g.total, 0)).toLocaleString('es-ES', {minimumFractionDigits: 2, maximumFractionDigits: 2})} €</span>
                   </div>
                 </div>
               </div>

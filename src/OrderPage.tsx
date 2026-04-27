@@ -645,9 +645,16 @@ export default function OrderPage({ onNavigate }: {
                     </div>
                   )
                 })}
-                <div style={{ padding: "14px 16px", backgroundColor: "#f9fafb", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: "13px", color: "#6b7280", fontWeight: 500 }}>Total pedido</span>
-                  <span style={{ fontSize: "16px", fontWeight: 800, color: "#111" }}>{total} ud.</span>
+                <div style={{ padding: "14px 16px", backgroundColor: "#f9fafb", display: "flex", flexDirection: "column", gap: "4px", alignItems: "flex-end" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", width: "100%" }}>
+                    <span style={{ fontSize: "13px", color: "#6b7280", fontWeight: 500 }}>Total pedido</span>
+                    <span style={{ fontSize: "16px", fontWeight: 800, color: "#111" }}>{total} ud.</span>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", width: "100%", color: items.some(i=>i.producto.producto_precio==null)? "#dc2626" : "#111" }}>
+                    <span style={{ fontSize: "13px", fontWeight: 500 }}>Precio total{items.some(i=>i.producto.producto_precio==null) ? " (faltan precios)" : ""}</span>
+                    <span style={{ fontSize: "16px", fontWeight: 800 }}>{
+                      (items.reduce((s,i)=> s + ((i.producto.producto_precio ?? 0) * i.total), 0)).toLocaleString('es-ES', {minimumFractionDigits: 2, maximumFractionDigits: 2})} €</span>
+                  </div>
                 </div>
               </>
             )}

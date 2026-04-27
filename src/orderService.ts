@@ -38,7 +38,8 @@ export async function getOrderDetail(orderId: number) {
       t.stock as stock_actual,
       pr.nombre as producto_nombre,
       pr.codigo as producto_codigo,
-      pr.color as producto_color
+      pr.color as producto_color,
+      pr.precio as producto_precio
     FROM pedido_items pi
     JOIN tallas t ON t.id = pi.talla_id
     JOIN productos pr ON pr.id = t.producto_id
