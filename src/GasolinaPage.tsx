@@ -8,8 +8,8 @@ import {
   getVehiculos, crearVehiculo, actualizarVehiculo,
   desactivarVehiculo,
   getRepostajesPaginados, crearRepostaje, actualizarRepostaje, eliminarRepostaje,
-  getResumenPorVehiculo,
-  type Vehiculo, type Repostaje, type FiltrosRepostaje, type ResumenVehiculo,
+  getResumenPorVehiculo, exportarDatos, importarDatos,
+  type Vehiculo, type Repostaje, type FiltrosRepostaje, type ResumenVehiculo, type ExportData,
 } from "./gasolinaService"
 import {
   ResponsiveContainer, BarChart, Bar, CartesianGrid, Tooltip, XAxis, YAxis, Cell,
@@ -446,6 +446,53 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
   const vehiculosVisibles = vehiculos.filter(v => v.activo === 1)
   const totalFiltrado = repostajes.reduce((s, r) => s + r.coste, 0)
 
+  // ── Exportar a JSON ──────────────────────────────────────────────────────
+  async function handleExportar() {
+    try {
+      const data = await exportarDatos()
+      const json = JSON.stringify(data, null, 2)
+      const blob = new Blob([json], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      const fecha = new Date().toISOString().slice(0, 10)
+      a.href = url
+      a.download = `gasolina_backup_${fecha}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success(`Exportado: ${data.vehiculos.length} vehículos, ${data.repostajes.length} repostajes`)
+    } catch (e: any) {
+      toast.error("Error al exportar", e?.message ?? String(e))
+    }
+  }
+
+  // ── Importar desde JSON ──────────────────────────────────────────────────
+  function handleImportar() {
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = ".json,application/json"
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      try {
+        const text = await file.text()
+        const data: ExportData = JSON.parse(text)
+        const result = await importarDatos(data)
+        toast.success(
+          `Importación completada: ${result.vehiculosInsertados} vehículos nuevos, ${result.repostalesInsertados} repostajes nuevos` +
+          (result.vehiculosOmitidos + result.repostalesOmitidos > 0
+            ? ` (${result.vehiculosOmitidos} veh. y ${result.repostalesOmitidos} repos. omitidos por duplicado)`
+            : "")
+        )
+        getVehiculos(true).then(setVehiculos)
+        goToPage(0)
+        cargarEstadisticas()
+      } catch (e: any) {
+        toast.error("Error al importar", e?.message ?? String(e))
+      }
+    }
+    input.click()
+  }
+
   return (
     <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f5", fontFamily: "system-ui, sans-serif" }}>
       <AppHeader page="gasolina" onNavigate={onNavigate} />
@@ -531,12 +578,28 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
               <h2 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>Vehículos</h2>
               <span style={{ fontSize: "13px", color: "#aaa" }}>{vehiculosVisibles.length} vehículo{vehiculosVisibles.length !== 1 ? "s" : ""}</span>
             </div>
-            <button
-              onClick={() => setModalVehiculo("nuevo")}
-              style={{ padding: "8px 16px", borderRadius: "7px", border: "none", backgroundColor: "#ea580c", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
-            >
-              + Añadir coche
-            </button>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                onClick={handleImportar}
+                style={{ padding: "8px 14px", borderRadius: "7px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "13px", fontWeight: 500, cursor: "pointer" }}
+                title="Importar datos desde un archivo JSON"
+              >
+                ↑ Importar
+              </button>
+              <button
+                onClick={handleExportar}
+                style={{ padding: "8px 14px", borderRadius: "7px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "13px", fontWeight: 500, cursor: "pointer" }}
+                title="Exportar todos los datos a un archivo JSON"
+              >
+                ↓ Exportar
+              </button>
+              <button
+                onClick={() => setModalVehiculo("nuevo")}
+                style={{ padding: "8px 16px", borderRadius: "7px", border: "none", backgroundColor: "#ea580c", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+              >
+                + Añadir coche
+              </button>
+            </div>
           </div>
 
           {/* Lista de vehículos */}

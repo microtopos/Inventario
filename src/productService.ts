@@ -185,3 +185,143 @@ export async function deleteTalla(tallaId: number): Promise<void> {
   await db.execute("DELETE FROM movimientos WHERE talla_id = ?", [tallaId])
   await db.execute("DELETE FROM tallas WHERE id = ?", [tallaId])
 }
+
+
+// ─── Export / Import JSON ─────────────────────────────────────────────────────
+
+export interface ProductoExportado {
+  codigo: string | null
+  nombre: string
+  departamento: string | null
+  precio: number | null
+  color: string | null
+  tallas: { talla: string; stock: number }[]
+}
+
+export interface InventarioJSON {
+  version: number
+  exportadoEn: string
+  productos: ProductoExportado[]
+}
+
+export async function exportInventarioJSON(): Promise<InventarioJSON> {
+  const db = await getDB()
+
+  const productos: any[] = await db.select(`
+    SELECT p.id, p.codigo, p.nombre, p.precio, p.color, d.nombre AS departamento
+    FROM productos p
+    LEFT JOIN departamentos d ON d.id = p.departamento_id
+    ORDER BY p.nombre
+  `) as any[]
+
+  const result: ProductoExportado[] = []
+
+  for (const p of productos) {
+    const tallas: any[] = await db.select(
+      "SELECT talla, stock FROM tallas WHERE producto_id = ? ORDER BY talla",
+      [p.id]
+    ) as any[]
+
+    result.push({
+      codigo: p.codigo ?? null,
+      nombre: p.nombre,
+      departamento: p.departamento ?? null,
+      precio: p.precio ?? null,
+      color: p.color ?? null,
+      tallas: tallas.map(t => ({ talla: t.talla, stock: t.stock })),
+    })
+  }
+
+  return {
+    version: 1,
+    exportadoEn: new Date().toISOString(),
+    productos: result,
+  }
+}
+
+export interface ImportResult {
+  creados: number
+  omitidos: number
+  errores: string[]
+}
+
+/**
+ * Importa productos desde un objeto InventarioJSON.
+ * - Si ya existe un producto con el mismo código (o mismo nombre si no hay código), lo omite.
+ * - Crea los departamentos y colores que no existan.
+ */
+export async function importInventarioJSON(data: InventarioJSON): Promise<ImportResult> {
+  const db = await getDB()
+  const result: ImportResult = { creados: 0, omitidos: 0, errores: [] }
+
+  for (const p of data.productos) {
+    try {
+      // Comprobar duplicado por código o por nombre
+      let existe = false
+      if (p.codigo) {
+        const rows: any = await db.select(
+          "SELECT id FROM productos WHERE codigo = ?", [p.codigo]
+        )
+        existe = rows.length > 0
+      } else {
+        const rows: any = await db.select(
+          "SELECT id FROM productos WHERE nombre = ? AND codigo IS NULL", [p.nombre]
+        )
+        existe = rows.length > 0
+      }
+
+      if (existe) {
+        result.omitidos++
+        continue
+      }
+
+      // Resolver departamento
+      let departamentoId: number | null = null
+      if (p.departamento) {
+        await db.execute(
+          "INSERT OR IGNORE INTO departamentos (nombre) VALUES (?)", [p.departamento.trim()]
+        )
+        const dRow: any = await db.select(
+          "SELECT id FROM departamentos WHERE nombre = ?", [p.departamento.trim()]
+        )
+        departamentoId = dRow[0]?.id ?? null
+      }
+
+      // Resolver color
+      if (p.color) {
+        await db.execute(
+          "INSERT OR IGNORE INTO colores (nombre) VALUES (?)", [p.color.trim()]
+        )
+      }
+
+      // Insertar producto
+      await db.execute(
+        "INSERT INTO productos (codigo, nombre, departamento_id, precio, color) VALUES (?, ?, ?, ?, ?)",
+        [p.codigo ?? null, p.nombre, departamentoId, p.precio ?? null, p.color ?? null]
+      )
+
+      const idRow: any = await db.select("SELECT last_insert_rowid() as id")
+      const productoId = idRow[0].id as number
+
+      // Insertar tallas
+      for (const t of p.tallas) {
+        await db.execute(
+          "INSERT OR IGNORE INTO tallas (producto_id, talla, stock) VALUES (?, ?, ?)",
+          [productoId, t.talla, t.stock]
+        )
+        if (t.stock !== 0) {
+          await db.execute(
+            "INSERT INTO movimientos (talla_id, cambio, origen) VALUES (?, ?, 'pedido')",
+            [(await db.select("SELECT id FROM tallas WHERE producto_id = ? AND talla = ?", [productoId, t.talla]) as any)[0].id, t.stock]
+          )
+        }
+      }
+
+      result.creados++
+    } catch (e: any) {
+      result.errores.push(`"${p.nombre}": ${e?.message ?? String(e)}`)
+    }
+  }
+
+  return result
+}

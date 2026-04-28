@@ -28,8 +28,25 @@ function formatDate(dateStr: string) {
   })
 }
 
-function agruparItems(items: any[]) {
-  const map: any = {}
+interface GroupedItem {
+  nombre: string
+  codigo: string
+  color: string | null
+  producto_precio: number | null
+  tallas: {
+    itemId: number
+    talla: string
+    cantidad: number
+    cantidad_acordada: number | null
+    cantidad_recibida: number | null
+    estado: string | null
+    stock_actual: number | null
+  }[]
+  total: number
+}
+
+function agruparItems(items: any[]): GroupedItem[] {
+  const map: Record<string, GroupedItem> = {}
   for (const item of items) {
     const key = `${item.producto_nombre}__${item.producto_color ?? ""}`
     if (!map[key]) {

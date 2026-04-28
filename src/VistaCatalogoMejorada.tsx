@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from "react"
 import { useConfirm } from "./ConfirmDialog"
 import { useToast } from "./Toast"
-import * as XLSX from "xlsx"
 import {
   getCategorias,
   getProductos,
@@ -9,8 +8,6 @@ import {
   deleteProduct,
   upsertSalida,
   crearDepartamentoProd,
-  crearCategoria,
-  ensureProduct,
   getSalidasByYear,
   getAniosDisponibles,
   getUnidadesPresentacion,
@@ -19,21 +16,18 @@ import {
   deletePresentacion,
   crearUnidadPresentacion,
   claveSalida,
+  exportarProductosJSON,
+  importarProductosJSON,
   type CategoriaProducto,
   type ProductoAlmacen,
   type DepartamentoProd,
   type UnidadPresentacion,
   type ProductoPresentacion,
+  type ExportacionProductos,
 } from "./productosService"
 import { ModalProducto } from "./ProductModal"
 import { ModalSalida } from "./SalidaModal"
 
-async function getOrCreateCategoriaId(nombre: string): Promise<number> {
-  const cats = await getCategorias()
-  const existente = cats.find(c => c.nombre.toUpperCase() === nombre.toUpperCase())
-  if (existente) return existente.id
-  return await crearCategoria(nombre)
-}
 
 const MESES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -187,8 +181,12 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   /** Salidas para la presentación activa de un producto en un mes */
   function getConsumo(productoId: number, mes: number): number {
     const presId = presentacionActiva.get(productoId) ?? null
-    const tipoPres = presId !== null ? String(presId) : null
-    const clave = claveSalida(productoId, presId, tipoPres)
+    // tipo_unidad en la BD es unidad_id (FK a unidades_presentacion), no id de producto_presentaciones
+    const presObj = presId !== null
+      ? (presentacionesPorProducto.get(productoId)?.find(p => p.id === presId) ?? null)
+      : null
+    const tipoUnidad = presObj !== null ? String(presObj.unidad_id) : null
+    const clave = claveSalida(productoId, presId, tipoUnidad)
     return salidasMap.get(clave)?.get(mes) ?? 0
   }
 
@@ -202,12 +200,17 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     if (departamentoIdRef.current === "") return
     const valor = Number(valorStr)
     if (isNaN(valor) || valor < 0) return
-  
-    const presId = presentacionActiva.get(productoId) ?? null
-    const tipoPres = presId !== null ? String(presId) : null
-    const clave = claveSalida(productoId, presId, tipoPres)
 
-    setSavingCell({ clave, mes, tipoUnidad: tipoPres })
+    const presId = presentacionActiva.get(productoId) ?? null
+    const presObj = presId !== null
+      ? (presentacionesPorProducto.get(productoId)?.find(p => p.id === presId) ?? null)
+      : null
+    // tipo_unidad debe ser unidad_id (FK a unidades_presentacion), no id de producto_presentaciones
+    const tipoUnidad = presObj?.unidad_id ?? null
+    const tipoUnidadStr = tipoUnidad !== null ? String(tipoUnidad) : null
+    const clave = claveSalida(productoId, presId, tipoUnidadStr)
+
+    setSavingCell({ clave, mes, tipoUnidad: tipoUnidadStr })
     try {
       await upsertSalida({
         producto_id: productoId,
@@ -216,8 +219,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         cantidad: valor,
         mes,
         anio: year,
-        tipo_unidad: presId,
-
+        tipo_unidad: tipoUnidad,
       })
   
       setSalidasMap(prev => {
@@ -361,98 +363,57 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }
 
-  // ─── Importación Excel ────────────────────────────────────────────────────
+  // ─── Exportación JSON ─────────────────────────────────────────────────────
+
+  const handleExportJSON = async () => {
+    try {
+      const datos = await exportarProductosJSON()
+      const json = JSON.stringify(datos, null, 2)
+      const blob = new Blob([json], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      const fecha = new Date().toISOString().slice(0, 10)
+      a.href = url
+      a.download = `productos_${fecha}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success("Exportación completada", `${datos.productos.length} productos exportados`)
+    } catch (e: any) {
+      toast.error("Error exportando", e?.message ?? String(e))
+    }
+  }
+
+  // ─── Importación JSON ─────────────────────────────────────────────────────
 
   const handleImportClick = () => fileInputRef.current?.click()
 
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
-    if (departamentoId === "" || (departamentoId as number) <= 0) {
-      toast.error("Error", "Selecciona un departamento válido antes de importar")
-      return
-    }
     setIsImporting(true)
     try {
-      const buffer = await file.arrayBuffer()
-      const workbook = XLSX.read(buffer, { type: "array" })
-      const sheetName = workbook.SheetNames[0]
-      const worksheet = workbook.Sheets[sheetName]
-      const data = XLSX.utils.sheet_to_json(worksheet, { header: 1 })
-
-      const monthMap: { [key: string]: number } = {
-        'ENE': 1, 'ENERO': 1, 'FEB': 2, 'FEBRERO': 2, 'MAR': 3, 'MARZO': 3,
-        'ABR': 4, 'ABRIL': 4, 'MAY': 5, 'MAYO': 5, 'JUN': 6, 'JUNIO': 6,
-        'JUL': 7, 'JULIO': 7, 'AGO': 8, 'AGOSTO': 8,
-        'SET': 9, 'SEP': 9, 'SEPTIEMBRE': 9,
-        'OCT': 10, 'OCTUBRE': 10, 'NOV': 11, 'NOVIEMBRE': 11, 'DIC': 12, 'DICIEMBRE': 12,
-      }
-      const monthNames = Object.keys(monthMap)
-
-      let headerRowIndex = -1
-      for (let i = 0; i < Math.min(10, data.length); i++) {
-        const rowStr = (data[i] as any[]).map(c => String(c || '')).join(' ').toUpperCase()
-        if (monthNames.some(m => rowStr.includes(m))) { headerRowIndex = i; break }
-      }
-      if (headerRowIndex === -1) throw new Error("No se encontró encabezado con meses en el archivo")
-
-      const headerRow = data[headerRowIndex] as any[]
-      const detectedMonths: { idx: number; month: number }[] = []
-      headerRow.forEach((col: any, idx: number) => {
-        const colStr = String(col || '').toUpperCase().trim()
-        for (const [name, monthNum] of Object.entries(monthMap)) {
-          if (colStr.includes(name)) { detectedMonths.push({ idx, month: monthNum }); break }
-        }
-      })
-      if (detectedMonths.length === 0) throw new Error("No se detectaron columnas de meses")
-
-      let currentCategory = "SIN CATEGORÍA"
-      const productosExcel: any[] = []
-
-      for (let i = headerRowIndex + 1; i < data.length; i++) {
-        const row = data[i] as any[]
-        if (!row || row.length === 0) continue
-        const refStr = (row[0] ?? '').toString().trim()
-        const descStr = (row[1] ?? '').toString().trim()
-        if (refStr !== '' && descStr === '') { currentCategory = refStr; continue }
-        if (refStr === '') continue
-
-        const prod: any = { referencia: refStr, nombre: descStr, categoria_nombre: currentCategory, unidad_medida: "UNIDAD", meses: {} }
-        for (const { idx, month } of detectedMonths) {
-          const val = row[idx]
-          if (val != null) {
-            const num = parseInt(String(val).trim().split(' ')[0], 10)
-            if (!isNaN(num) && num > 0) prod.meses[month] = num
-          }
-        }
-        productosExcel.push(prod)
+      const text = await file.text()
+      let datos: ExportacionProductos
+      try {
+        datos = JSON.parse(text)
+      } catch {
+        throw new Error("El archivo no es un JSON válido.")
       }
 
-      if (productosExcel.length === 0) throw new Error("No se encontraron productos para importar")
+      const resultado = await importarProductosJSON(datos)
 
-      let importedCount = 0
-      for (let i = 0; i < productosExcel.length; i++) {
-        const prod = productosExcel[i]
-        try {
-          const catId = await getOrCreateCategoriaId(prod.categoria_nombre || "SIN CATEGORÍA")
-          const productoId = await ensureProduct(prod.referencia, prod.nombre, catId, prod.unidad_medida || "UNIDAD")
-          for (const [mes, cantidad] of Object.entries(prod.meses)) {
-            await upsertSalida({
-              producto_id: productoId,
-              departamento_id: departamentoId as number,
-              cantidad: cantidad as number,
-              mes: Number(mes),
-              anio: year,
-            })
-          }
-          importedCount++
-        } catch { importedCount++ }
-        if ((i + 1) % 10 === 0 && i < productosExcel.length - 1) {
-          await new Promise(r => setTimeout(r, 150))
-        }
+      const resumen = [
+        `${resultado.importados} productos`,
+        resultado.departamentosImportados > 0 ? `${resultado.departamentosImportados} departamentos` : null,
+        resultado.salidasImportadas > 0 ? `${resultado.salidasImportadas} movimientos` : null,
+      ].filter(Boolean).join(", ")
+
+      if (resultado.errores.length > 0) {
+        toast.error("Importación con errores", `${resumen}. Errores: ${resultado.errores.slice(0, 3).join(" | ")}`)
+      } else {
+        toast.success("Importación completada", resumen)
       }
 
-      toast.success("Importación completada", `Se importaron ${importedCount} productos`)
       await loadInitialData()
       await cargarSalidas()
     } catch (err: any) {
@@ -518,7 +479,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 64px)" }}>
-      <input type="file" ref={fileInputRef} style={{ display: "none" }} accept=".xlsx,.xls,.csv" onChange={handleFileSelected} />
+      <input type="file" ref={fileInputRef} style={{ display: "none" }} accept=".json" onChange={handleFileSelected} />
 
       {/* ── Barra de controles ── */}
       <div style={{
@@ -607,7 +568,12 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               onClick={handleImportClick}
               disabled={isImporting}
               style={{ padding: "10px 16px", border: "1.5px solid #e2e8f0", borderRadius: "10px", backgroundColor: "#fff", fontSize: "13px", fontWeight: 500, cursor: isImporting ? "not-allowed" : "pointer", color: "#475569", opacity: isImporting ? 0.5 : 1 }}
-            >{isImporting ? "Importando..." : "📥 Importar Excel"}</button>
+            >{isImporting ? "Importando..." : "📥 Importar JSON"}</button>
+
+            <button
+              onClick={handleExportJSON}
+              style={{ padding: "10px 16px", border: "1.5px solid #e2e8f0", borderRadius: "10px", backgroundColor: "#fff", fontSize: "13px", fontWeight: 500, cursor: "pointer", color: "#475569" }}
+            >📤 Exportar JSON</button>
 
             <button
               onClick={() => setShowSalidaModal(true)}

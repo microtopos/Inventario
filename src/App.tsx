@@ -28,6 +28,11 @@ import { useToast } from "./Toast"
 import { useSortableTable } from "./useSortableTable"
 import { useInventory } from "./useInventory"
 import { cardStyleLegacy, inputStyle, btnStyle, thStyle, tdStyle, helpSectionTitle, helpText, helpList, helpCode, stockBadgeColors } from "./styles"
+import {
+  exportInventarioJSON,
+  importInventarioJSON,
+  type InventarioJSON,
+} from "./productService"
 
 // ── Miniaturas ────────────────────────────────────────────────────────────────
 
@@ -96,6 +101,54 @@ function App() {
   function sortArrow(key: any) {
     if (invSort.sortKey !== key) return ""
     return invSort.sortDir === "asc" ? " ▲" : " ▼"
+  }
+
+  async function handleExportJSON() {
+    setExportOpen(false)
+    setExporting(true)
+    try {
+      const data = await exportInventarioJSON()
+      const json = JSON.stringify(data, null, 2)
+      const blob = new Blob([json], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `inventario_${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success("Exportación completada", `${data.productos.length} productos exportados a JSON`)
+    } catch (e: any) {
+      toast.error("Error al exportar", e?.message ?? String(e))
+    }
+    setExporting(false)
+  }
+  
+  async function handleImportJSON() {
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = ".json,application/json"
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      try {
+        const text = await file.text()
+        const data: InventarioJSON = JSON.parse(text)
+        if (!data.version || !Array.isArray(data.productos)) {
+          throw new Error("El archivo no tiene el formato esperado")
+        }
+        const r = await importInventarioJSON(data)
+        await inv.reload()
+        const msg = `${r.creados} creados, ${r.omitidos} omitidos${r.errores.length ? `, ${r.errores.length} errores` : ""}`
+        if (r.errores.length > 0) {
+          toast.error("Importación con errores", msg)
+        } else {
+          toast.success("Importación completada", msg)
+        }
+      } catch (e: any) {
+        toast.error("Error al importar", e?.message ?? String(e))
+      }
+    }
+    input.click()
   }
 
   // ── Inicialización ────────────────────────────────────────────────────────
@@ -337,6 +390,26 @@ function App() {
                     </div>
                   </div>
                 ))}
+                {/* Separador JSON */}
+<div style={{ borderTop: "1px solid #f0f0f0" }}>
+  <div style={{ padding: "10px 16px 4px", fontSize: "11px", fontWeight: 600, color: "#aaa", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+    Datos completos
+  </div>
+  <div style={{ display: "flex", gap: "0", padding: "0 8px 8px" }}>
+    <button
+      onClick={handleExportJSON}
+      style={{ flex: 1, margin: "0 4px", padding: "7px 0", borderRadius: "6px", border: "1px solid #7c3aed22", backgroundColor: "#faf5ff", color: "#7c3aed", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+    >
+      ↓ JSON
+    </button>
+    <button
+      onClick={() => { setExportOpen(false); handleImportJSON() }}
+      style={{ flex: 1, margin: "0 4px", padding: "7px 0", borderRadius: "6px", border: "1px solid #0891b222", backgroundColor: "#f0f9ff", color: "#0891b2", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+    >
+      ↑ Importar
+    </button>
+  </div>
+</div>
               </div>
             )}
           </div>

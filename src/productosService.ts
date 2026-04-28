@@ -730,7 +730,7 @@ export async function upsertPresentacion(
   precio: number | null
 ): Promise<number> {
   const db = await getDbWithRetry();
-  const result = await db.execute(
+  await db.execute(
     `INSERT INTO producto_presentaciones (producto_id, unidad_id, precio)
      VALUES (?, ?, ?)
      ON CONFLICT(producto_id, unidad_id)
@@ -738,15 +738,14 @@ export async function upsertPresentacion(
     [productoId, unidadId, precio]
   );
 
-  if (result.lastInsertId === undefined) {
-    const rows = await db.select<{ id: number }[]>(
-      "SELECT id FROM producto_presentaciones WHERE producto_id = ? AND unidad_id = ?",
-      [productoId, unidadId]
-    );
-    if (rows.length > 0) return rows[0].id;
-    throw new Error("No se pudo insertar o actualizar la presentación");
-  }
-  return result.lastInsertId;
+  // lastInsertId no es fiable en SQLite cuando el ON CONFLICT dispara un UPDATE
+  // (puede devolver 0 en lugar de undefined). Siempre hacemos SELECT para obtener el ID real.
+  const rows = await db.select<{ id: number }[]>(
+    "SELECT id FROM producto_presentaciones WHERE producto_id = ? AND unidad_id = ?",
+    [productoId, unidadId]
+  );
+  if (rows.length === 0) throw new Error("No se pudo obtener el ID de la presentación");
+  return rows[0].id;
 }
 
 /**
@@ -766,4 +765,266 @@ export async function deletePresentacion(presentacionId: number): Promise<void> 
   }
 
   await db.execute("DELETE FROM producto_presentaciones WHERE id = ?", [presentacionId]);
+}
+
+// ─── Importación / Exportación JSON ──────────────────────────────────────────
+
+export interface SalidaExportada {
+  departamento: string;
+  producto_referencia: string;
+  presentacion_unidad: string | null; // nombre de la unidad, null = sin presentación
+  cantidad: number;
+  mes: number;
+  anio: number;
+}
+
+export interface ProductoExportado {
+  referencia: string;
+  nombre: string;
+  categoria_nombre: string;
+  unidad_medida: string;
+  activo: number;
+  precio: number | null;
+  presentaciones: { unidad: string; precio: number | null }[];
+}
+
+export interface ExportacionProductos {
+  version: 2;
+  exportado_el: string;
+  departamentos: string[];
+  productos: ProductoExportado[];
+  salidas: SalidaExportada[];
+}
+
+/**
+ * Exporta productos, departamentos y todos los movimientos de salida.
+ */
+export async function exportarProductosJSON(): Promise<ExportacionProductos> {
+  const db = await getDbWithRetry();
+
+  // Productos
+  const productos = await db.select<{
+    referencia: string;
+    nombre: string;
+    categoria_nombre: string;
+    unidad_medida: string;
+    activo: number;
+    precio: number | null;
+  }[]>(
+    `SELECT p.referencia, p.nombre, c.nombre AS categoria_nombre,
+            p.unidad_medida, p.activo, p.precio
+     FROM productos_almacen p
+     JOIN categorias_producto c ON c.id = p.categoria_id
+     ORDER BY c.nombre ASC, p.referencia ASC`
+  );
+
+  // Presentaciones
+  const presentaciones = await db.select<{
+    producto_referencia: string;
+    unidad_nombre: string;
+    precio: number | null;
+  }[]>(
+    `SELECT p.referencia AS producto_referencia,
+            up.nombre    AS unidad_nombre,
+            pp.precio
+     FROM producto_presentaciones pp
+     JOIN productos_almacen p      ON p.id  = pp.producto_id
+     JOIN unidades_presentacion up ON up.id = pp.unidad_id
+     ORDER BY p.referencia, up.nombre`
+  );
+
+  const presPorRef = new Map<string, { unidad: string; precio: number | null }[]>();
+  for (const row of presentaciones) {
+    if (!presPorRef.has(row.producto_referencia)) presPorRef.set(row.producto_referencia, []);
+    presPorRef.get(row.producto_referencia)!.push({ unidad: row.unidad_nombre, precio: row.precio });
+  }
+
+  // Departamentos
+  const depts = await db.select<{ nombre: string }[]>(
+    `SELECT nombre FROM departamentos_prod ORDER BY nombre ASC`
+  );
+
+  // Salidas (movimientos)
+  const salidas = await db.select<{
+    departamento: string;
+    producto_referencia: string;
+    presentacion_unidad: string | null;
+    cantidad: number;
+    mes: number;
+    anio: number;
+  }[]>(
+    `SELECT
+       d.nombre          AS departamento,
+       p.referencia      AS producto_referencia,
+       up.nombre         AS presentacion_unidad,
+       s.cantidad, s.mes, s.anio
+     FROM salidas_productos s
+     JOIN departamentos_prod    d  ON d.id  = s.departamento_id
+     JOIN productos_almacen     p  ON p.id  = s.producto_id
+     LEFT JOIN producto_presentaciones pp ON pp.id = s.presentacion_id
+     LEFT JOIN unidades_presentacion   up ON up.id = pp.unidad_id
+     ORDER BY s.anio, s.mes, d.nombre, p.referencia`
+  );
+
+  return {
+    version: 2,
+    exportado_el: new Date().toISOString(),
+    departamentos: depts.map(d => d.nombre),
+    productos: productos.map(p => ({
+      ...p,
+      presentaciones: presPorRef.get(p.referencia) ?? [],
+    })),
+    salidas,
+  };
+}
+
+export interface ResultadoImportacionJSON {
+  importados: number;
+  omitidos: number;
+  salidasImportadas: number;
+  departamentosImportados: number;
+  errores: string[];
+}
+
+/**
+ * Importa productos, departamentos y salidas desde un JSON exportado.
+ * Compatible con versión 1 (sin salidas/departamentos) y versión 2 (completo).
+ */
+export async function importarProductosJSON(
+  datos: ExportacionProductos | (Omit<ExportacionProductos, "version"> & { version: 1 })
+): Promise<ResultadoImportacionJSON> {
+  if (!Array.isArray((datos as any).productos)) {
+    throw new Error("Formato de archivo JSON no reconocido.");
+  }
+
+  const resultado: ResultadoImportacionJSON = {
+    importados: 0,
+    omitidos: 0,
+    salidasImportadas: 0,
+    departamentosImportados: 0,
+    errores: [],
+  };
+
+  // ── 1. Departamentos ──────────────────────────────────────────────────────
+  const deptosExistentes = await getDepartamentosProd();
+  const deptNombreAId = new Map<string, number>(
+    deptosExistentes.map(d => [d.nombre.toUpperCase(), d.id])
+  );
+
+  if (Array.isArray((datos as any).departamentos)) {
+    for (const nombre of (datos as ExportacionProductos).departamentos) {
+      if (!nombre?.trim()) continue;
+      const key = nombre.trim().toUpperCase();
+      if (!deptNombreAId.has(key)) {
+        try {
+          const id = await crearDepartamentoProd(nombre.trim());
+          deptNombreAId.set(key, id);
+          resultado.departamentosImportados++;
+        } catch (e: any) {
+          resultado.errores.push(`Depto "${nombre}": ${e?.message ?? String(e)}`);
+        }
+      }
+    }
+  }
+
+  // ── 2. Productos ──────────────────────────────────────────────────────────
+  // Mapa referencia → producto_id para usarlo en las salidas
+  const refAId = new Map<string, number>();
+
+  // Cache de unidades para no releer en cada producto
+  let unidades = await getUnidadesPresentacion();
+
+  for (const prod of (datos as any).productos) {
+    try {
+      if (!prod.referencia?.trim() || !prod.nombre?.trim()) {
+        resultado.omitidos++;
+        continue;
+      }
+
+      // Categoría
+      const cats = await getCategorias();
+      let catId: number;
+      const catExistente = cats.find(
+        c => c.nombre.toUpperCase() === (prod.categoria_nombre || "SIN CATEGORÍA").toUpperCase()
+      );
+      catId = catExistente
+        ? catExistente.id
+        : await crearCategoria(prod.categoria_nombre || "SIN CATEGORÍA");
+
+      // Producto
+      const productoId = await ensureProduct(
+        prod.referencia.trim(),
+        prod.nombre.trim(),
+        catId,
+        prod.unidad_medida?.trim() || "UNIDAD",
+        prod.precio ?? null
+      );
+      refAId.set(prod.referencia.trim(), productoId);
+
+      // Presentaciones
+      if (Array.isArray(prod.presentaciones)) {
+        for (const pres of prod.presentaciones) {
+          if (!pres.unidad?.trim()) continue;
+          let unidad = unidades.find(u => u.nombre.toUpperCase() === pres.unidad.toUpperCase());
+          if (!unidad) {
+            const nuevoId = await crearUnidadPresentacion(pres.unidad.trim());
+            unidad = { id: nuevoId, nombre: pres.unidad.trim() };
+            unidades = [...unidades, unidad];
+          }
+          await upsertPresentacion(productoId, unidad.id, pres.precio ?? null);
+        }
+      }
+
+      resultado.importados++;
+    } catch (e: any) {
+      resultado.errores.push(`${prod.referencia}: ${e?.message ?? String(e)}`);
+    }
+  }
+
+  // ── 3. Salidas ────────────────────────────────────────────────────────────
+  if (Array.isArray((datos as any).salidas)) {
+    // Refrescar presentaciones para poder resolver unidad → presentacion_id y unidad_id
+    const db = await getDbWithRetry();
+    const presRows = await db.select<{
+      id: number; producto_id: number; unidad_id: number; unidad_nombre: string;
+    }[]>(
+      `SELECT pp.id, pp.producto_id, pp.unidad_id, up.nombre AS unidad_nombre
+       FROM producto_presentaciones pp
+       JOIN unidades_presentacion up ON up.id = pp.unidad_id`
+    );
+
+    // Mapa "productoId|unidadNombre" → { presentacion_id, unidad_id }
+    const presKey = (pId: number, uNombre: string) => `${pId}|${uNombre.toUpperCase()}`;
+    const presIdMap = new Map<string, { presId: number; unidadId: number }>(
+      presRows.map(r => [presKey(r.producto_id, r.unidad_nombre), { presId: r.id, unidadId: r.unidad_id }])
+    );
+
+    for (const salida of (datos as ExportacionProductos).salidas) {
+      try {
+        const deptId = deptNombreAId.get(salida.departamento?.toUpperCase?.() ?? "");
+        const prodId = refAId.get(salida.producto_referencia?.trim?.() ?? "");
+        if (!deptId || !prodId) continue;
+
+        const presEntry = salida.presentacion_unidad
+          ? (presIdMap.get(presKey(prodId, salida.presentacion_unidad)) ?? null)
+          : null;
+
+        await upsertSalida({
+          producto_id: prodId,
+          departamento_id: deptId,
+          cantidad: salida.cantidad,
+          mes: salida.mes,
+          anio: salida.anio,
+          presentacion_id: presEntry?.presId ?? null,
+          // tipo_unidad es FK a unidades_presentacion, no a producto_presentaciones
+          tipo_unidad: presEntry?.unidadId ?? null,
+        });
+        resultado.salidasImportadas++;
+      } catch (e: any) {
+        resultado.errores.push(`Salida ${salida.producto_referencia} mes ${salida.mes}/${salida.anio}: ${e?.message ?? String(e)}`);
+      }
+    }
+  }
+
+  return resultado;
 }

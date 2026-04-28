@@ -288,6 +288,108 @@ export interface ResumenVehiculo {
 }
 
 /** Resumen por vehículo — para la tabla de estadísticas */
+// ─── Exportación / Importación JSON ──────────────────────────────────────────
+
+export interface ExportData {
+  version: 1;
+  exportadoEn: string; // ISO datetime
+  vehiculos: Vehiculo[];
+  repostajes: Omit<Repostaje, "vehiculo_nombre" | "vehiculo_matricula">[];
+}
+
+/**
+ * Devuelve todos los vehículos (activos e inactivos) y todos los repostajes
+ * listos para serializar a JSON.
+ */
+export async function exportarDatos(): Promise<ExportData> {
+  const db = await getDb();
+
+  const vehiculos = await db.select<Vehiculo[]>(
+    "SELECT * FROM vehiculos ORDER BY id ASC"
+  );
+
+  const repostajes = await db.select<Omit<Repostaje, "vehiculo_nombre" | "vehiculo_matricula">[]>(
+    "SELECT id, vehiculo_id, fecha, coste, notas FROM repostajes ORDER BY id ASC"
+  );
+
+  return {
+    version: 1,
+    exportadoEn: new Date().toISOString(),
+    vehiculos,
+    repostajes,
+  };
+}
+
+export type ImportResult = {
+  vehiculosInsertados: number;
+  vehiculosOmitidos: number;
+  repostalesInsertados: number;
+  repostalesOmitidos: number;
+};
+
+/**
+ * Importa datos desde un objeto ExportData.
+ * - Los vehículos se upsert por matrícula (si ya existe, se omite).
+ * - Los repostajes se insertan siempre; los IDs originales se descartan para
+ *   evitar colisiones, y se remapean los vehiculo_id según la matrícula.
+ */
+export async function importarDatos(data: ExportData): Promise<ImportResult> {
+  if (data.version !== 1) {
+    throw new Error(`Versión de exportación no soportada: ${data.version}`);
+  }
+
+  const db = await getDb();
+
+  let vehiculosInsertados = 0;
+  let vehiculosOmitidos = 0;
+
+  // Mapa: id_original → id_real en la base de datos (tras upsert)
+  const idMap = new Map<number, number>();
+
+  for (const v of data.vehiculos) {
+    const existentes = await db.select<Vehiculo[]>(
+      "SELECT * FROM vehiculos WHERE matricula = ?",
+      [v.matricula]
+    );
+
+    if (existentes.length > 0) {
+      // Ya existe: usar su id real
+      idMap.set(v.id, existentes[0].id);
+      vehiculosOmitidos++;
+    } else {
+      const result = await db.execute(
+        "INSERT INTO vehiculos (matricula, nombre, activo) VALUES (?, ?, ?)",
+        [v.matricula, v.nombre, v.activo]
+      );
+      if (result.lastInsertId === undefined) {
+        throw new Error(`No se pudo insertar el vehículo ${v.matricula}`);
+      }
+      idMap.set(v.id, result.lastInsertId);
+      vehiculosInsertados++;
+    }
+  }
+
+  let repostalesInsertados = 0;
+  let repostalesOmitidos = 0;
+
+  for (const r of data.repostajes) {
+    const vehiculoIdReal = idMap.get(r.vehiculo_id);
+    if (vehiculoIdReal === undefined) {
+      // vehiculo_id referenciado no existe en el mapa → omitir
+      repostalesOmitidos++;
+      continue;
+    }
+
+    await db.execute(
+      "INSERT INTO repostajes (vehiculo_id, fecha, coste, notas) VALUES (?, ?, ?, ?)",
+      [vehiculoIdReal, r.fecha, r.coste, r.notas ?? null]
+    );
+    repostalesInsertados++;
+  }
+
+  return { vehiculosInsertados, vehiculosOmitidos, repostalesInsertados, repostalesOmitidos };
+}
+
 export async function getResumenPorVehiculo(
   filtros: FiltrosRepostaje = {}
 ): Promise<ResumenVehiculo[]> {
