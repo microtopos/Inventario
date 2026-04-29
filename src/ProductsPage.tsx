@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from "react"
+import jsPDF from "jspdf"
+import autoTable from "jspdf-autotable"
 import AppHeader from "./AppHeader"
 import type { Page } from "./AppHeader"
 import { useToast } from "./Toast"
@@ -384,6 +386,160 @@ function VistaEstadisticas() {
   const totalPages = Math.ceil(salidasFiltradas.length / SALIDAS_PER_PAGE)
   const salidasPagina = salidasFiltradas.slice(salidaPage * SALIDAS_PER_PAGE, (salidaPage + 1) * SALIDAS_PER_PAGE)
 
+  // ── Exportar PDF ─────────────────────────────────────────────────────────────
+
+  function exportarPDF() {
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" })
+    const anioLabel = anio !== "" ? String(anio) : "Todos los años"
+    const ahora = new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "long", year: "numeric" })
+    const pageW = doc.internal.pageSize.getWidth()
+
+    // ── Encabezado ──────────────────────────────────────────────────────────
+    doc.setFillColor(30, 41, 59)          // slate-800
+    doc.rect(0, 0, pageW, 36, "F")
+
+    doc.setTextColor(255, 255, 255)
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(18)
+    doc.text("Resumen Anual de Gastos", 14, 16)
+
+    doc.setFontSize(10)
+    doc.setFont("helvetica", "normal")
+    doc.text(`Período: ${anioLabel}`, 14, 25)
+    doc.text(`Generado: ${ahora}`, 14, 31)
+
+    // ── KPIs globales ───────────────────────────────────────────────────────
+    let y = 46
+
+    const kpis = [
+      { label: "Unidades consumidas", value: (totalCantidad ?? 0).toLocaleString("es-ES") },
+      { label: "Registros de salida", value: (totalSalidas ?? 0).toLocaleString("es-ES") },
+      ...(hayCoste ? [{ label: "Gasto total", value: `${(totalCoste ?? 0).toLocaleString("es-ES", { minimumFractionDigits: 2 })} €` }] : []),
+      ...(deptData[0] ? [{ label: "Mayor consumidor", value: deptData[0].departamento_nombre }] : []),
+    ]
+
+    const kpiW = (pageW - 28) / kpis.length
+    kpis.forEach((kpi, i) => {
+      const x = 14 + i * kpiW
+      doc.setFillColor(241, 245, 249)     // slate-100
+      doc.roundedRect(x, y, kpiW - 4, 20, 3, 3, "F")
+      doc.setTextColor(100, 116, 139)     // slate-500
+      doc.setFont("helvetica", "normal")
+      doc.setFontSize(7)
+      doc.text(kpi.label.toUpperCase(), x + 4, y + 7)
+      doc.setTextColor(15, 23, 42)        // slate-900
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(11)
+      doc.text(kpi.value, x + 4, y + 16)
+    })
+
+    y += 28
+
+    // ── Tabla por departamento ───────────────────────────────────────────────
+    doc.setTextColor(15, 23, 42)
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(12)
+    doc.text("Gasto por Departamento", 14, y)
+    y += 4
+
+    const columns = [
+      { header: "#",              dataKey: "rank" },
+      { header: "Departamento",   dataKey: "nombre" },
+      { header: "Uds. consumidas", dataKey: "cantidad" },
+      { header: "Nº salidas",     dataKey: "salidas" },
+      { header: "Productos distintos", dataKey: "productos" },
+      ...(hayCoste ? [{ header: "Gasto (€)", dataKey: "coste" }] : []),
+      ...(hayCoste ? [{ header: "% del total", dataKey: "pct" }] : []),
+    ]
+
+    const rows = deptData.map((d, i) => ({
+      rank: i + 1,
+      nombre: d.departamento_nombre,
+      cantidad: (d.total_cantidad ?? 0).toLocaleString("es-ES"),
+      salidas: (d.total_salidas ?? 0).toLocaleString("es-ES"),
+      productos: (d.productos_distintos ?? 0).toLocaleString("es-ES"),
+      ...(hayCoste && {
+        coste: d.coste_total
+          ? d.coste_total.toLocaleString("es-ES", { minimumFractionDigits: 2 })
+          : "—",
+        pct: totalCoste > 0 && d.coste_total
+          ? `${((d.coste_total / totalCoste) * 100).toFixed(1)}%`
+          : "—",
+      }),
+    }))
+
+    autoTable(doc, {
+      startY: y + 2,
+      columns,
+      body: rows,
+      styles: { fontSize: 9, cellPadding: 3, textColor: [15, 23, 42] },
+      headStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold", fontSize: 8 },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: {
+        rank:      { halign: "center", cellWidth: 8 },
+        cantidad:  { halign: "right" },
+        salidas:   { halign: "right" },
+        productos: { halign: "right" },
+        ...(hayCoste ? { coste: { halign: "right", fontStyle: "bold" } } : {}),
+        ...(hayCoste ? { pct:   { halign: "right" } } : {}),
+      },
+      didParseCell: (data) => {
+        // Colorea la fila de totales
+        if (data.row.index === rows.length) {
+          data.cell.styles.fillColor = [30, 41, 59]
+          data.cell.styles.textColor = 255
+          data.cell.styles.fontStyle = "bold"
+        }
+      },
+    })
+
+    // ── Fila de totales ─────────────────────────────────────────────────────
+    const afterTableY = (doc as any).lastAutoTable.finalY + 2
+
+    autoTable(doc, {
+      startY: afterTableY,
+      columns: columns.map(c => ({ ...c, header: "" })),
+      body: [{
+        rank: "",
+        nombre: "TOTAL",
+        cantidad: totalCantidad.toLocaleString("es-ES"),
+        salidas: totalSalidas.toLocaleString("es-ES"),
+        productos: "",
+        ...(hayCoste && {
+          coste: totalCoste.toLocaleString("es-ES", { minimumFractionDigits: 2 }),
+          pct: "100%",
+        }),
+      }],
+      styles: { fontSize: 9, cellPadding: 3 },
+      bodyStyles: { fillColor: [30, 41, 59], textColor: 255, fontStyle: "bold" },
+      columnStyles: {
+        rank:      { halign: "center", cellWidth: 8 },
+        cantidad:  { halign: "right" },
+        salidas:   { halign: "right" },
+        productos: { halign: "right" },
+        ...(hayCoste ? { coste: { halign: "right" } } : {}),
+        ...(hayCoste ? { pct:   { halign: "right" } } : {}),
+      },
+      showHead: false,
+    })
+
+    // ── Pie de página ───────────────────────────────────────────────────────
+    const pageH = doc.internal.pageSize.getHeight()
+    doc.setFillColor(241, 245, 249)
+    doc.rect(0, pageH - 12, pageW, 12, "F")
+    doc.setTextColor(148, 163, 184)
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(7)
+    doc.text("Generado automáticamente · Gestión de Almacén", 14, pageH - 4)
+    doc.text(`Página 1 de 1`, pageW - 14, pageH - 4, { align: "right" })
+
+    // ── Guardar ─────────────────────────────────────────────────────────────
+    const filename = anio !== ""
+      ? `gastos_departamentos_${anio}.pdf`
+      : `gastos_departamentos_todos_anios.pdf`
+    doc.save(filename)
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -450,6 +606,22 @@ function VistaEstadisticas() {
               style={css.btnPrimary}
               onClick={() => { loadStats(); loadSalidas() }}
             >↻ Actualizar</button>
+            <button
+              style={{
+                ...css.btnGhost,
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                borderColor: "#e2e8f0",
+                color: "#334155",
+              }}
+              disabled={deptData.length === 0}
+              onClick={exportarPDF}
+              title={deptData.length === 0 ? "No hay datos para exportar" : `Exportar resumen${anio !== "" ? ` de ${anio}` : " anual"} a PDF`}
+            >
+              <span style={{ fontSize: "14px" }}>📄</span>
+              Exportar PDF
+            </button>
           </div>
         </div>
       </div>
