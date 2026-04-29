@@ -95,6 +95,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [salidasMap, setSalidasMap] = useState<Map<string, Map<number, number>>>(new Map())
 
   // ── UI helpers ──
+  const [wideNombre, setWideNombre] = useState(false)
   const [loading, setLoading] = useState(true)
   const [savingCell, setSavingCell] = useState<{ clave: string; mes: number; tipoUnidad: string | null } | null>(null)
   const [showNewDeptInput, setShowNewDeptInput] = useState(false)
@@ -607,9 +608,9 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "13px", whiteSpace: "nowrap" }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr>
-                <th style={{ ...thStyle, padding: 0, position: "sticky", left: 0, zIndex: 4, width: "90px", minWidth: "90px", maxWidth: "90px" }}><div style={{ padding: "12px 16px" }}>Ref.</div></th>
-                <th style={{ ...thStyle, padding: 0, position: "sticky", left: "90px", zIndex: 3, width: "240px", minWidth: "240px", maxWidth: "240px", boxShadow: "none" }}><div style={{ padding: "12px 16px" }}>Nombre</div></th>
-                <th style={{ ...thStyle, width: "170px", minWidth: "170px" }}>Presentación</th>
+                <th style={{ ...thStyle, width: "90px", minWidth: "90px", maxWidth: "90px" }}><div style={{ padding: "12px 16px" }}>Ref.</div></th>
+                <th onClick={() => setWideNombre(w => !w)} style={{ ...thStyle, padding: 0, position: "sticky", left: 0, zIndex: 3, width: wideNombre ? "320px" : "240px", minWidth: wideNombre ? "320px" : "240px", maxWidth: wideNombre ? "320px" : "240px", boxShadow: "none", cursor: "pointer", userSelect: "none", transition: "width 0.2s" }}><div style={{ padding: "12px 16px" }}>Nombre</div></th>
+                <th style={{ ...thStyle, padding: 0, position: "sticky", left: wideNombre ? "320px" : "240px", zIndex: 3, width: "170px", minWidth: "170px", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)", transition: "left 0.2s" }}><div style={{ padding: "12px 16px" }}>Presentación</div></th>
                 <th style={{ ...thStyle, minWidth: "100px" }}>Precio (€)</th>
                 <th style={{ ...thStyle, minWidth: "120px" }}>Categoría</th>
                 {MESES.map((mes, i) => (
@@ -657,14 +658,14 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           onMouseLeave={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = "#fff" }}
                         >
                           {/* Referencia */}
-                          <td style={{ ...tdStyle, padding: 0, position: "sticky", left: 0, zIndex: 4, width: "90px", minWidth: "90px", maxWidth: "90px", backgroundColor: "#fff" }}>
+                          <td style={{ ...tdStyle, width: "90px", minWidth: "90px", maxWidth: "90px" }}>
                             <div style={{ padding: "10px 16px", fontSize: "11px", fontWeight: 700, color: prod.activo === 0 ? "#9ca3af" : "#1d4ed8" }}>
                               {prod.referencia}
                             </div>
                           </td>
 
                           {/* Nombre */}
-                          <td style={{ ...tdStyle, padding: 0, position: "sticky", left: "90px", zIndex: 3, width: "240px", minWidth: "240px", maxWidth: "240px", backgroundColor: "#fff" }}>
+                          <td onClick={() => setWideNombre(w => !w)} style={{ ...tdStyle, padding: 0, position: "sticky", left: 0, zIndex: 3, width: wideNombre ? "320px" : "240px", minWidth: wideNombre ? "320px" : "240px", maxWidth: wideNombre ? "320px" : "240px", backgroundColor: "#fff", transition: "width 0.2s", cursor: "pointer" }}>
                             <div style={{ padding: "10px 16px", fontSize: "13px", color: prod.activo === 0 ? "#9ca3af" : "#1f2937", fontWeight: prod.activo === 0 ? 400 : 500 }}>
                               {prod.nombre}
                               {prod.activo === 0 && (
@@ -674,8 +675,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           </td>
 
                           {/* Selector de presentación */}
-                          <td style={{ ...tdStyle, width: "170px", minWidth: "170px" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                          <td style={{ ...tdStyle, padding: 0, position: "sticky", left: wideNombre ? "320px" : "240px", zIndex: 3, width: "170px", minWidth: "170px", backgroundColor: "#fff", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)", transition: "left 0.2s" }}>
+                            <div style={{ padding: "6px 10px", display: "flex", alignItems: "center", gap: "4px" }}>
                               {listaPresProducto.length === 0 ? (
                                 <button
                                   onClick={() => abrirModalPresentacion(prod.id)}
