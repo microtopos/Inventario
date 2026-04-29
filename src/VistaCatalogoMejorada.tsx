@@ -51,8 +51,8 @@ function getConsumoTextColor(valor: number): string {
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-// Nombre + Precio + Categoría + Unidad + 12 meses + Total + Acciones
-const TOTAL_COLS = 19
+// Ref + Nombre + Presentación + Precio + Categoría + 12 meses + Total + Acciones
+const TOTAL_COLS = 20
 
 // ─── Componente principal ────────────────────────────────────────────────────
 
@@ -607,8 +607,9 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "13px", whiteSpace: "nowrap" }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr>
-                <th style={{ ...thStyle, padding: 0, position: "sticky", left: 0, zIndex: 3, width: "240px", minWidth: "240px", maxWidth: "240px", boxShadow: "none" }}><div style={{ padding: "12px 16px" }}>Nombre</div></th>
-                <th style={{ ...thStyle, position: "sticky", left: "240px", zIndex: 2, width: "170px", minWidth: "170px", boxShadow: "2px 0 8px -2px rgba(0,0,0,0.18)" }}>Presentación</th>
+                <th style={{ ...thStyle, padding: 0, position: "sticky", left: 0, zIndex: 4, width: "90px", minWidth: "90px", maxWidth: "90px" }}><div style={{ padding: "12px 16px" }}>Ref.</div></th>
+                <th style={{ ...thStyle, padding: 0, position: "sticky", left: "90px", zIndex: 3, width: "240px", minWidth: "240px", maxWidth: "240px", boxShadow: "none" }}><div style={{ padding: "12px 16px" }}>Nombre</div></th>
+                <th style={{ ...thStyle, position: "sticky", left: "330px", zIndex: 2, width: "170px", minWidth: "170px", boxShadow: "2px 0 8px -2px rgba(0,0,0,0.18)" }}>Presentación</th>
                 <th style={{ ...thStyle, minWidth: "100px" }}>Precio (€)</th>
                 <th style={{ ...thStyle, minWidth: "120px" }}>Categoría</th>
                 {MESES.map((mes, i) => (
@@ -655,8 +656,15 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           onMouseEnter={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = "#f8fafc" }}
                           onMouseLeave={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = "#fff" }}
                         >
+                          {/* Referencia */}
+                          <td style={{ ...tdStyle, padding: 0, position: "sticky", left: 0, zIndex: 4, width: "90px", minWidth: "90px", maxWidth: "90px", backgroundColor: "#fff" }}>
+                            <div style={{ padding: "10px 16px", fontSize: "11px", fontWeight: 700, color: prod.activo === 0 ? "#9ca3af" : "#1d4ed8" }}>
+                              {prod.referencia}
+                            </div>
+                          </td>
+
                           {/* Nombre */}
-                          <td style={{ ...tdStyle, padding: 0, position: "sticky", left: 0, zIndex: 3, width: "240px", minWidth: "240px", maxWidth: "240px", backgroundColor: "#fff" }}>
+                          <td style={{ ...tdStyle, padding: 0, position: "sticky", left: "90px", zIndex: 3, width: "240px", minWidth: "240px", maxWidth: "240px", backgroundColor: "#fff" }}>
                             <div style={{ padding: "10px 16px", fontSize: "13px", color: prod.activo === 0 ? "#9ca3af" : "#1f2937", fontWeight: prod.activo === 0 ? 400 : 500 }}>
                               {prod.nombre}
                               {prod.activo === 0 && (
@@ -666,7 +674,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           </td>
 
                           {/* Selector de presentación */}
-                          <td style={{ ...tdStyle, position: "sticky", left: "240px", zIndex: 2, backgroundColor: "#fff", boxShadow: "2px 0 8px -2px rgba(0,0,0,0.18)", width: "170px", minWidth: "170px" }}>
+                          <td style={{ ...tdStyle, position: "sticky", left: "330px", zIndex: 2, backgroundColor: "#fff", boxShadow: "2px 0 8px -2px rgba(0,0,0,0.18)", width: "170px", minWidth: "170px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                               {listaPresProducto.length === 0 ? (
                                 <button
@@ -797,7 +805,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               {/* Fila de totales */}
               {productosFiltrados.length > 0 && (
                 <tr style={{ backgroundColor: "#111827", fontWeight: 700 }}>
-                  <td colSpan={4} style={{ padding: "14px", textAlign: "right", color: "#f9fafb", fontSize: "13px" }}>TOTALES</td>
+                  <td colSpan={5} style={{ padding: "14px", textAlign: "right", color: "#f9fafb", fontSize: "13px" }}>TOTALES</td>
                   {totalesPorMes.map((total, i) => (
                     <td key={i} style={{ padding: "14px", textAlign: "center", color: "#fbbf24", fontSize: "14px" }}>{total.toLocaleString()}</td>
                   ))}
