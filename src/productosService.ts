@@ -513,13 +513,12 @@ export async function getResumenPorDepartamento(
        d.nombre AS departamento_nombre,
        COUNT(s.id) AS total_salidas,
        SUM(s.cantidad) AS total_cantidad,
-       COUNT(DISTINCT s.producto_id) AS productos_distintos,
-       s.tipo_unidad
+       COUNT(DISTINCT s.producto_id) AS productos_distintos
      FROM departamentos_prod d
      LEFT JOIN salidas_productos s ON s.departamento_id = d.id
      LEFT JOIN productos_almacen p ON p.id = s.producto_id
      ${where}
-     GROUP BY d.id, s.tipo_unidad
+     GROUP BY d.id
      ORDER BY total_cantidad DESC NULLS LAST`,
     params
   );
@@ -550,10 +549,11 @@ export async function getCostePorDepartamento(
     `SELECT
        d.id AS departamento_id,
        d.nombre AS departamento_nombre,
-       ROUND(SUM(s.cantidad * COALESCE(p.precio, 0)), 2) AS coste_total
+       ROUND(SUM(s.cantidad * COALESCE(pp.precio, p.precio, 0)), 2) AS coste_total
      FROM salidas_productos s
      JOIN productos_almacen p ON p.id = s.producto_id
      JOIN departamentos_prod d ON d.id = s.departamento_id
+     LEFT JOIN producto_presentaciones pp ON pp.id = s.presentacion_id
      ${where}
      GROUP BY d.id, d.nombre
      ORDER BY coste_total DESC`,

@@ -609,7 +609,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               <tr>
                 <th style={{ ...thStyle, padding: 0, position: "sticky", left: 0, zIndex: 4, width: "90px", minWidth: "90px", maxWidth: "90px" }}><div style={{ padding: "12px 16px" }}>Ref.</div></th>
                 <th style={{ ...thStyle, padding: 0, position: "sticky", left: "90px", zIndex: 3, width: "240px", minWidth: "240px", maxWidth: "240px", boxShadow: "none" }}><div style={{ padding: "12px 16px" }}>Nombre</div></th>
-                <th style={{ ...thStyle, position: "sticky", left: "330px", zIndex: 2, width: "170px", minWidth: "170px", boxShadow: "2px 0 8px -2px rgba(0,0,0,0.18)" }}>Presentación</th>
+                <th style={{ ...thStyle, width: "170px", minWidth: "170px" }}>Presentación</th>
                 <th style={{ ...thStyle, minWidth: "100px" }}>Precio (€)</th>
                 <th style={{ ...thStyle, minWidth: "120px" }}>Categoría</th>
                 {MESES.map((mes, i) => (
@@ -674,7 +674,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           </td>
 
                           {/* Selector de presentación */}
-                          <td style={{ ...tdStyle, position: "sticky", left: "330px", zIndex: 2, backgroundColor: "#fff", boxShadow: "2px 0 8px -2px rgba(0,0,0,0.18)", width: "170px", minWidth: "170px" }}>
+                          <td style={{ ...tdStyle, width: "170px", minWidth: "170px" }}>
                             <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                               {listaPresProducto.length === 0 ? (
                                 <button
