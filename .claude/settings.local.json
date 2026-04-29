@@ -43,7 +43,8 @@
       "Bash(cd \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\\\\\\\\src-tauri\")",
       "Bash(cargo check *)",
       "Bash(ls -la \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\\\\\\\\\")",
-      "Bash(find \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\" -name \"*.rs\" -o -name \"*.toml\")"
+      "Bash(find \"C:\\\\\\\\Users\\\\\\\\dan.pirlitu\\\\\\\\Desktop\\\\\\\\Inventario Ropa\" -name \"*.rs\" -o -name \"*.toml\")",
+      "Bash(npm run *)"
     ]
   },
   "outputStyle": "default",

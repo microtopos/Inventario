@@ -525,6 +525,42 @@ export async function getResumenPorDepartamento(
   );
 }
 
+export interface CostePorDepartamento {
+  departamento_id: number;
+  departamento_nombre: string;
+  coste_total: number;
+}
+
+export async function getCostePorDepartamento(
+  filtros: FiltrosSalida = {}
+): Promise<CostePorDepartamento[]> {
+  const db = await getDbWithRetry();
+
+  const condiciones: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (filtros.categoria_id) { condiciones.push("p.categoria_id = ?"); params.push(filtros.categoria_id); }
+  if (filtros.anio)         { condiciones.push("s.anio = ?");         params.push(filtros.anio); }
+  if (filtros.anio_desde)   { condiciones.push("s.anio >= ?");        params.push(filtros.anio_desde); }
+  if (filtros.anio_hasta)   { condiciones.push("s.anio <= ?");        params.push(filtros.anio_hasta); }
+
+  const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : "";
+
+  return db.select<CostePorDepartamento[]>(
+    `SELECT
+       d.id AS departamento_id,
+       d.nombre AS departamento_nombre,
+       ROUND(SUM(s.cantidad * COALESCE(p.precio, 0)), 2) AS coste_total
+     FROM salidas_productos s
+     JOIN productos_almacen p ON p.id = s.producto_id
+     JOIN departamentos_prod d ON d.id = s.departamento_id
+     ${where}
+     GROUP BY d.id, d.nombre
+     ORDER BY coste_total DESC`,
+    params
+  );
+}
+
 // ─── Funciones adicionales ────────────────────────────────────────────────────
 
 export async function deleteProduct(productId: number): Promise<void> {
