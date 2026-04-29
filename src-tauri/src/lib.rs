@@ -322,6 +322,19 @@ pub fn run() {
                             ",
                             kind: MigrationKind::Up,
                         },
+                        Migration {
+                            version: 6,
+                            description: "stock global por producto",
+                            sql: "
+                                CREATE TABLE IF NOT EXISTS stock_productos (
+                                    producto_id    INTEGER NOT NULL PRIMARY KEY
+                                                   REFERENCES productos_almacen(id) ON DELETE CASCADE,
+                                    cantidad       REAL    NOT NULL CHECK (cantidad >= 0),
+                                    actualizado_el TEXT    NOT NULL DEFAULT (datetime('now'))
+                                );
+                            ",
+                            kind: MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),

@@ -16,6 +16,15 @@ export interface ProductoAlmacen {
   unidad_medida: string;
   activo: number; // 1 | 0
   precio?: number | null;
+  stock?: number | null; // cantidad actual en almacén (global, independiente de dpto.)
+}
+
+// ─── Stock ────────────────────────────────────────────────────────────────────
+
+export interface StockProducto {
+  producto_id: number;
+  cantidad: number;
+  actualizado_el: string; // ISO timestamp
 }
 
 // ─── Utilidades ───────────────────────────────────────────────────────────────
@@ -161,9 +170,11 @@ export async function getProductos(soloActivos = true): Promise<ProductoAlmacen[
     `SELECT
        p.id, p.referencia, p.nombre, p.categoria_id,
        c.nombre AS categoria_nombre,
-       p.unidad_medida, p.activo, p.precio
+       p.unidad_medida, p.activo, p.precio,
+       sp.cantidad AS stock
      FROM productos_almacen p
      JOIN categorias_producto c ON c.id = p.categoria_id
+     LEFT JOIN stock_productos sp ON sp.producto_id = p.id
      ${where}
      ORDER BY c.nombre ASC, p.referencia ASC`
   );
@@ -567,6 +578,7 @@ export async function deleteProduct(productId: number): Promise<void> {
   const db = await getDbWithRetry();
   await db.execute("DELETE FROM salidas_productos WHERE producto_id = ?", [productId]);
   await db.execute("DELETE FROM producto_presentaciones WHERE producto_id = ?", [productId]);
+  await db.execute("DELETE FROM stock_productos WHERE producto_id = ?", [productId]);
   await db.execute("DELETE FROM productos_almacen WHERE id = ?", [productId]);
 }
 
@@ -670,6 +682,43 @@ export async function ensureProduct(
   } else {
     return await crearProducto(referencia.trim(), nombre.trim(), categoriaId, unidadMedida.trim(), precio);
   }
+}
+
+// ─── Stock ────────────────────────────────────────────────────────────────────
+
+/**
+ * Obtiene el stock actual de todos los productos en un único SELECT.
+ * Devuelve un mapa producto_id → cantidad.
+ */
+export async function getAllStock(): Promise<Map<number, number>> {
+  const db = await getDbWithRetry();
+  const rows = await db.select<{ producto_id: number; cantidad: number }[]>(
+    "SELECT producto_id, cantidad FROM stock_productos"
+  );
+  const mapa = new Map<number, number>();
+  for (const row of rows) {
+    mapa.set(row.producto_id, row.cantidad);
+  }
+  return mapa;
+}
+
+/**
+ * Inserta o actualiza el stock de un producto.
+ * Si cantidad = null, elimina el registro (stock desconocido).
+ */
+export async function upsertStock(productoId: number, cantidad: number | null): Promise<void> {
+  const db = await getDbWithRetry();
+  if (cantidad === null) {
+    await db.execute("DELETE FROM stock_productos WHERE producto_id = ?", [productoId]);
+    return;
+  }
+  await db.execute(
+    `INSERT INTO stock_productos (producto_id, cantidad, actualizado_el)
+     VALUES (?, ?, datetime('now'))
+     ON CONFLICT(producto_id)
+     DO UPDATE SET cantidad = excluded.cantidad, actualizado_el = excluded.actualizado_el`,
+    [productoId, cantidad]
+  );
 }
 
 // ─── Unidades de presentación ─────────────────────────────────────────────────

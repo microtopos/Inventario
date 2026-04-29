@@ -7,6 +7,7 @@ import {
   getDepartamentosProd,
   deleteProduct,
   upsertSalida,
+  upsertStock,
   crearDepartamentoProd,
   getSalidasByYear,
   getAniosDisponibles,
@@ -51,8 +52,8 @@ function getConsumoTextColor(valor: number): string {
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-// Ref + Nombre + Presentación + Precio + Categoría + 12 meses + Total + Acciones
-const TOTAL_COLS = 20
+// Ref + Nombre + Presentación + Precio + Categoría + Stock + 12 meses + Total + Acciones
+const TOTAL_COLS = 21
 
 // ─── Componente principal ────────────────────────────────────────────────────
 
@@ -96,6 +97,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
   // ── UI helpers ──
   const [wideNombre, setWideNombre] = useState(false)
+  const [savingStock, setSavingStock] = useState<number | null>(null) // producto_id guardando
   const [loading, setLoading] = useState(true)
   const [savingCell, setSavingCell] = useState<{ clave: string; mes: number; tipoUnidad: string | null } | null>(null)
   const [showNewDeptInput, setShowNewDeptInput] = useState(false)
@@ -238,7 +240,25 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       setSavingCell(null)
     }
   }, [departamentoId, year, presentacionActiva, toast])
-  
+
+  // ─── Actualizar stock ─────────────────────────────────────────────────────
+
+  const handleStockChange = useCallback(async (productoId: number, valorStr: string) => {
+    const valor = valorStr.trim() === "" ? null : Number(valorStr)
+    if (valor !== null && (isNaN(valor) || valor < 0)) return
+    setSavingStock(productoId)
+    try {
+      await upsertStock(productoId, valor)
+      setProductos(prev => prev.map(p =>
+        p.id === productoId ? { ...p, stock: valor } : p
+      ))
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    } finally {
+      setSavingStock(null)
+    }
+  }, [toast])
+
   // ─── Eliminar producto ────────────────────────────────────────────────────
 
   async function handleDeleteProduct(producto: ProductoAlmacen) {
@@ -484,115 +504,164 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
       {/* ── Barra de controles ── */}
       <div style={{
-        backgroundColor: "#fff", border: "1px solid #f1f5f9", borderRadius: "16px",
-        padding: "16px 20px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", marginBottom: "16px",
+        backgroundColor: "#fff", border: "1px solid #e8edf2", borderRadius: "16px",
+        padding: "14px 20px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)", marginBottom: "16px",
       }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "12px" }}>
-          <div style={{ display: "flex", gap: "12px", alignItems: "center", flexWrap: "wrap" }}>
+        {/* Fila principal */}
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
 
-            {/* Buscador */}
-            <input
-              type="text"
-              placeholder="🔍 Buscar referencia o nombre..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              style={{
-                padding: "10px 14px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
-                fontSize: "14px", minWidth: "260px", backgroundColor: "#fff", outline: "none", color: "#334155",
-              }}
-            />
+          {/* Buscador — crece para ocupar espacio sobrante */}
+          <input
+            type="text"
+            placeholder="🔍 Buscar referencia o nombre..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            style={{
+              flex: 1, minWidth: "180px", height: "40px", padding: "0 14px",
+              border: "1.5px solid #e2e8f0", borderRadius: "10px",
+              fontSize: "14px", backgroundColor: "#fff", outline: "none", color: "#334155",
+            }}
+          />
 
-            {/* Selector departamento */}
-            <select
-              value={departamentoId === "" ? "__todos__" : departamentoId}
-              onChange={e => {
-                const v = e.target.value
-                if (v === "__nuevo__") setShowNewDeptInput(true)
-                else if (v === "__todos__") setDepartamentoId("")
-                else setDepartamentoId(Number(v))
-              }}
-              style={{
-                padding: "10px 14px", border: "2px solid #e5e7eb", borderRadius: "10px",
-                backgroundColor: "#fff", minWidth: "260px", fontSize: "14px", cursor: "pointer",
-              }}
-            >
-              <option value="__todos__">Todos los departamentos</option>
-              {departamentos.map(dep => <option key={dep.id} value={dep.id}>{dep.nombre}</option>)}
-              <option value="__nuevo__">+ Crear departamento...</option>
-            </select>
+          {/* Separador visual */}
+          <div style={{ width: "1px", height: "28px", backgroundColor: "#e2e8f0", flexShrink: 0 }} />
 
-            {showNewDeptInput && (
-              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                <input
-                  type="text"
-                  placeholder="Nombre del departamento..."
-                  value={newDeptName}
-                  onChange={e => setNewDeptName(e.target.value)}
-                  style={{ padding: "10px 14px", border: "1.5px solid #e2e8f0", borderRadius: "10px", fontSize: "14px" }}
-                />
-                <button
-                  onClick={async () => {
-                    if (!newDeptName.trim()) return
-                    try {
-                      const deptId = await crearDepartamentoProd(newDeptName.trim())
-                      setDepartamentos([...departamentos, { id: deptId, nombre: newDeptName.trim() }])
-                      setDepartamentoId(deptId)
-                      setShowNewDeptInput(false)
-                      setNewDeptName("")
-                      if (onDepartamentoCreado) onDepartamentoCreado()
-                    } catch (e: any) {
-                      toast.error("Error", e?.message ?? "Error al crear departamento")
-                    }
-                  }}
-                  style={{ padding: "10px 16px", border: "none", borderRadius: "10px", backgroundColor: "#16a34a", color: "#fff", fontSize: "14px", fontWeight: 600, cursor: "pointer" }}
-                >Crear</button>
-              </div>
-            )}
+          {/* Selector departamento */}
+          <select
+            value={departamentoId === "" ? "__todos__" : departamentoId}
+            onChange={e => {
+              const v = e.target.value
+              if (v === "__todos__") setDepartamentoId("")
+              else setDepartamentoId(Number(v))
+            }}
+            style={{
+              height: "40px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
+              backgroundColor: "#fff", minWidth: "200px", fontSize: "14px", cursor: "pointer", color: "#334155",
+            }}
+          >
+            <option value="__todos__">Todos los departamentos</option>
+            {departamentos.map(dep => <option key={dep.id} value={dep.id}>{dep.nombre}</option>)}
+          </select>
 
-            {/* Selector año */}
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <label style={{ fontSize: "14px", color: "#666" }}>Año:</label>
-              <select
-                value={year}
-                onChange={e => setYear(Number(e.target.value))}
-                style={{ padding: "6px 10px", border: "1px solid #d1d5db", borderRadius: "6px", fontSize: "14px" }}
-              >
-                {availableYears.length > 0
-                  ? availableYears.map(y => <option key={y} value={y}>{y}</option>)
-                  : <option value={year}>{year}</option>}
-              </select>
-            </div>
-          </div>
+          {/* Botón nuevo departamento */}
+          <button
+            onClick={() => setShowNewDeptInput(v => !v)}
+            title="Crear nuevo departamento"
+            style={{
+              height: "40px", padding: "0 14px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
+              backgroundColor: showNewDeptInput ? "#f0fdf4" : "#fff", color: showNewDeptInput ? "#16a34a" : "#475569",
+              fontSize: "13px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+              borderColor: showNewDeptInput ? "#86efac" : "#e2e8f0",
+            }}
+          >+ Dpto.</button>
 
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          {/* Selector año */}
+          <select
+            value={year}
+            onChange={e => setYear(Number(e.target.value))}
+            style={{
+              height: "40px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
+              backgroundColor: "#fff", fontSize: "14px", cursor: "pointer", color: "#334155",
+            }}
+          >
+            {availableYears.length > 0
+              ? availableYears.map(y => <option key={y} value={y}>{y}</option>)
+              : <option value={year}>{year}</option>}
+          </select>
+
+          {/* Separador visual */}
+          <div style={{ width: "1px", height: "28px", backgroundColor: "#e2e8f0", flexShrink: 0 }} />
+
+          {/* Botón Nueva Salida */}
+          <button
+            onClick={() => setShowSalidaModal(true)}
+            style={{
+              height: "40px", padding: "0 18px", border: "none", borderRadius: "10px",
+              backgroundColor: "#f97316", color: "#fff", fontSize: "13px", fontWeight: 600,
+              cursor: "pointer", whiteSpace: "nowrap",
+            }}
+          >+ Nueva salida</button>
+
+          {/* Botón Nueva unidad */}
+          <button
+            onClick={() => setShowNewUnitModal(true)}
+            title="Gestionar tipos de unidad disponibles"
+            style={{
+              height: "40px", padding: "0 18px", border: "1.5px solid #6366f1", borderRadius: "10px",
+              backgroundColor: "#fff", color: "#6366f1", fontSize: "13px", fontWeight: 600,
+              cursor: "pointer", whiteSpace: "nowrap",
+            }}
+          >+ Nueva unidad</button>
+
+          {/* Botón Nuevo producto */}
+          <button
+            onClick={() => setEditingProductId("nuevo")}
+            style={{
+              height: "40px", padding: "0 18px", border: "none", borderRadius: "10px",
+              backgroundColor: "#16a34a", color: "#fff", fontSize: "13px", fontWeight: 600,
+              cursor: "pointer", whiteSpace: "nowrap",
+            }}
+          >+ Nuevo producto</button>
+
+          {/* Import/Export — discretos al final */}
+          <div style={{ display: "flex", gap: "4px", marginLeft: "4px" }}>
             <button
               onClick={handleImportClick}
               disabled={isImporting}
-              style={{ padding: "10px 16px", border: "1.5px solid #e2e8f0", borderRadius: "10px", backgroundColor: "#fff", fontSize: "13px", fontWeight: 500, cursor: isImporting ? "not-allowed" : "pointer", color: "#475569", opacity: isImporting ? 0.5 : 1 }}
-            >{isImporting ? "Importando..." : "📥 Importar JSON"}</button>
-
+              title={isImporting ? "Importando..." : "Importar JSON"}
+              style={{
+                height: "40px", width: "40px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
+                backgroundColor: "#fff", fontSize: "16px", cursor: isImporting ? "not-allowed" : "pointer",
+                opacity: isImporting ? 0.5 : 0.7, display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >📥</button>
             <button
               onClick={handleExportJSON}
-              style={{ padding: "10px 16px", border: "1.5px solid #e2e8f0", borderRadius: "10px", backgroundColor: "#fff", fontSize: "13px", fontWeight: 500, cursor: "pointer", color: "#475569" }}
-            >📤 Exportar JSON</button>
-
-            <button
-              onClick={() => setShowSalidaModal(true)}
-              style={{ padding: "10px 20px", border: "none", borderRadius: "10px", backgroundColor: "#f97316", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
-            >+ Nueva Salida</button>
-
-            <button
-              onClick={() => setShowNewUnitModal(true)}
-              style={{ padding: "10px 16px", border: "1.5px solid #6366f1", borderRadius: "10px", backgroundColor: "#fff", color: "#6366f1", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
-              title="Gestionar tipos de unidad disponibles"
-            >📦 Nueva unidad</button>
-
-            <button
-              onClick={() => setEditingProductId("nuevo")}
-              style={{ padding: "10px 20px", border: "none", borderRadius: "10px", backgroundColor: "#16a34a", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
-            >+ Nuevo producto</button>
+              title="Exportar JSON"
+              style={{
+                height: "40px", width: "40px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
+                backgroundColor: "#fff", fontSize: "16px", cursor: "pointer",
+                opacity: 0.7, display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >📤</button>
           </div>
         </div>
+
+        {/* Fila expandible: nuevo departamento */}
+        {showNewDeptInput && (
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "10px", paddingTop: "10px", borderTop: "1px solid #f1f5f9" }}>
+            <span style={{ fontSize: "13px", color: "#64748b", fontWeight: 500, whiteSpace: "nowrap" }}>Nuevo departamento:</span>
+            <input
+              type="text"
+              placeholder="Nombre del departamento..."
+              value={newDeptName}
+              onChange={e => setNewDeptName(e.target.value)}
+              onKeyDown={e => { if (e.key === "Escape") { setShowNewDeptInput(false); setNewDeptName("") } }}
+              style={{ flex: 1, height: "36px", padding: "0 12px", border: "1.5px solid #86efac", borderRadius: "8px", fontSize: "14px", outline: "none" }}
+              autoFocus
+            />
+            <button
+              onClick={async () => {
+                if (!newDeptName.trim()) return
+                try {
+                  const deptId = await crearDepartamentoProd(newDeptName.trim())
+                  setDepartamentos([...departamentos, { id: deptId, nombre: newDeptName.trim() }])
+                  setDepartamentoId(deptId)
+                  setShowNewDeptInput(false)
+                  setNewDeptName("")
+                  if (onDepartamentoCreado) onDepartamentoCreado()
+                } catch (e: any) {
+                  toast.error("Error", e?.message ?? "Error al crear departamento")
+                }
+              }}
+              style={{ height: "36px", padding: "0 16px", border: "none", borderRadius: "8px", backgroundColor: "#16a34a", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+            >Crear</button>
+            <button
+              onClick={() => { setShowNewDeptInput(false); setNewDeptName("") }}
+              style={{ height: "36px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "8px", backgroundColor: "#fff", color: "#64748b", fontSize: "13px", cursor: "pointer" }}
+            >Cancelar</button>
+          </div>
+        )}
       </div>
 
       {/* ── Tabla / Placeholder ── */}
@@ -613,6 +682,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                 <th style={{ ...thStyle, padding: 0, position: "sticky", left: wideNombre ? "320px" : "240px", zIndex: 3, width: "170px", minWidth: "170px", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)", transition: "left 0.2s" }}><div style={{ padding: "12px 16px" }}>Presentación</div></th>
                 <th style={{ ...thStyle, minWidth: "100px" }}>Precio (€)</th>
                 <th style={{ ...thStyle, minWidth: "120px" }}>Categoría</th>
+                <th style={{ ...thStyle, minWidth: "90px", textAlign: "center" }}>Stock</th>
                 {MESES.map((mes, i) => (
                   <th key={i} style={{ ...thStyle, minWidth: "70px", textAlign: "center" }}>{mes}</th>
                 ))}
@@ -645,17 +715,21 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                     </tr>
 
                     {/* Filas de productos */}
-                    {isExpanded && prodsEnCat.map(prod => {
+                    {isExpanded && prodsEnCat.map((prod, rowIdx) => {
                       const totalProd = MESES.reduce((sum, _, idx) => sum + getConsumo(prod.id, idx + 1), 0)
                       const presActiva = getPresActiva(prod.id)
                       const listaPresProducto = presentacionesPorProducto.get(prod.id) ?? []
 
+                      const isEven = rowIdx % 2 === 0
+                      const rowBg = prod.activo === 0 ? "#fafafa" : isEven ? "#fff" : "#f8fafc"
+                      const rowBgHover = prod.activo === 0 ? "#fafafa" : "#eef2ff"
+
                       return (
                         <tr
                           key={prod.id}
-                          style={{ borderBottom: "1px solid #f1f5f9", backgroundColor: prod.activo === 0 ? "#fafafa" : "#fff" }}
-                          onMouseEnter={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = "#f8fafc" }}
-                          onMouseLeave={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = "#fff" }}
+                          style={{ borderBottom: "1px solid #f1f5f9", backgroundColor: rowBg }}
+                          onMouseEnter={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = rowBgHover }}
+                          onMouseLeave={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = rowBg }}
                         >
                           {/* Referencia */}
                           <td style={{ ...tdStyle, width: "90px", minWidth: "90px", maxWidth: "90px" }}>
@@ -665,7 +739,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           </td>
 
                           {/* Nombre */}
-                          <td onClick={() => setWideNombre(w => !w)} style={{ ...tdStyle, padding: 0, position: "sticky", left: 0, zIndex: 3, width: wideNombre ? "320px" : "240px", minWidth: wideNombre ? "320px" : "240px", maxWidth: wideNombre ? "320px" : "240px", backgroundColor: "#fff", transition: "width 0.2s", cursor: "pointer" }}>
+                          <td onClick={() => setWideNombre(w => !w)} style={{ ...tdStyle, padding: 0, position: "sticky", left: 0, zIndex: 3, width: wideNombre ? "320px" : "240px", minWidth: wideNombre ? "320px" : "240px", maxWidth: wideNombre ? "320px" : "240px", backgroundColor: rowBg, transition: "width 0.2s", cursor: "pointer" }}>
                             <div style={{ padding: "10px 16px", fontSize: "13px", color: prod.activo === 0 ? "#9ca3af" : "#1f2937", fontWeight: prod.activo === 0 ? 400 : 500 }}>
                               {prod.nombre}
                               {prod.activo === 0 && (
@@ -675,7 +749,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           </td>
 
                           {/* Selector de presentación */}
-                          <td style={{ ...tdStyle, padding: 0, position: "sticky", left: wideNombre ? "320px" : "240px", zIndex: 3, width: "170px", minWidth: "170px", backgroundColor: "#fff", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)", transition: "left 0.2s" }}>
+                          <td style={{ ...tdStyle, padding: 0, position: "sticky", left: wideNombre ? "320px" : "240px", zIndex: 3, width: "170px", minWidth: "170px", backgroundColor: rowBg, boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)", transition: "left 0.2s" }}>
                             <div style={{ padding: "6px 10px", display: "flex", alignItems: "center", gap: "4px" }}>
                               {listaPresProducto.length === 0 ? (
                                 <button
@@ -728,6 +802,34 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
                           {/* Categoría */}
                           <td style={{ ...tdStyle }}>{prod.categoria_nombre || "—"}</td>
+
+                          {/* Stock */}
+                          <td style={{ ...tdStyle, padding: "4px 8px", textAlign: "center" }}>
+                            <input
+                              type="number"
+                              min="0"
+                              value={prod.stock ?? ""}
+                              onChange={e => handleStockChange(prod.id, e.target.value)}
+                              disabled={savingStock === prod.id}
+                              placeholder="—"
+                              title="Stock actual en almacén"
+                              style={{
+                                width: "64px", padding: "4px 6px", border: "1.5px solid #d1d5db",
+                                borderRadius: "6px", textAlign: "center", fontSize: "12px",
+                                backgroundColor: savingStock === prod.id ? "#f5f5f5"
+                                  : prod.stock == null ? "#fff"
+                                  : prod.stock === 0 ? "#fef2f2"
+                                  : prod.stock <= 5 ? "#fff7ed"
+                                  : "#f0fdf4",
+                                color: prod.stock == null ? "#9ca3af"
+                                  : prod.stock === 0 ? "#dc2626"
+                                  : prod.stock <= 5 ? "#c2410c"
+                                  : "#15803d",
+                                fontWeight: prod.stock != null ? 600 : 400,
+                                outline: "none",
+                              }}
+                            />
+                          </td>
 
                           {/* Celdas de meses */}
                           {MESES.map((_, idx) => {
