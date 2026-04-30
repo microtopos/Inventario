@@ -579,117 +579,111 @@ function App() {
       {/* MODAL DE AJUSTES */}
       {showSettings && (
         <div
-          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}
+          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}
           onClick={() => setShowSettings(false)}
         >
           <div
-            style={{ backgroundColor: "#fff", borderRadius: "14px", width: "480px", overflow: "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.18)" }}
+            style={{ backgroundColor: "#fff", borderRadius: "12px", width: "460px", boxShadow: "0 8px 32px rgba(0,0,0,0.14)", overflow: "hidden" }}
             onClick={e => e.stopPropagation()}
           >
-            <div style={{ height: "4px", backgroundColor: "#111" }} />
-            <div style={{ padding: "28px" }}>
-              <h2 style={{ fontSize: "16px", fontWeight: 700, margin: "0 0 20px" }}>⚙ Ajustes</h2>
+            {/* Header */}
+            <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #e0e0e0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ fontSize: "15px", fontWeight: 700, margin: 0, color: "#111" }}>Ajustes</h2>
+              <button onClick={() => setShowSettings(false)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "#aaa", lineHeight: 1, padding: 0 }}>✕</button>
+            </div>
 
-              {/* Carpeta exportación */}
-              <div style={{ marginBottom: "20px" }}>
-                <div style={{ fontSize: "12px", fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>Carpeta de exportación</div>
-                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                  <div style={{ flex: 1, padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "13px", color: exportDir ? "#333" : "#aaa", fontFamily: exportDir ? "monospace" : "inherit", backgroundColor: "#fafafa", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {exportDir ?? "No configurada — se pedirá al exportar"}
+            <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: "20px" }}>
+
+              {/* Carpeta de exportación */}
+              <div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "8px" }}>Carpeta de exportación</div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <div style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#f5f5f5", fontSize: "12px", color: exportDir ? "#333" : "#aaa", fontFamily: exportDir ? "monospace" : "inherit", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {exportDir ?? "Se pedirá al exportar"}
                   </div>
-                  <button onClick={async () => { const dir = await changeExportDir(); if (dir) setExportDirState(dir) }} style={{ padding: "9px 16px", borderRadius: "7px", border: "1px solid #ddd", backgroundColor: "#fff", fontSize: "13px", cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500 }}>
-                    Cambiar…
-                  </button>
+                  <button
+                    onClick={async () => { const dir = await changeExportDir(); if (dir) setExportDirState(dir) }}
+                    style={{ padding: "8px 14px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#fff", fontSize: "13px", cursor: "pointer", fontWeight: 500, color: "#333", whiteSpace: "nowrap" }}
+                  >Cambiar…</button>
                 </div>
-                <div style={{ fontSize: "12px", color: "#aaa", marginTop: "6px" }}>Los exports se guardan directamente en esta carpeta.</div>
               </div>
 
               {/* Backups */}
-              <div style={{ marginBottom: "20px" }}>
-                <div style={{ fontSize: "12px", fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>Copias de seguridad</div>
-                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
-                  <div style={{ flex: 1, padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "13px", color: backupDir ? "#333" : "#aaa", fontFamily: backupDir ? "monospace" : "inherit", backgroundColor: "#fafafa", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {backupDir ?? "Por defecto: carpeta backups/ dentro de los datos de la app"}
+              <div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "8px" }}>Carpeta de backups</div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", marginBottom: "8px" }}>
+                  <div style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#f5f5f5", fontSize: "12px", color: backupDir ? "#333" : "#aaa", fontFamily: backupDir ? "monospace" : "inherit", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {backupDir ?? "%APPDATA%\\Inventario\\backups\\"}
                   </div>
-                  <button onClick={async () => { const dir = await changeBackupDir(); if (dir) setBackupDirState(dir) }} style={{ padding: "9px 16px", borderRadius: "7px", border: "1px solid #ddd", backgroundColor: "#fff", fontSize: "13px", cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500 }}>
-                    Cambiar…
-                  </button>
-                </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "10px" }}>
                   <button
-                    onClick={async () => {
-                      if (backingUp) return
-                      setBackingUp(true)
-                      try {
-                        const savedPath = await backupDB()
-                        await getBackupDir().then(setBackupDirState)
-                        toast.success("Copia de seguridad creada", savedPath)
-                      } catch (e: any) {
-                        if (e?.message !== "Selección cancelada") toast.error("No se pudo crear la copia de seguridad", e?.message ?? String(e))
-                      } finally {
-                        setBackingUp(false)
-                      }
-                    }}
-                    style={{ padding: "9px 16px", borderRadius: "7px", border: "none", backgroundColor: backingUp ? "#ccc" : "#111", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: backingUp ? "not-allowed" : "pointer" }}
-                  >
-                    {backingUp ? "Creando copia…" : "Crear copia de seguridad"}
-                  </button>
+                    onClick={async () => { const dir = await changeBackupDir(); if (dir) setBackupDirState(dir) }}
+                    style={{ padding: "8px 14px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#fff", fontSize: "13px", cursor: "pointer", fontWeight: 500, color: "#333", whiteSpace: "nowrap" }}
+                  >Cambiar…</button>
                 </div>
-                <div style={{ fontSize: "12px", color: "#aaa", marginTop: "6px" }}>
-                  Se guarda como <code>inventario_YYYY-MM-DD.db</code>. Usa "?" para ver cómo recuperar una copia.
-                </div>
+                <button
+                  onClick={async () => {
+                    if (backingUp) return
+                    setBackingUp(true)
+                    try {
+                      const savedPath = await backupDB()
+                      await getBackupDir().then(setBackupDirState)
+                      toast.success("Backup creado", savedPath)
+                    } catch (e: any) {
+                      if (e?.message !== "Selección cancelada") toast.error("Error al crear backup", e?.message ?? String(e))
+                    } finally {
+                      setBackingUp(false)
+                    }
+                  }}
+                  style={{ padding: "8px 14px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: backingUp ? "#f5f5f5" : "#fff", fontSize: "13px", cursor: backingUp ? "not-allowed" : "pointer", fontWeight: 500, color: backingUp ? "#aaa" : "#333" }}
+                >
+                  {backingUp ? "Creando backup…" : "Crear backup ahora"}
+                </button>
               </div>
 
+              {/* Separador */}
+              <div style={{ borderTop: "1px solid #e0e0e0" }} />
+
               {/* Umbrales de stock */}
-              <div style={{ marginBottom: "24px" }}>
-                <div style={{ fontSize: "12px", fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "12px" }}>Umbrales de color por talla</div>
-                <div style={{ fontSize: "12px", color: "#aaa", marginBottom: "14px" }}>Define cuántas unidades marcan el límite entre verde, naranja y rojo en el stock de cada talla.</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "4px" }}>Umbrales de stock por talla</div>
+                <div style={{ fontSize: "12px", color: "#888", marginBottom: "12px" }}>El color del indicador cambia según las unidades de cada talla.</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                   {([
-                    { key: "red",    label: "Rojo (crítico) — ≤",  color: "#dc2626" },
-                    { key: "orange", label: "Naranja (aviso) — ≤", color: "#f97316" },
-                  ] as const).map(({ key, label, color }) => (
-                    <div key={key}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
-                        <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: color, display: "inline-block" }} />
-                        <span style={{ fontSize: "12px", fontWeight: 600, color: "#555" }}>{label}</span>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <input
-                          type="number" min={0}
-                          value={thresholdInputs[key]}
-                          onChange={e => setThresholdInputs(t => ({ ...t, [key]: e.target.value }))}
-                          style={{ width: "70px", padding: "8px 10px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "14px", textAlign: "center" }}
-                        />
-                        <span style={{ fontSize: "12px", color: "#aaa" }}>unidades</span>
-                      </div>
+                    { key: "red",    label: "🔴  Crítico — stock ≤", color: "#dc2626" },
+                    { key: "orange", label: "🟠  Aviso — stock ≤",   color: "#ea580c" },
+                  ] as const).map(({ key, label }) => (
+                    <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: "13px", color: "#444" }}>{label}</span>
+                      <input
+                        type="number" min={0}
+                        value={thresholdInputs[key]}
+                        onChange={e => setThresholdInputs(t => ({ ...t, [key]: e.target.value }))}
+                        style={{ width: "64px", padding: "7px 10px", borderRadius: "8px", border: "1px solid #e0e0e0", fontSize: "14px", fontWeight: 600, textAlign: "center", color: "#111" }}
+                      />
                     </div>
                   ))}
                 </div>
-                <div style={{ marginTop: "14px", display: "flex", gap: "8px", alignItems: "center" }}>
-                  <span style={{ fontSize: "11px", color: "#aaa", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Preview:</span>
-                  <span style={{ padding: "3px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: 600, backgroundColor: "#fee2e2", color: "#991b1b" }}>0–{thresholdInputs.red || "?"} ud. 🔴</span>
-                  <span style={{ padding: "3px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: 600, backgroundColor: "#ffedd5", color: "#c2410c" }}>{Number(thresholdInputs.red || 0) + 1}–{thresholdInputs.orange || "?"} ud. 🟠</span>
-                  <span style={{ padding: "3px 10px", borderRadius: "20px", fontSize: "12px", fontWeight: 600, backgroundColor: "#dcfce7", color: "#166534" }}>&gt;{thresholdInputs.orange || "?"} ud. 🟢</span>
-                </div>
               </div>
+            </div>
 
-              <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                <button
-                  onClick={async () => {
-                    const red = Math.max(0, Number(thresholdInputs.red) || 0)
-                    const orange = Math.max(red, Number(thresholdInputs.orange) || 0)
-                    const t = { red, orange }
-                    await setStockThresholds(t)
-                    setStockThresholdsState(t)
-                    setThresholdInputs({ red: String(red), orange: String(orange) })
-                    setShowSettings(false)
-                  }}
-                  style={{ padding: "9px 22px", borderRadius: "8px", border: "none", backgroundColor: "#111", color: "#fff", fontSize: "14px", fontWeight: 600, cursor: "pointer" }}
-                >
-                  Guardar y cerrar
-                </button>
-              </div>
+            {/* Footer */}
+            <div style={{ padding: "16px 24px", borderTop: "1px solid #e0e0e0", display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+              <button
+                onClick={() => setShowSettings(false)}
+                style={{ padding: "8px 18px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#fff", fontSize: "13px", cursor: "pointer", color: "#555", fontWeight: 500 }}
+              >Cancelar</button>
+              <button
+                onClick={async () => {
+                  const red = Math.max(0, Number(thresholdInputs.red) || 0)
+                  const orange = Math.max(red, Number(thresholdInputs.orange) || 0)
+                  const t = { red, orange }
+                  await setStockThresholds(t)
+                  setStockThresholdsState(t)
+                  setThresholdInputs({ red: String(red), orange: String(orange) })
+                  setShowSettings(false)
+                }}
+                style={{ padding: "8px 18px", borderRadius: "8px", border: "none", backgroundColor: "#111", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+              >Guardar</button>
             </div>
           </div>
         </div>
@@ -698,50 +692,78 @@ function App() {
       {/* MODAL DE AYUDA */}
       {showHelp && (
         <div
-          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}
+          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.3)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }}
           onClick={() => setShowHelp(false)}
         >
           <div
-            style={{ backgroundColor: "#fff", borderRadius: "14px", width: "560px", maxHeight: "85vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 16px 48px rgba(0,0,0,0.18)" }}
+            style={{ backgroundColor: "#fff", borderRadius: "12px", width: "500px", maxHeight: "88vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.14)" }}
             onClick={e => e.stopPropagation()}
           >
-            <div style={{ height: "4px", backgroundColor: "#2563eb" }} />
-            <div style={{ padding: "28px 28px 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h2 style={{ fontSize: "16px", fontWeight: 700, margin: 0 }}>? Ayuda — Copias de seguridad</h2>
-              <button onClick={() => setShowHelp(false)} style={{ background: "none", border: "none", fontSize: "20px", cursor: "pointer", color: "#aaa", lineHeight: 1 }}>✕</button>
+            {/* Header */}
+            <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #e0e0e0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ fontSize: "15px", fontWeight: 700, margin: 0, color: "#111" }}>Ayuda — Backups</h2>
+              <button onClick={() => setShowHelp(false)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "#aaa", lineHeight: 1, padding: 0 }}>✕</button>
             </div>
-            <div style={{ padding: "24px 28px 28px", overflowY: "auto" }}>
-              <section style={{ marginBottom: "24px" }}>
-                <div style={helpSectionTitle}>¿Qué es una copia de seguridad?</div>
-                <p style={helpText}>La aplicación guarda todos los datos en un único archivo llamado <code style={helpCode}>inventario.db</code>. Una copia de seguridad es ese mismo archivo duplicado con la fecha en el nombre.</p>
-              </section>
-              <section style={{ marginBottom: "24px" }}>
-                <div style={helpSectionTitle}>¿Cuándo se crean las copias?</div>
-                <p style={helpText}>Las copias se crean en dos momentos:</p>
-                <ul style={helpList}>
-                  <li><b>Automáticamente</b> cada vez que confirmas un pedido.</li>
-                  <li><b>Manualmente</b> pulsando "Crear copia de seguridad" en Ajustes ⚙.</li>
-                </ul>
-              </section>
-              <section style={{ marginBottom: "24px" }}>
-                <div style={helpSectionTitle}>¿Cómo recupero los datos si algo va mal?</div>
-                <ol style={helpList}>
-                  <li>Cierra la aplicación completamente.</li>
-                  <li>Localiza la carpeta de backups (visible en Ajustes ⚙):
-                    <ul style={{ ...helpList, marginTop: "6px" }}>
-                      <li><b>Windows:</b> <code style={helpCode}>%APPDATA%\Inventario\backups\</code></li>
-                      <li><b>macOS:</b> <code style={helpCode}>~/Library/Application Support/Inventario/backups/</code></li>
-                      <li><b>Linux:</b> <code style={helpCode}>~/.local/share/Inventario/backups/</code></li>
-                    </ul>
-                  </li>
-                  <li>Elige el archivo más reciente, renómbralo a <code style={helpCode}>inventario.db</code> y cópialo un nivel más arriba.</li>
-                  <li>Vuelve a abrir la aplicación.</li>
-                </ol>
-              </section>
-              <section style={{ padding: "14px 16px", backgroundColor: "#eff6ff", borderRadius: "8px", border: "1px solid #bfdbfe" }}>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#1d4ed8", marginBottom: "6px" }}>💡 Recomendación</div>
-                <p style={{ ...helpText, margin: 0, color: "#1e40af" }}>Configura la carpeta de backups en una unidad externa o carpeta sincronizada con la nube. Así las copias estarán protegidas si el equipo falla.</p>
-              </section>
+
+            <div style={{ overflowY: "auto", padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: "20px" }}>
+
+              {/* Archivo de base de datos */}
+              <div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "8px" }}>Ubicación del archivo</div>
+                <div style={{ fontSize: "13px", color: "#555", marginBottom: "8px", lineHeight: 1.5 }}>
+                  La app guarda todo en un único archivo SQLite3:
+                </div>
+                <div style={{ backgroundColor: "#f5f5f5", border: "1px solid #e0e0e0", borderRadius: "8px", padding: "10px 14px" }}>
+                  <code style={{ fontSize: "12px", color: "#333", fontFamily: "monospace" }}>%APPDATA%\Inventario\inventario.db</code>
+                </div>
+                <div style={{ fontSize: "12px", color: "#888", marginTop: "8px" }}>
+                  Abre con DB Browser for SQLite, DBeaver o <code style={{ fontFamily: "monospace", fontSize: "11px" }}>sqlite3.exe</code> si necesitas inspeccionarlo.
+                </div>
+              </div>
+
+              <div style={{ borderTop: "1px solid #e0e0e0" }} />
+
+              {/* Backups */}
+              <div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "8px" }}>Backups automáticos y manuales</div>
+                <div style={{ fontSize: "13px", color: "#555", lineHeight: 1.6 }}>
+                  Se crea un backup automáticamente cada vez que confirmas un pedido. También puedes crear uno en cualquier momento desde Ajustes ⚙ → <em>Crear backup ahora</em>.
+                </div>
+                <div style={{ fontSize: "13px", color: "#555", marginTop: "8px", lineHeight: 1.6 }}>
+                  Los backups se guardan como <code style={{ fontFamily: "monospace", fontSize: "12px", backgroundColor: "#f5f5f5", padding: "1px 5px", borderRadius: "4px" }}>inventario_YYYY-MM-DD.db</code> en la carpeta configurada — por defecto:
+                </div>
+                <div style={{ backgroundColor: "#f5f5f5", border: "1px solid #e0e0e0", borderRadius: "8px", padding: "10px 14px", marginTop: "8px" }}>
+                  <code style={{ fontSize: "12px", color: "#333", fontFamily: "monospace" }}>%APPDATA%\Inventario\backups\</code>
+                </div>
+              </div>
+
+              <div style={{ borderTop: "1px solid #e0e0e0" }} />
+
+              {/* Recuperación */}
+              <div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "8px" }}>Recuperar un backup</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {[
+                    "Cierra la aplicación.",
+                    "Ve a la carpeta de backups y copia el archivo que quieras restaurar.",
+                    "Pégalo un nivel arriba renombrado como inventario.db, sobreescribiendo el existente.",
+                    "Reabre la aplicación.",
+                  ].map((step, i) => (
+                    <div key={i} style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
+                      <span style={{ minWidth: "20px", height: "20px", borderRadius: "50%", backgroundColor: "#f5f5f5", border: "1px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#555", flexShrink: 0, marginTop: "1px" }}>{i + 1}</span>
+                      <span style={{ fontSize: "13px", color: "#555", lineHeight: 1.5 }}>{step}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tip */}
+              <div style={{ backgroundColor: "#f0f7ff", border: "1px solid #bfdbfe", borderRadius: "8px", padding: "12px 14px" }}>
+                <span style={{ fontSize: "12px", color: "#1e40af", lineHeight: 1.6 }}>
+                  💡 Apunta la carpeta de backups a una unidad de red o carpeta sincronizada con OneDrive para tener las copias fuera del equipo.
+                </span>
+              </div>
+
             </div>
           </div>
         </div>

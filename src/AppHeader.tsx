@@ -14,6 +14,8 @@ interface AppHeaderProps {
   onBack?: () => void
   title?: string
   actions?: React.ReactNode
+  onHelp?: () => void
+  onSettings?: () => void
 }
 
 // orderHistory ya no aparece como ítem independiente en la nav.
@@ -31,7 +33,7 @@ const GROUP_ACCENT: Record<string, string> = {
   productos: "#16a34a",
 }
 
-export default function AppHeader({ page, onNavigate, onBack, title, actions }: AppHeaderProps) {
+export default function AppHeader({ page, onNavigate, onBack, title, actions, onHelp, onSettings }: AppHeaderProps) {
   const { draftCount } = useDraft()
 
   // "orderHistory" se considera parte del grupo "ropa" / página "orders" a efectos visuales
@@ -97,6 +99,30 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions }: 
       {/* LADO DERECHO */}
       <div style={{ display: "flex", alignItems: "center", gap: "0" }}>
         {actions}
+
+        {/* Botones Help y Settings */}
+        {(onHelp || onSettings) && (
+          <div style={{ display: "flex", gap: "6px", marginRight: "12px" }}>
+            {onHelp && (
+              <button
+                onClick={onHelp}
+                title="Ayuda"
+                style={{ background: "none", border: "1px solid #e0e0e0", borderRadius: "6px", padding: "6px 10px", fontSize: "16px", cursor: "pointer", color: "#888", lineHeight: 1 }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = "#aaa")}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = "#e0e0e0")}
+              >?</button>
+            )}
+            {onSettings && (
+              <button
+                onClick={onSettings}
+                title="Ajustes"
+                style={{ background: "none", border: "1px solid #e0e0e0", borderRadius: "6px", padding: "6px 10px", fontSize: "16px", cursor: "pointer", color: "#888", lineHeight: 1 }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = "#aaa")}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = "#e0e0e0")}
+              >⚙</button>
+            )}
+          </div>
+        )}
 
         {(["ropa", "gasolina", "productos"] as const).map((group, gi) => {
           const items = NAV_ITEMS.filter(i => i.group === group)

@@ -16,6 +16,10 @@ import {
   upsertPresentacion,
   deletePresentacion,
   crearUnidadPresentacion,
+  actualizarUnidadPresentacion,
+  actualizarDepartamentoProd,
+  eliminarDepartamentoProd,
+  eliminarUnidadPresentacion,
   claveSalida,
   exportarProductosJSON,
   importarProductosJSON,
@@ -70,9 +74,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [presModalProductoId, setPresModalProductoId] = useState<number | null>(null)
   const [presModalUnidadId, setPresModalUnidadId] = useState<number | "">("")
   const [presModalPrecio, setPresModalPrecio] = useState("")
-  // Modal nueva unidad global
-  const [showNewUnitModal, setShowNewUnitModal] = useState(false)
-  const [newUnitName, setNewUnitName] = useState("")
+  // Modal nueva unidad global — ahora integrado en Gestionar
 
   // ── Datos principales ──
   const [categorias, setCategorias] = useState<CategoriaProducto[]>([])
@@ -100,15 +102,31 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [savingStock, setSavingStock] = useState<number | null>(null) // producto_id guardando
   const [loading, setLoading] = useState(true)
   const [savingCell, setSavingCell] = useState<{ clave: string; mes: number; tipoUnidad: string | null } | null>(null)
-  const [showNewDeptInput, setShowNewDeptInput] = useState(false)
-  const [newDeptName, setNewDeptName] = useState("")
   const [isImporting, setIsImporting] = useState(false)
+  // Modal Gestionar (departamentos + unidades)
+  const [showGestionarModal, setShowGestionarModal] = useState(false)
+  const [gestionarTab, setGestionarTab] = useState<"departamentos" | "unidades">("departamentos")
+  const [newDeptName, setNewDeptName] = useState("")
+  const [newUnitNameGlobal, setNewUnitNameGlobal] = useState("")
+  const [gestionarDropdownOpen, setGestionarDropdownOpen] = useState(false)
+  // Estado de edición inline en modal Gestionar
+  const [editingDeptId, setEditingDeptId] = useState<number | null>(null)
+  const [editingDeptName, setEditingDeptName] = useState("")
+  const [editingUnitId, setEditingUnitId] = useState<number | null>(null)
+  const [editingUnitName, setEditingUnitName] = useState("")
   const [availableYears, setAvailableYears] = useState<number[]>([])
   const departamentoIdRef = useRef<number | "" | undefined>(undefined)
   useEffect(() => { departamentoIdRef.current = departamentoId }, [departamentoId])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const toastRef = useRef(toast)
   useEffect(() => { toastRef.current = toast })
+  // Cerrar dropdown al hacer click fuera
+  useEffect(() => {
+    if (!gestionarDropdownOpen) return
+    const handler = () => setGestionarDropdownOpen(false)
+    document.addEventListener("mousedown", handler)
+    return () => document.removeEventListener("mousedown", handler)
+  }, [gestionarDropdownOpen])
 
   // ─── Carga inicial ────────────────────────────────────────────────────────
 
@@ -370,15 +388,86 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }
 
-  async function handleCrearUnidadGlobal() {
-    if (!newUnitName.trim()) return
+  async function handleGuardarDepartamento(id: number) {
+    if (!editingDeptName.trim()) return
     try {
-      const id = await crearUnidadPresentacion(newUnitName.trim())
-      const nuevaUnidad: UnidadPresentacion = { id, nombre: newUnitName.trim() }
+      await actualizarDepartamentoProd(id, editingDeptName.trim())
+      setDepartamentos(prev => prev.map(d => d.id === id ? { ...d, nombre: editingDeptName.trim() } : d))
+      setEditingDeptId(null)
+      toast.success("Departamento actualizado")
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }
+
+  async function handleGuardarUnidad(id: number) {
+    if (!editingUnitName.trim()) return
+    try {
+      await actualizarUnidadPresentacion(id, editingUnitName.trim())
+      setUnidadesPresentacion(prev => prev.map(u => u.id === id ? { ...u, nombre: editingUnitName.trim() } : u))
+      setEditingUnitId(null)
+      toast.success("Unidad actualizada")
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }
+
+  async function handleCrearUnidadGlobal() {
+    if (!newUnitNameGlobal.trim()) return
+    try {
+      const id = await crearUnidadPresentacion(newUnitNameGlobal.trim())
+      const nuevaUnidad: UnidadPresentacion = { id, nombre: newUnitNameGlobal.trim() }
       setUnidadesPresentacion(prev => [...prev, nuevaUnidad].sort((a, b) => a.nombre.localeCompare(b.nombre)))
-      setNewUnitName("")
-      setShowNewUnitModal(false)
+      setNewUnitNameGlobal("")
       toast.success("Unidad creada", `"${nuevaUnidad.nombre}" ya está disponible`)
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }
+
+  async function handleCrearDepartamento() {
+    if (!newDeptName.trim()) return
+    try {
+      const deptId = await crearDepartamentoProd(newDeptName.trim())
+      setDepartamentos(prev => [...prev, { id: deptId, nombre: newDeptName.trim() }])
+      setDepartamentoId(deptId)
+      setNewDeptName("")
+      if (onDepartamentoCreado) onDepartamentoCreado()
+      toast.success("Departamento creado")
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? "Error al crear departamento")
+    }
+  }
+
+  async function handleEliminarDepartamento(dept: DepartamentoProd) {
+    const ok = await confirm(
+      `¿Eliminar el departamento "${dept.nombre}"?`,
+      { confirmLabel: "Eliminar", danger: true, detail: "Se eliminarán también todos los registros de consumo asociados a este departamento." }
+    )
+    if (!ok) return
+    try {
+      await eliminarDepartamentoProd(dept.id)
+      setDepartamentos(prev => prev.filter(d => d.id !== dept.id))
+      if (departamentoId === dept.id) {
+        const remaining = departamentos.filter(d => d.id !== dept.id)
+        setDepartamentoId(remaining[0]?.id ?? "")
+      }
+      toast.success("Departamento eliminado")
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }
+
+  async function handleEliminarUnidad(unidad: UnidadPresentacion) {
+    const ok = await confirm(
+      `¿Eliminar la unidad "${unidad.nombre}"?`,
+      { confirmLabel: "Eliminar", danger: true, detail: "Solo se puede eliminar si ningún producto la tiene asignada." }
+    )
+    if (!ok) return
+    try {
+      await eliminarUnidadPresentacion(unidad.id)
+      setUnidadesPresentacion(prev => prev.filter(u => u.id !== unidad.id))
+      toast.success("Unidad eliminada")
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     }
@@ -507,10 +596,9 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         backgroundColor: "#fff", border: "1px solid #e8edf2", borderRadius: "16px",
         padding: "14px 20px", boxShadow: "0 1px 3px rgba(0,0,0,0.05)", marginBottom: "16px",
       }}>
-        {/* Fila principal */}
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
 
-          {/* Buscador — crece para ocupar espacio sobrante */}
+          {/* Buscador */}
           <input
             type="text"
             placeholder="🔍 Buscar referencia o nombre..."
@@ -523,7 +611,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             }}
           />
 
-          {/* Separador visual */}
           <div style={{ width: "1px", height: "28px", backgroundColor: "#e2e8f0", flexShrink: 0 }} />
 
           {/* Selector departamento */}
@@ -543,18 +630,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             {departamentos.map(dep => <option key={dep.id} value={dep.id}>{dep.nombre}</option>)}
           </select>
 
-          {/* Botón nuevo departamento */}
-          <button
-            onClick={() => setShowNewDeptInput(v => !v)}
-            title="Crear nuevo departamento"
-            style={{
-              height: "40px", padding: "0 14px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
-              backgroundColor: showNewDeptInput ? "#f0fdf4" : "#fff", color: showNewDeptInput ? "#16a34a" : "#475569",
-              fontSize: "13px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
-              borderColor: showNewDeptInput ? "#86efac" : "#e2e8f0",
-            }}
-          >+ Dpto.</button>
-
           {/* Selector año */}
           <select
             value={year}
@@ -569,42 +644,90 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               : <option value={year}>{year}</option>}
           </select>
 
-          {/* Separador visual */}
           <div style={{ width: "1px", height: "28px", backgroundColor: "#e2e8f0", flexShrink: 0 }} />
 
-          {/* Botón Nueva Salida */}
+          {/* ── Acciones principales ── */}
+
+          {/* + Nueva salida */}
           <button
             onClick={() => setShowSalidaModal(true)}
             style={{
-              height: "40px", padding: "0 18px", border: "none", borderRadius: "10px",
-              backgroundColor: "#f97316", color: "#fff", fontSize: "13px", fontWeight: 600,
-              cursor: "pointer", whiteSpace: "nowrap",
+              height: "40px", padding: "0 16px", border: "1.5px solid #3b82f6", borderRadius: "10px",
+              backgroundColor: "#fff", color: "#3b82f6", fontSize: "13px", fontWeight: 600,
+              cursor: "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: "5px",
             }}
-          >+ Nueva salida</button>
+          >
+            <span style={{ fontSize: "15px", lineHeight: 1 }}>+</span> Nueva salida
+          </button>
 
-          {/* Botón Nueva unidad */}
-          <button
-            onClick={() => setShowNewUnitModal(true)}
-            title="Gestionar tipos de unidad disponibles"
-            style={{
-              height: "40px", padding: "0 18px", border: "1.5px solid #6366f1", borderRadius: "10px",
-              backgroundColor: "#fff", color: "#6366f1", fontSize: "13px", fontWeight: 600,
-              cursor: "pointer", whiteSpace: "nowrap",
-            }}
-          >+ Nueva unidad</button>
-
-          {/* Botón Nuevo producto */}
+          {/* + Nuevo producto */}
           <button
             onClick={() => setEditingProductId("nuevo")}
             style={{
-              height: "40px", padding: "0 18px", border: "none", borderRadius: "10px",
+              height: "40px", padding: "0 16px", border: "none", borderRadius: "10px",
               backgroundColor: "#16a34a", color: "#fff", fontSize: "13px", fontWeight: 600,
-              cursor: "pointer", whiteSpace: "nowrap",
+              cursor: "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: "5px",
             }}
-          >+ Nuevo producto</button>
+          >
+            <span style={{ fontSize: "15px", lineHeight: 1 }}>+</span> Nuevo producto
+          </button>
 
-          {/* Import/Export — discretos al final */}
-          <div style={{ display: "flex", gap: "4px", marginLeft: "4px" }}>
+          {/* ⚙ Gestionar (dropdown) */}
+          <div style={{ position: "relative" }} onMouseDown={e => e.stopPropagation()}>
+            <button
+              onClick={() => setGestionarDropdownOpen(v => !v)}
+              style={{
+                height: "40px", padding: "0 14px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
+                backgroundColor: gestionarDropdownOpen ? "#f8fafc" : "#fff", color: "#475569",
+                fontSize: "13px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap",
+                display: "flex", alignItems: "center", gap: "6px",
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+              </svg>
+              Gestionar
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: gestionarDropdownOpen ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>
+
+            {gestionarDropdownOpen && (
+              <div style={{
+                position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 200,
+                backgroundColor: "#fff", border: "1px solid #e2e8f0", borderRadius: "12px",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.10)", minWidth: "200px", overflow: "hidden",
+              }}>
+                <div style={{ padding: "6px" }}>
+                  <button
+                    onClick={() => { setGestionarTab("departamentos"); setShowGestionarModal(true); setGestionarDropdownOpen(false) }}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: "pointer", textAlign: "left", fontSize: "13px", color: "#374151", fontWeight: 500 }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc" }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent" }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+                    </svg>
+                    Departamentos
+                  </button>
+                  <button
+                    onClick={() => { setGestionarTab("unidades"); setShowGestionarModal(true); setGestionarDropdownOpen(false) }}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: "pointer", textAlign: "left", fontSize: "13px", color: "#374151", fontWeight: 500 }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc" }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent" }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                    </svg>
+                    Unidades de presentación
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Import/Export */}
+          <div style={{ display: "flex", gap: "4px" }}>
             <button
               onClick={handleImportClick}
               disabled={isImporting}
@@ -612,7 +735,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               style={{
                 height: "40px", width: "40px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
                 backgroundColor: "#fff", fontSize: "16px", cursor: isImporting ? "not-allowed" : "pointer",
-                opacity: isImporting ? 0.5 : 0.7, display: "flex", alignItems: "center", justifyContent: "center",
+                opacity: isImporting ? 0.5 : 0.6, display: "flex", alignItems: "center", justifyContent: "center",
               }}
             >📥</button>
             <button
@@ -621,47 +744,11 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               style={{
                 height: "40px", width: "40px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
                 backgroundColor: "#fff", fontSize: "16px", cursor: "pointer",
-                opacity: 0.7, display: "flex", alignItems: "center", justifyContent: "center",
+                opacity: 0.6, display: "flex", alignItems: "center", justifyContent: "center",
               }}
             >📤</button>
           </div>
         </div>
-
-        {/* Fila expandible: nuevo departamento */}
-        {showNewDeptInput && (
-          <div style={{ display: "flex", gap: "8px", alignItems: "center", marginTop: "10px", paddingTop: "10px", borderTop: "1px solid #f1f5f9" }}>
-            <span style={{ fontSize: "13px", color: "#64748b", fontWeight: 500, whiteSpace: "nowrap" }}>Nuevo departamento:</span>
-            <input
-              type="text"
-              placeholder="Nombre del departamento..."
-              value={newDeptName}
-              onChange={e => setNewDeptName(e.target.value)}
-              onKeyDown={e => { if (e.key === "Escape") { setShowNewDeptInput(false); setNewDeptName("") } }}
-              style={{ flex: 1, height: "36px", padding: "0 12px", border: "1.5px solid #86efac", borderRadius: "8px", fontSize: "14px", outline: "none" }}
-              autoFocus
-            />
-            <button
-              onClick={async () => {
-                if (!newDeptName.trim()) return
-                try {
-                  const deptId = await crearDepartamentoProd(newDeptName.trim())
-                  setDepartamentos([...departamentos, { id: deptId, nombre: newDeptName.trim() }])
-                  setDepartamentoId(deptId)
-                  setShowNewDeptInput(false)
-                  setNewDeptName("")
-                  if (onDepartamentoCreado) onDepartamentoCreado()
-                } catch (e: any) {
-                  toast.error("Error", e?.message ?? "Error al crear departamento")
-                }
-              }}
-              style={{ height: "36px", padding: "0 16px", border: "none", borderRadius: "8px", backgroundColor: "#16a34a", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
-            >Crear</button>
-            <button
-              onClick={() => { setShowNewDeptInput(false); setNewDeptName("") }}
-              style={{ height: "36px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "8px", backgroundColor: "#fff", color: "#64748b", fontSize: "13px", cursor: "pointer" }}
-            >Cancelar</button>
-          </div>
-        )}
       </div>
 
       {/* ── Tabla / Placeholder ── */}
@@ -1012,7 +1099,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                     <div style={{ fontSize: "13px", color: "#64748b", padding: "10px", backgroundColor: "#f1f5f9", borderRadius: "6px" }}>
                       Todas las unidades ya están asignadas a este producto.{" "}
                       <span
-                        onClick={() => { setShowPresModal(false); setShowNewUnitModal(true) }}
+                        onClick={() => { setShowPresModal(false); setGestionarTab("unidades"); setShowGestionarModal(true) }}
                         style={{ color: "#6366f1", cursor: "pointer", fontWeight: 600 }}
                       >Crear nueva unidad →</span>
                     </div>
@@ -1058,50 +1145,201 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         )
       })()}
 
-      {/* ── Modal: Nueva unidad global ── */}
-      {showNewUnitModal && (
-        <div onClick={() => setShowNewUnitModal(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div onClick={e => e.stopPropagation()} style={{ backgroundColor: "#fff", borderRadius: "14px", width: "360px", maxWidth: "calc(100vw - 32px)", boxShadow: "0 20px 48px rgba(0,0,0,0.15)", overflow: "hidden" }}>
-            <div style={{ height: "4px", backgroundColor: "#6366f1" }} />
-            <div style={{ padding: "24px" }}>
-              <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "0 0 6px" }}>Nueva unidad de presentación</h2>
-              <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 20px" }}>
-                Esta unidad estará disponible para asignar a cualquier producto (p.ej. Litro, Garrafa 5L, Spray, Pastilla…)
-              </p>
-              <div style={{ marginBottom: "20px" }}>
-                <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Nombre</label>
-                <input
-                  type="text"
-                  value={newUnitName}
-                  onChange={e => setNewUnitName(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter") handleCrearUnidadGlobal() }}
-                  placeholder="Ej: Garrafa 5L"
-                  style={{ width: "100%", padding: "10px 14px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "14px", boxSizing: "border-box" }}
-                />
-              </div>
-              {/* Lista de unidades ya existentes */}
-              {unidadesPresentacion.length > 0 && (
-                <div style={{ marginBottom: "16px" }}>
-                  <div style={{ fontSize: "11px", fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>
-                    Unidades existentes
-                  </div>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                    {unidadesPresentacion.map(u => (
-                      <span key={u.id} style={{ fontSize: "12px", padding: "3px 8px", borderRadius: "20px", backgroundColor: "#f1f5f9", color: "#475569", border: "1px solid #e2e8f0" }}>
-                        {u.nombre}
-                      </span>
+      {/* ── Modal: Gestionar departamentos y unidades ── */}
+      {showGestionarModal && (
+        <div
+          onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingUnitId(null) }}
+          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ backgroundColor: "#fff", borderRadius: "16px", width: "480px", maxWidth: "calc(100vw - 32px)", boxShadow: "0 20px 48px rgba(0,0,0,0.15)", overflow: "hidden", maxHeight: "80vh", display: "flex", flexDirection: "column" }}
+          >
+            {/* Header */}
+            <div style={{ padding: "20px 24px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <h2 style={{ fontSize: "16px", fontWeight: 700, margin: 0, color: "#111827" }}>Gestionar</h2>
+              <button
+                onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingUnitId(null) }}
+                style={{ width: "28px", height: "28px", border: "none", backgroundColor: "#f1f5f9", borderRadius: "6px", cursor: "pointer", color: "#64748b", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}
+              >✕</button>
+            </div>
+
+            {/* Tabs */}
+            <div style={{ display: "flex", gap: "0", padding: "16px 24px 0", borderBottom: "1px solid #f1f5f9" }}>
+              {(["departamentos", "unidades"] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => { setGestionarTab(tab); setEditingDeptId(null); setEditingUnitId(null) }}
+                  style={{
+                    padding: "8px 16px", border: "none", backgroundColor: "transparent", cursor: "pointer",
+                    fontSize: "13px", fontWeight: gestionarTab === tab ? 700 : 500,
+                    color: gestionarTab === tab ? "#1d4ed8" : "#64748b",
+                    borderBottom: gestionarTab === tab ? "2px solid #3b82f6" : "2px solid transparent",
+                    marginBottom: "-1px", textTransform: "capitalize",
+                  }}
+                >
+                  {tab === "departamentos" ? "Departamentos" : "Unidades de presentación"}
+                </button>
+              ))}
+            </div>
+
+            {/* Contenido */}
+            <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1 }}>
+
+              {/* ── Tab Departamentos ── */}
+              {gestionarTab === "departamentos" && (
+                <>
+                  {/* Lista */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "20px" }}>
+                    {departamentos.length === 0 ? (
+                      <p style={{ fontSize: "13px", color: "#94a3b8", textAlign: "center", padding: "20px 0", margin: 0 }}>No hay departamentos creados</p>
+                    ) : departamentos.map(dept => (
+                      <div key={dept.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", backgroundColor: "#f8fafc", borderRadius: "8px", border: `1px solid ${editingDeptId === dept.id ? "#93c5fd" : "#e2e8f0"}` }}>
+                        {editingDeptId === dept.id ? (
+                          <>
+                            <input
+                              autoFocus
+                              value={editingDeptName}
+                              onChange={e => setEditingDeptName(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === "Enter") handleGuardarDepartamento(dept.id)
+                                if (e.key === "Escape") setEditingDeptId(null)
+                              }}
+                              style={{ flex: 1, height: "30px", padding: "0 10px", border: "1.5px solid #93c5fd", borderRadius: "6px", fontSize: "13px", outline: "none", backgroundColor: "#fff" }}
+                            />
+                            <button
+                              onClick={() => handleGuardarDepartamento(dept.id)}
+                              disabled={!editingDeptName.trim()}
+                              style={{ padding: "4px 10px", border: "none", borderRadius: "6px", backgroundColor: editingDeptName.trim() ? "#3b82f6" : "#bfdbfe", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: editingDeptName.trim() ? "pointer" : "not-allowed" }}
+                            >Guardar</button>
+                            <button
+                              onClick={() => setEditingDeptId(null)}
+                              style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#64748b", fontSize: "12px", cursor: "pointer" }}
+                            >✕</button>
+                          </>
+                        ) : (
+                          <>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                            </svg>
+                            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#374151" }}>{dept.nombre}</span>
+                            <button
+                              onClick={() => { setEditingDeptId(dept.id); setEditingDeptName(dept.nombre) }}
+                              style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#475569", fontSize: "12px", cursor: "pointer" }}
+                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1" }}
+                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff"; e.currentTarget.style.borderColor = "#e2e8f0" }}
+                            >Editar</button>
+                            <button
+                              onClick={() => handleEliminarDepartamento(dept)}
+                              style={{ padding: "4px 8px", border: "1px solid #fca5a5", borderRadius: "6px", backgroundColor: "#fff", color: "#dc2626", fontSize: "12px", cursor: "pointer" }}
+                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#fef2f2" }}
+                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}
+                            >Eliminar</button>
+                          </>
+                        )}
+                      </div>
                     ))}
                   </div>
-                </div>
+                  {/* Crear nuevo */}
+                  <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "16px" }}>
+                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "10px" }}>Nuevo departamento</div>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        placeholder="Nombre del departamento..."
+                        value={newDeptName}
+                        onChange={e => setNewDeptName(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleCrearDepartamento() }}
+                        style={{ flex: 1, height: "38px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "13px", outline: "none" }}
+                      />
+                      <button
+                        onClick={handleCrearDepartamento}
+                        disabled={!newDeptName.trim()}
+                        style={{ height: "38px", padding: "0 16px", border: "none", borderRadius: "8px", backgroundColor: newDeptName.trim() ? "#16a34a" : "#d1fae5", color: newDeptName.trim() ? "#fff" : "#6ee7b7", fontSize: "13px", fontWeight: 600, cursor: newDeptName.trim() ? "pointer" : "not-allowed" }}
+                      >Crear</button>
+                    </div>
+                  </div>
+                </>
               )}
-              <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-                <button onClick={() => { setShowNewUnitModal(false); setNewUnitName("") }} style={{ padding: "8px 16px", borderRadius: "6px", border: "1px solid #d1d5db", backgroundColor: "#fff", color: "#666", cursor: "pointer" }}>Cancelar</button>
-                <button
-                  onClick={handleCrearUnidadGlobal}
-                  disabled={!newUnitName.trim()}
-                  style={{ padding: "8px 20px", borderRadius: "6px", border: "none", backgroundColor: newUnitName.trim() ? "#6366f1" : "#a5b4fc", color: "#fff", fontWeight: 600, cursor: newUnitName.trim() ? "pointer" : "not-allowed" }}
-                >Crear</button>
-              </div>
+
+              {/* ── Tab Unidades ── */}
+              {gestionarTab === "unidades" && (
+                <>
+                  {/* Lista */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "20px" }}>
+                    {unidadesPresentacion.length === 0 ? (
+                      <p style={{ fontSize: "13px", color: "#94a3b8", textAlign: "center", padding: "20px 0", margin: 0 }}>No hay unidades creadas</p>
+                    ) : unidadesPresentacion.map(unidad => (
+                      <div key={unidad.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", backgroundColor: "#f8fafc", borderRadius: "8px", border: `1px solid ${editingUnitId === unidad.id ? "#93c5fd" : "#e2e8f0"}` }}>
+                        {editingUnitId === unidad.id ? (
+                          <>
+                            <input
+                              autoFocus
+                              value={editingUnitName}
+                              onChange={e => setEditingUnitName(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === "Enter") handleGuardarUnidad(unidad.id)
+                                if (e.key === "Escape") setEditingUnitId(null)
+                              }}
+                              style={{ flex: 1, height: "30px", padding: "0 10px", border: "1.5px solid #93c5fd", borderRadius: "6px", fontSize: "13px", outline: "none", backgroundColor: "#fff" }}
+                            />
+                            <button
+                              onClick={() => handleGuardarUnidad(unidad.id)}
+                              disabled={!editingUnitName.trim()}
+                              style={{ padding: "4px 10px", border: "none", borderRadius: "6px", backgroundColor: editingUnitName.trim() ? "#3b82f6" : "#bfdbfe", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: editingUnitName.trim() ? "pointer" : "not-allowed" }}
+                            >Guardar</button>
+                            <button
+                              onClick={() => setEditingUnitId(null)}
+                              style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#64748b", fontSize: "12px", cursor: "pointer" }}
+                            >✕</button>
+                          </>
+                        ) : (
+                          <>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                              <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                            </svg>
+                            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#374151" }}>{unidad.nombre}</span>
+                            <button
+                              onClick={() => { setEditingUnitId(unidad.id); setEditingUnitName(unidad.nombre) }}
+                              style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#475569", fontSize: "12px", cursor: "pointer" }}
+                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1" }}
+                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff"; e.currentTarget.style.borderColor = "#e2e8f0" }}
+                            >Editar</button>
+                            <button
+                              onClick={() => handleEliminarUnidad(unidad)}
+                              style={{ padding: "4px 8px", border: "1px solid #fca5a5", borderRadius: "6px", backgroundColor: "#fff", color: "#dc2626", fontSize: "12px", cursor: "pointer" }}
+                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#fef2f2" }}
+                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}
+                            >Eliminar</button>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {/* Crear nueva */}
+                  <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "16px" }}>
+                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "10px" }}>Nueva unidad</div>
+                    <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 10px" }}>
+                      Disponible para asignar a cualquier producto (ej. Litro, Garrafa 5L, Spray…)
+                    </p>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        placeholder="Ej: Garrafa 5L"
+                        value={newUnitNameGlobal}
+                        onChange={e => setNewUnitNameGlobal(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleCrearUnidadGlobal() }}
+                        style={{ flex: 1, height: "38px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "13px", outline: "none" }}
+                      />
+                      <button
+                        onClick={handleCrearUnidadGlobal}
+                        disabled={!newUnitNameGlobal.trim()}
+                        style={{ height: "38px", padding: "0 16px", border: "none", borderRadius: "8px", backgroundColor: newUnitNameGlobal.trim() ? "#6366f1" : "#e0e7ff", color: newUnitNameGlobal.trim() ? "#fff" : "#a5b4fc", fontSize: "13px", fontWeight: 600, cursor: newUnitNameGlobal.trim() ? "pointer" : "not-allowed" }}
+                      >Crear</button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

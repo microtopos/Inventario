@@ -852,6 +852,33 @@ export async function deletePresentacion(presentacionId: number): Promise<void> 
   await db.execute("DELETE FROM producto_presentaciones WHERE id = ?", [presentacionId]);
 }
 
+export async function actualizarUnidadPresentacion(id: number, nombre: string): Promise<void> {
+  const db = await getDbWithRetry();
+  await db.execute(
+    "UPDATE unidades_presentacion SET nombre = ? WHERE id = ?",
+    [nombre.trim(), id]
+  );
+}
+
+/**
+ * Elimina una unidad de presentación global.
+ * Lanza error si algún producto la tiene asignada.
+ */
+export async function eliminarUnidadPresentacion(unidadId: number): Promise<void> {
+  const db = await getDbWithRetry();
+
+  const rows = await db.select<{ total: number }[]>(
+    "SELECT COUNT(*) AS total FROM producto_presentaciones WHERE unidad_id = ?",
+    [unidadId]
+  );
+
+  if (rows[0].total > 0) {
+    throw new Error("No se puede eliminar una unidad que está asignada a productos.");
+  }
+
+  await db.execute("DELETE FROM unidades_presentacion WHERE id = ?", [unidadId]);
+}
+
 // ─── Importación / Exportación JSON ──────────────────────────────────────────
 
 export interface SalidaExportada {
