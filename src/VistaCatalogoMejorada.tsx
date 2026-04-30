@@ -39,6 +39,11 @@ const MESES = [
   "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
 ]
 
+const MESES_CORTOS = [
+  "Ene", "Feb", "Mar", "Abr", "May", "Jun",
+  "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"
+]
+
 // ─── Colores heatmap ──────────────────────────────────────────────────────────
 
 function getConsumoColor(valor: number, maxValor: number): string {
@@ -56,8 +61,8 @@ function getConsumoTextColor(valor: number): string {
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-// Ref + Nombre + Presentación + Precio + Categoría + Stock + 12 meses + Total + Acciones
-const TOTAL_COLS = 21
+// Ref + Nombre + Presentación + Precio + Categoría + Stock + meses visibles + Total + Acciones
+// TOTAL_COLS es dinámico: 6 columnas fijas + mesesVisibles.length + Total + Acciones = 9 + mesesVisibles.length
 
 // ─── Componente principal ────────────────────────────────────────────────────
 
@@ -89,6 +94,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [year, setYear] = useState(new Date().getFullYear())
   const [searchTerm, setSearchTerm] = useState("")
   const [expandedCategories, setExpandedCategories] = useState<Set<number>>(new Set())
+  const [mesesFiltro, setMesesFiltro] = useState<Set<number>>(new Set()) // vacío = todos
 
   // ── Presentación activa por producto (qué fila se muestra) ──
   // producto_id → presentacion_id (null = "sin presentación")
@@ -561,6 +567,13 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     setExpandedCategories(nuevo)
   }
 
+  // Índices de meses visibles (0-11). Si el filtro está vacío, se muestran todos.
+  const mesesVisibles = useMemo(() =>
+    mesesFiltro.size === 0
+      ? MESES.map((_, i) => i)
+      : MESES.map((_, i) => i).filter(i => mesesFiltro.has(i))
+  , [mesesFiltro])
+
   const totalesPorMes = useMemo(() => {
     const totals = new Array(12).fill(0)
     for (const prod of productosFiltrados) {
@@ -749,6 +762,49 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             >📤</button>
           </div>
         </div>
+
+        {/* ── Chips de filtro de meses ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "12px", paddingTop: "12px", borderTop: "1px solid #f1f5f9", flexWrap: "wrap" }}>
+          <span style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginRight: "2px", whiteSpace: "nowrap" }}>Meses:</span>
+          <button
+            onClick={() => setMesesFiltro(new Set())}
+            style={{
+              height: "28px", padding: "0 10px", borderRadius: "20px", fontSize: "12px", fontWeight: 600,
+              cursor: "pointer", border: "1.5px solid",
+              borderColor: mesesFiltro.size === 0 ? "#3b82f6" : "#e2e8f0",
+              backgroundColor: mesesFiltro.size === 0 ? "#eff6ff" : "#fff",
+              color: mesesFiltro.size === 0 ? "#2563eb" : "#94a3b8",
+            }}
+          >Todos</button>
+          {MESES_CORTOS.map((mes, i) => {
+            const activo = mesesFiltro.has(i)
+            return (
+              <button
+                key={i}
+                onClick={() => {
+                  setMesesFiltro(prev => {
+                    const next = new Set(prev)
+                    if (next.has(i)) next.delete(i)
+                    else next.add(i)
+                    return next
+                  })
+                }}
+                style={{
+                  height: "28px", padding: "0 10px", borderRadius: "20px", fontSize: "12px", fontWeight: 600,
+                  cursor: "pointer", border: "1.5px solid", transition: "all 0.1s",
+                  borderColor: activo ? "#3b82f6" : "#e2e8f0",
+                  backgroundColor: activo ? "#eff6ff" : "#fff",
+                  color: activo ? "#2563eb" : "#64748b",
+                }}
+              >{mes}</button>
+            )
+          })}
+          {mesesFiltro.size > 0 && (
+            <span style={{ fontSize: "11px", color: "#94a3b8", marginLeft: "4px" }}>
+              {mesesFiltro.size === 1 ? "1 mes seleccionado" : `${mesesFiltro.size} meses seleccionados`}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* ── Tabla / Placeholder ── */}
@@ -770,8 +826,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                 <th style={{ ...thStyle, minWidth: "100px" }}>Precio (€)</th>
                 <th style={{ ...thStyle, minWidth: "120px" }}>Categoría</th>
                 <th style={{ ...thStyle, minWidth: "90px", textAlign: "center" }}>Stock</th>
-                {MESES.map((mes, i) => (
-                  <th key={i} style={{ ...thStyle, minWidth: "70px", textAlign: "center" }}>{mes}</th>
+                {mesesVisibles.map(i => (
+                  <th key={i} style={{ ...thStyle, minWidth: "70px", textAlign: "center" }}>{MESES[i]}</th>
                 ))}
                 <th style={{ ...thStyle, minWidth: "100px", textAlign: "center" }}>Total</th>
                 <th style={{ ...thStyle, position: "sticky", right: 0, zIndex: 3, minWidth: "130px", textAlign: "center", boxShadow: "-2px 0 4px -2px rgba(0,0,0,0.15)" }}>Acciones</th>
@@ -792,7 +848,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                       onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eff6ff" }}
                       onMouseLeave={e => { e.currentTarget.style.backgroundColor = isExpanded ? "#eff6ff" : "#f8fafc" }}
                     >
-                      <td colSpan={TOTAL_COLS} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", position: "sticky", left: 0, backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", zIndex: 1 }}>
+                      <td colSpan={9 + mesesVisibles.length} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", position: "sticky", left: 0, backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", zIndex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <span style={{ fontSize: "12px", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", color: "#3b82f6" }}>▶</span>
                           <span style={{ fontSize: "13px" }}>{cat.nombre}</span>
@@ -803,7 +859,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
                     {/* Filas de productos */}
                     {isExpanded && prodsEnCat.map((prod, rowIdx) => {
-                      const totalProd = MESES.reduce((sum, _, idx) => sum + getConsumo(prod.id, idx + 1), 0)
+                      const totalProd = mesesVisibles.reduce((sum, idx) => sum + getConsumo(prod.id, idx + 1), 0)
                       const presActiva = getPresActiva(prod.id)
                       const listaPresProducto = presentacionesPorProducto.get(prod.id) ?? []
 
@@ -919,7 +975,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           </td>
 
                           {/* Celdas de meses */}
-                          {MESES.map((_, idx) => {
+                          {mesesVisibles.map(idx => {
                             const mes = idx + 1
                             const presId = presentacionActiva.get(prod.id) ?? null
                             const tipoPres = presId !== null ? String(presId) : null
@@ -996,11 +1052,11 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               {productosFiltrados.length > 0 && (
                 <tr style={{ backgroundColor: "#111827", fontWeight: 700 }}>
                   <td colSpan={5} style={{ padding: "14px", textAlign: "right", color: "#f9fafb", fontSize: "13px" }}>TOTALES</td>
-                  {totalesPorMes.map((total, i) => (
-                    <td key={i} style={{ padding: "14px", textAlign: "center", color: "#fbbf24", fontSize: "14px" }}>{total.toLocaleString()}</td>
+                  {mesesVisibles.map(i => (
+                    <td key={i} style={{ padding: "14px", textAlign: "center", color: "#fbbf24", fontSize: "14px" }}>{totalesPorMes[i].toLocaleString()}</td>
                   ))}
                   <td style={{ padding: "14px", textAlign: "right", color: "#fbbf24", fontSize: "14px" }}>
-                    {totalesPorMes.reduce((a, b) => a + b, 0).toLocaleString()}
+                    {mesesVisibles.reduce((a, i) => a + totalesPorMes[i], 0).toLocaleString()}
                   </td>
                   <td></td>
                 </tr>
@@ -1008,7 +1064,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
               {productosFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={TOTAL_COLS} style={{ padding: "60px", textAlign: "center", color: "#6b7280", backgroundColor: "#fafafa" }}>
+                  <td colSpan={9 + mesesVisibles.length} style={{ padding: "60px", textAlign: "center", color: "#6b7280", backgroundColor: "#fafafa" }}>
                     <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "8px" }}>No se encontraron productos</div>
                     <div style={{ fontSize: "13px" }}>{searchTerm ? "Intenta con otro término de búsqueda" : "Agrega productos usando el botón '+ Nuevo producto'"}</div>
                   </td>
