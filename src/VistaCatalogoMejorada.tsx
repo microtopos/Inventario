@@ -20,6 +20,9 @@ import {
   actualizarDepartamentoProd,
   eliminarDepartamentoProd,
   eliminarUnidadPresentacion,
+  crearCategoria,
+  actualizarCategoria,
+  eliminarCategoria,
   claveSalida,
   exportarProductosJSON,
   importarProductosJSON,
@@ -111,7 +114,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [isImporting, setIsImporting] = useState(false)
   // Modal Gestionar (departamentos + unidades)
   const [showGestionarModal, setShowGestionarModal] = useState(false)
-  const [gestionarTab, setGestionarTab] = useState<"departamentos" | "unidades" | "productos">("departamentos")
+  const [gestionarTab, setGestionarTab] = useState<"departamentos" | "unidades" | "productos" | "categorias">("departamentos")
   const [newDeptName, setNewDeptName] = useState("")
   const [newUnitNameGlobal, setNewUnitNameGlobal] = useState("")
   const [gestionarDropdownOpen, setGestionarDropdownOpen] = useState(false)
@@ -120,6 +123,9 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [editingDeptName, setEditingDeptName] = useState("")
   const [editingUnitId, setEditingUnitId] = useState<number | null>(null)
   const [editingUnitName, setEditingUnitName] = useState("")
+  const [editingCatId, setEditingCatId] = useState<number | null>(null)
+  const [editingCatName, setEditingCatName] = useState("")
+  const [newCatName, setNewCatName] = useState("")
   const [gestionarProductoSearch, setGestionarProductoSearch] = useState("")
   const [availableYears, setAvailableYears] = useState<number[]>([])
   const departamentoIdRef = useRef<number | "" | undefined>(undefined)
@@ -419,6 +425,45 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }
 
+  async function handleCrearCategoria() {
+    if (!newCatName.trim()) return
+    try {
+      const id = await crearCategoria(newCatName.trim())
+      setCategorias(prev => [...prev, { id, nombre: newCatName.trim() }].sort((a, b) => a.nombre.localeCompare(b.nombre)))
+      setNewCatName("")
+      toast.success("Categoría creada")
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }
+
+  async function handleGuardarCategoria(id: number) {
+    if (!editingCatName.trim()) return
+    try {
+      await actualizarCategoria(id, editingCatName.trim())
+      setCategorias(prev => prev.map(c => c.id === id ? { ...c, nombre: editingCatName.trim() } : c))
+      setEditingCatId(null)
+      toast.success("Categoría actualizada")
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }
+
+  async function handleEliminarCategoria(cat: CategoriaProducto) {
+    const ok = await confirm(
+      `¿Eliminar la categoría "${cat.nombre}"?`,
+      { confirmLabel: "Eliminar", danger: true, detail: "Solo se puede eliminar si no tiene productos activos asignados." }
+    )
+    if (!ok) return
+    try {
+      await eliminarCategoria(cat.id)
+      setCategorias(prev => prev.filter(c => c.id !== cat.id))
+      toast.success("Categoría eliminada")
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }
+
   async function handleCrearUnidadGlobal() {
     if (!newUnitNameGlobal.trim()) return
     try {
@@ -711,6 +756,18 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                       <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
                     </svg>
                     Productos
+                  </button>
+                  <div style={{ height: "1px", backgroundColor: "#f1f5f9", margin: "4px 6px" }} />
+                  <button
+                    onClick={() => { setGestionarTab("categorias"); setShowGestionarModal(true); setGestionarDropdownOpen(false) }}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: "pointer", textAlign: "left", fontSize: "13px", color: "#374151", fontWeight: 500 }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc" }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent" }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                    </svg>
+                    Categorías
                   </button>
                   <div style={{ height: "1px", backgroundColor: "#f1f5f9", margin: "4px 6px" }} />
                   <button
@@ -1189,7 +1246,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       {/* ── Modal: Gestionar departamentos y unidades ── */}
       {showGestionarModal && (
         <div
-          onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingUnitId(null); setGestionarProductoSearch("") }}
+          onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingUnitId(null); setEditingCatId(null); setGestionarProductoSearch("") }}
           style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           <div
@@ -1200,26 +1257,26 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             <div style={{ padding: "20px 24px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <h2 style={{ fontSize: "16px", fontWeight: 700, margin: 0, color: "#111827" }}>Gestionar</h2>
               <button
-                onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingUnitId(null); setGestionarProductoSearch("") }}
+                onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingUnitId(null); setEditingCatId(null); setGestionarProductoSearch("") }}
                 style={{ width: "28px", height: "28px", border: "none", backgroundColor: "#f1f5f9", borderRadius: "6px", cursor: "pointer", color: "#64748b", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}
               >✕</button>
             </div>
 
             {/* Tabs */}
             <div style={{ display: "flex", gap: "0", padding: "16px 24px 0", borderBottom: "1px solid #f1f5f9" }}>
-              {(["productos", "departamentos", "unidades"] as const).map(tab => (
+              {(["productos", "categorias", "departamentos", "unidades"] as const).map(tab => (
                 <button
                   key={tab}
-                  onClick={() => { setGestionarTab(tab); setEditingDeptId(null); setEditingUnitId(null) }}
+                  onClick={() => { setGestionarTab(tab); setEditingDeptId(null); setEditingUnitId(null); setEditingCatId(null) }}
                   style={{
-                    padding: "8px 16px", border: "none", backgroundColor: "transparent", cursor: "pointer",
+                    padding: "8px 14px", border: "none", backgroundColor: "transparent", cursor: "pointer",
                     fontSize: "13px", fontWeight: gestionarTab === tab ? 700 : 500,
                     color: gestionarTab === tab ? "#1d4ed8" : "#64748b",
                     borderBottom: gestionarTab === tab ? "2px solid #3b82f6" : "2px solid transparent",
-                    marginBottom: "-1px",
+                    marginBottom: "-1px", whiteSpace: "nowrap",
                   }}
                 >
-                  {tab === "productos" ? "Productos" : tab === "departamentos" ? "Departamentos" : "Unidades"}
+                  {tab === "productos" ? "Productos" : tab === "categorias" ? "Categorías" : tab === "departamentos" ? "Departamentos" : "Unidades"}
                 </button>
               ))}
             </div>
@@ -1295,6 +1352,80 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                   </>
                 )
               })()}
+
+              {/* ── Tab Categorías ── */}
+              {gestionarTab === "categorias" && (
+                <>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "20px" }}>
+                    {categorias.length === 0 ? (
+                      <p style={{ fontSize: "13px", color: "#94a3b8", textAlign: "center", padding: "20px 0", margin: 0 }}>No hay categorías creadas</p>
+                    ) : categorias.map(cat => (
+                      <div key={cat.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", backgroundColor: "#f8fafc", borderRadius: "8px", border: `1px solid ${editingCatId === cat.id ? "#93c5fd" : "#e2e8f0"}` }}>
+                        {editingCatId === cat.id ? (
+                          <>
+                            <input
+                              autoFocus
+                              value={editingCatName}
+                              onChange={e => setEditingCatName(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === "Enter") handleGuardarCategoria(cat.id)
+                                if (e.key === "Escape") setEditingCatId(null)
+                              }}
+                              style={{ flex: 1, height: "30px", padding: "0 10px", border: "1.5px solid #93c5fd", borderRadius: "6px", fontSize: "13px", outline: "none", backgroundColor: "#fff" }}
+                            />
+                            <button
+                              onClick={() => handleGuardarCategoria(cat.id)}
+                              disabled={!editingCatName.trim()}
+                              style={{ padding: "4px 10px", border: "none", borderRadius: "6px", backgroundColor: editingCatName.trim() ? "#3b82f6" : "#bfdbfe", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: editingCatName.trim() ? "pointer" : "not-allowed" }}
+                            >Guardar</button>
+                            <button
+                              onClick={() => setEditingCatId(null)}
+                              style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#64748b", fontSize: "12px", cursor: "pointer" }}
+                            >✕</button>
+                          </>
+                        ) : (
+                          <>
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                            </svg>
+                            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#374151" }}>{cat.nombre}</span>
+                            <button
+                              onClick={() => { setEditingCatId(cat.id); setEditingCatName(cat.nombre) }}
+                              style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#475569", fontSize: "12px", cursor: "pointer" }}
+                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1" }}
+                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff"; e.currentTarget.style.borderColor = "#e2e8f0" }}
+                            >Editar</button>
+                            <button
+                              onClick={() => handleEliminarCategoria(cat)}
+                              style={{ padding: "4px 8px", border: "1px solid #fca5a5", borderRadius: "6px", backgroundColor: "#fff", color: "#dc2626", fontSize: "12px", cursor: "pointer" }}
+                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#fef2f2" }}
+                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}
+                            >Eliminar</button>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "16px" }}>
+                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "10px" }}>Nueva categoría</div>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input
+                        type="text"
+                        placeholder="Nombre de la categoría..."
+                        value={newCatName}
+                        onChange={e => setNewCatName(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter") handleCrearCategoria() }}
+                        style={{ flex: 1, height: "38px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "13px", outline: "none" }}
+                      />
+                      <button
+                        onClick={handleCrearCategoria}
+                        disabled={!newCatName.trim()}
+                        style={{ height: "38px", padding: "0 16px", border: "none", borderRadius: "8px", backgroundColor: newCatName.trim() ? "#16a34a" : "#d1fae5", color: newCatName.trim() ? "#fff" : "#6ee7b7", fontSize: "13px", fontWeight: 600, cursor: newCatName.trim() ? "pointer" : "not-allowed" }}
+                      >Crear</button>
+                    </div>
+                  </div>
+                </>
+              )}
 
               {/* ── Tab Departamentos ── */}
               {gestionarTab === "departamentos" && (
