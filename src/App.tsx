@@ -27,7 +27,7 @@ import { backupDB, changeBackupDir } from "./backupService"
 import { useToast } from "./Toast"
 import { useSortableTable } from "./useSortableTable"
 import { useInventory } from "./useInventory"
-import { cardStyleLegacy, inputStyle, btnStyle, thStyle, tdStyle, helpSectionTitle, helpText, helpList, helpCode, stockBadgeColors } from "./styles"
+import { cardStyleLegacy, inputStyle, btnStyle, thStyle, tdStyle, stockBadgeColors } from "./styles"
 import {
   exportInventarioJSON,
   importInventarioJSON,
