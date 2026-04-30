@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import AppHeader from "./AppHeader"
 import type { Page } from "./AppHeader"
 import { useConfirm } from "./ConfirmDialog"
@@ -32,17 +32,16 @@ function fechaHoy() {
   return new Date().toISOString().slice(0, 10)
 }
 
+function colorVehiculo(index: number) {
+  return COLORES_VEHICULO[index % COLORES_VEHICULO.length]
+}
 
-// ─── Subcomponente: Modal de Vehículo ─────────────────────────────────────────
+// ─── Modal Vehículo ───────────────────────────────────────────────────────────
 
 function ModalVehiculo({
-  vehiculo,
-  onClose,
-  onSaved,
+  vehiculo, onClose, onSaved,
 }: {
-  vehiculo: Vehiculo | null
-  onClose: () => void
-  onSaved: () => void
+  vehiculo: Vehiculo | null; onClose: () => void; onSaved: () => void
 }) {
   const toast = useToast()
   const [matricula, setMatricula] = useState(vehiculo?.matricula ?? "")
@@ -60,8 +59,7 @@ function ModalVehiculo({
         await crearVehiculo(matricula, nombre)
         toast.success("Vehículo creado")
       }
-      onSaved()
-      onClose()
+      onSaved(); onClose()
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     } finally {
@@ -72,53 +70,26 @@ function ModalVehiculo({
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300 }} />
-      <div style={{
-        position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-        backgroundColor: "#fff", borderRadius: "14px", width: "420px",
-        maxWidth: "calc(100vw - 32px)", boxShadow: "0 24px 64px rgba(0,0,0,0.18)",
-        zIndex: 301, overflow: "hidden",
-      }}>
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", backgroundColor: "#fff", borderRadius: "14px", width: "420px", maxWidth: "calc(100vw - 32px)", boxShadow: "0 24px 64px rgba(0,0,0,0.18)", zIndex: 301, overflow: "hidden" }}>
         <div style={{ height: "4px", backgroundColor: "#ea580c" }} />
         <div style={{ padding: "24px" }}>
-          <h2 style={{ fontSize: "16px", fontWeight: 700, margin: "0 0 20px" }}>
-            {vehiculo ? "Editar vehículo" : "Nuevo vehículo"}
-          </h2>
+          <h2 style={{ fontSize: "16px", fontWeight: 700, margin: "0 0 20px" }}>{vehiculo ? "Editar vehículo" : "Nuevo vehículo"}</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
             <div>
-              <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>
-                Matrícula
-              </label>
-              <input
-                autoFocus
-                value={matricula}
-                onChange={e => setMatricula(e.target.value.toUpperCase())}
-                onKeyDown={e => e.key === "Enter" && handleSubmit()}
-                placeholder="1234 ABC"
-                style={{ width: "100%", padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "14px", fontFamily: "monospace", boxSizing: "border-box", outline: "none", textTransform: "uppercase" }}
-              />
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Matrícula</label>
+              <input autoFocus value={matricula} onChange={e => setMatricula(e.target.value.toUpperCase())} onKeyDown={e => e.key === "Enter" && handleSubmit()} placeholder="1234 ABC"
+                style={{ width: "100%", padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "14px", fontFamily: "monospace", boxSizing: "border-box", outline: "none", textTransform: "uppercase" }} />
             </div>
             <div>
-              <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>
-                Nombre / descripción
-              </label>
-              <input
-                value={nombre}
-                onChange={e => setNombre(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleSubmit()}
-                placeholder="Furgoneta almacén, Camión 1…"
-                style={{ width: "100%", padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "14px", boxSizing: "border-box", outline: "none" }}
-              />
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Nombre / descripción</label>
+              <input value={nombre} onChange={e => setNombre(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} placeholder="Furgoneta almacén, Camión 1…"
+                style={{ width: "100%", padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "14px", boxSizing: "border-box", outline: "none" }} />
             </div>
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "24px" }}>
-            <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "14px", cursor: "pointer" }}>
-              Cancelar
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={saving || !matricula.trim() || !nombre.trim()}
-              style={{ padding: "9px 20px", borderRadius: "8px", border: "none", backgroundColor: matricula.trim() && nombre.trim() ? "#ea580c" : "#ccc", color: "#fff", fontSize: "14px", fontWeight: 600, cursor: matricula.trim() && nombre.trim() ? "pointer" : "not-allowed" }}
-            >
+            <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "14px", cursor: "pointer" }}>Cancelar</button>
+            <button onClick={handleSubmit} disabled={saving || !matricula.trim() || !nombre.trim()}
+              style={{ padding: "9px 20px", borderRadius: "8px", border: "none", backgroundColor: matricula.trim() && nombre.trim() ? "#ea580c" : "#ccc", color: "#fff", fontSize: "14px", fontWeight: 600, cursor: matricula.trim() && nombre.trim() ? "pointer" : "not-allowed" }}>
               {saving ? "Guardando…" : "✓ Guardar"}
             </button>
           </div>
@@ -128,44 +99,34 @@ function ModalVehiculo({
   )
 }
 
-// ─── Subcomponente: Modal de Repostaje ────────────────────────────────────────
+// ─── Modal Repostaje ──────────────────────────────────────────────────────────
 
 function ModalRepostaje({
-  repostaje,
-  vehiculos,
-  defaultVehiculoId,
-  onClose,
-  onSaved,
+  repostaje, vehiculo, onClose, onSaved,
 }: {
-  repostaje: Repostaje | null
-  vehiculos: Vehiculo[]
-  defaultVehiculoId?: number
-  onClose: () => void
-  onSaved: () => void
+  repostaje: Repostaje | null; vehiculo: Vehiculo; onClose: () => void; onSaved: () => void
 }) {
   const toast = useToast()
-  const [vehiculoId, setVehiculoId] = useState<number>(
-    repostaje?.vehiculo_id ?? defaultVehiculoId ?? vehiculos[0]?.id ?? 0
-  )
   const [fecha, setFecha] = useState(repostaje?.fecha ?? fechaHoy())
   const [coste, setCoste] = useState(repostaje ? String(repostaje.coste) : "")
   const [notas, setNotas] = useState(repostaje?.notas ?? "")
   const [saving, setSaving] = useState(false)
 
+  const costeNum = parseFloat(coste.replace(",", "."))
+  const valid = fecha && !isNaN(costeNum) && costeNum > 0
+
   async function handleSubmit() {
-    const costeNum = parseFloat(coste.replace(",", "."))
-    if (!vehiculoId || !fecha || isNaN(costeNum) || costeNum <= 0) return
+    if (!valid) return
     setSaving(true)
     try {
       if (repostaje) {
-        await actualizarRepostaje(repostaje.id, { vehiculo_id: vehiculoId, fecha, coste: costeNum, notas: notas || undefined })
+        await actualizarRepostaje(repostaje.id, { vehiculo_id: vehiculo.id, fecha, coste: costeNum, notas: notas || undefined })
         toast.success("Repostaje actualizado")
       } else {
-        await crearRepostaje({ vehiculo_id: vehiculoId, fecha, coste: costeNum, notas: notas || undefined })
+        await crearRepostaje({ vehiculo_id: vehiculo.id, fecha, coste: costeNum, notas: notas || undefined })
         toast.success("Repostaje registrado")
       }
-      onSaved()
-      onClose()
+      onSaved(); onClose()
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     } finally {
@@ -173,88 +134,38 @@ function ModalRepostaje({
     }
   }
 
-  const costeNum = parseFloat(coste.replace(",", "."))
-  const valid = vehiculoId > 0 && fecha && !isNaN(costeNum) && costeNum > 0
-
   return (
     <>
       <div onClick={onClose} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300 }} />
-      <div style={{
-        position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)",
-        backgroundColor: "#fff", borderRadius: "14px", width: "440px",
-        maxWidth: "calc(100vw - 32px)", boxShadow: "0 24px 64px rgba(0,0,0,0.18)",
-        zIndex: 301, overflow: "hidden",
-      }}>
+      <div style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", backgroundColor: "#fff", borderRadius: "14px", width: "400px", maxWidth: "calc(100vw - 32px)", boxShadow: "0 24px 64px rgba(0,0,0,0.18)", zIndex: 301, overflow: "hidden" }}>
         <div style={{ height: "4px", backgroundColor: "#ea580c" }} />
         <div style={{ padding: "24px" }}>
-          <h2 style={{ fontSize: "16px", fontWeight: 700, margin: "0 0 20px" }}>
-            {repostaje ? "Editar repostaje" : "Registrar repostaje"}
-          </h2>
+          <h2 style={{ fontSize: "16px", fontWeight: 700, margin: "0 0 4px" }}>{repostaje ? "Editar repostaje" : "Registrar repostaje"}</h2>
+          <div style={{ fontSize: "13px", color: "#888", marginBottom: "20px" }}>{vehiculo.nombre} · <span style={{ fontFamily: "monospace" }}>{vehiculo.matricula}</span></div>
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-
-            <div>
-              <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Vehículo</label>
-              <select
-                value={vehiculoId}
-                onChange={e => setVehiculoId(Number(e.target.value))}
-                style={{ width: "100%", padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "14px", boxSizing: "border-box", backgroundColor: "#fff" }}
-              >
-                {vehiculos.map(v => (
-                  <option key={v.id} value={v.id}>{v.nombre} — {v.matricula}</option>
-                ))}
-              </select>
-            </div>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
               <div>
                 <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Fecha</label>
-                <input
-                  type="date"
-                  value={fecha}
-                  onChange={e => setFecha(e.target.value)}
-                  style={{ width: "100%", padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "14px", boxSizing: "border-box" }}
-                />
+                <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
+                  style={{ width: "100%", padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "14px", boxSizing: "border-box" }} />
               </div>
               <div>
                 <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Coste (€)</label>
-                <input
-                  autoFocus={!repostaje}
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={coste}
-                  onChange={e => setCoste(e.target.value)}
-                  onKeyDown={e => e.key === "Enter" && handleSubmit()}
-                  placeholder="0.00"
-                  style={{ width: "100%", padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "14px", boxSizing: "border-box" }}
-                />
+                <input autoFocus type="number" min="0" step="0.01" value={coste} onChange={e => setCoste(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} placeholder="0.00"
+                  style={{ width: "100%", padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "14px", boxSizing: "border-box" }} />
               </div>
             </div>
-
             <div>
-              <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>
-                Notas <span style={{ fontWeight: 400, color: "#aaa" }}>(opcional)</span>
-              </label>
-              <input
-                value={notas}
-                onChange={e => setNotas(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleSubmit()}
-                placeholder="Gasolinera, tipo de combustible…"
-                style={{ width: "100%", padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "14px", boxSizing: "border-box" }}
-              />
+              <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Notas <span style={{ fontWeight: 400, color: "#aaa" }}>(opcional)</span></label>
+              <input value={notas} onChange={e => setNotas(e.target.value)} onKeyDown={e => e.key === "Enter" && handleSubmit()} placeholder="Gasolinera, tipo de combustible…"
+                style={{ width: "100%", padding: "9px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", fontSize: "14px", boxSizing: "border-box" }} />
             </div>
           </div>
-
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "24px" }}>
-            <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "14px", cursor: "pointer" }}>
-              Cancelar
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={saving || !valid}
-              style={{ padding: "9px 20px", borderRadius: "8px", border: "none", backgroundColor: valid && !saving ? "#ea580c" : "#ccc", color: "#fff", fontSize: "14px", fontWeight: 600, cursor: valid && !saving ? "pointer" : "not-allowed" }}
-            >
-              {saving ? "Guardando…" : "✓ Guardar"}
+            <button onClick={onClose} style={{ padding: "9px 18px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "14px", cursor: "pointer" }}>Cancelar</button>
+            <button onClick={handleSubmit} disabled={saving || !valid}
+              style={{ padding: "9px 20px", borderRadius: "8px", border: "none", backgroundColor: valid && !saving ? "#ea580c" : "#ccc", color: "#fff", fontSize: "14px", fontWeight: 600, cursor: valid && !saving ? "pointer" : "not-allowed" }}>
+              {saving ? "Guardando…" : "⛽ Guardar"}
             </button>
           </div>
         </div>
@@ -263,573 +174,457 @@ function ModalRepostaje({
   )
 }
 
-// ─── Subcomponente: Controles de Paginación ─────────────────────────────────────
+// ─── Paginación ───────────────────────────────────────────────────────────────
 
-function PaginacionControls({
-  page,
-  totalPages,
-  total,
-  pageSize,
-  onPageChange,
-  onPageSizeChange,
-}: {
-  page: number
-  totalPages: number
-  total: number
-  pageSize: number
-  onPageChange: (page: number) => void
-  onPageSizeChange: (size: number) => void
+function PaginacionControls({ page, totalPages, total, pageSize, onPageChange, onPageSizeChange }: {
+  page: number; totalPages: number; total: number; pageSize: number
+  onPageChange: (p: number) => void; onPageSizeChange: (s: number) => void
 }) {
   return (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "12px 16px",
-      backgroundColor: "#fff",
-      borderTop: "1px solid #e0e0e0",
-      gap: "12px",
-      flexWrap: "wrap",
-    }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "#666" }}>
-        <span>Página {page + 1} de {totalPages}</span>
-        <span style={{ color: "#aaa" }}>·</span>
-        <span>{total} registros</span>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-        <button
-          onClick={() => onPageChange(page - 1)}
-          disabled={page === 0}
-          style={{
-            padding: "6px 12px",
-            borderRadius: "6px",
-            border: "1px solid #e0e0e0",
-            backgroundColor: page === 0 ? "#f5f5f5" : "#fff",
-            color: page === 0 ? "#aaa" : "#444",
-            fontSize: "13px",
-            cursor: page === 0 ? "not-allowed" : "pointer",
-          }}
-        >
-          ← Anterior
-        </button>
-
-        <select
-          value={pageSize}
-          onChange={e => onPageSizeChange(Number(e.target.value))}
-          style={{
-            padding: "6px 10px",
-            borderRadius: "6px",
-            border: "1px solid #e0e0e0",
-            backgroundColor: "#fff",
-            fontSize: "13px",
-            cursor: "pointer",
-          }}
-        >
-          <option value={10}>10</option>
-          <option value={25}>25</option>
-          <option value={50}>50</option>
-          <option value={100}>100</option>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", gap: "12px", flexWrap: "wrap" }}>
+      <span style={{ fontSize: "12px", color: "#bbb" }}>{total} repostaje{total !== 1 ? "s" : ""} · p. {page + 1}/{totalPages}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+        <button onClick={() => onPageChange(page - 1)} disabled={page === 0}
+          style={{ padding: "5px 10px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: page === 0 ? "#f5f5f5" : "#fff", color: page === 0 ? "#ccc" : "#444", fontSize: "12px", cursor: page === 0 ? "not-allowed" : "pointer" }}>←</button>
+        <select value={pageSize} onChange={e => onPageSizeChange(Number(e.target.value))}
+          style={{ padding: "5px 8px", borderRadius: "6px", border: "1px solid #e0e0e0", fontSize: "12px", cursor: "pointer", backgroundColor: "#fff" }}>
+          <option value={10}>10</option><option value={25}>25</option><option value={50}>50</option>
         </select>
-
-        <button
-          onClick={() => onPageChange(page + 1)}
-          disabled={page >= totalPages - 1}
-          style={{
-            padding: "6px 12px",
-            borderRadius: "6px",
-            border: "1px solid #e0e0e0",
-            backgroundColor: page >= totalPages - 1 ? "#f5f5f5" : "#fff",
-            color: page >= totalPages - 1 ? "#aaa" : "#444",
-            fontSize: "13px",
-            cursor: page >= totalPages - 1 ? "not-allowed" : "pointer",
-          }}
-        >
-          Siguiente →
-        </button>
+        <button onClick={() => onPageChange(page + 1)} disabled={page >= totalPages - 1}
+          style={{ padding: "5px 10px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: page >= totalPages - 1 ? "#f5f5f5" : "#fff", color: page >= totalPages - 1 ? "#ccc" : "#444", fontSize: "12px", cursor: page >= totalPages - 1 ? "not-allowed" : "pointer" }}>→</button>
       </div>
     </div>
   )
 }
 
-// ─── Página principal (vista combinada) ─────────────────────────────────────────
+// ─── Menú debug ···  ──────────────────────────────────────────────────────────
+
+function MenuDebug({ onImportar, onExportar }: { onImportar: () => void; onExportar: () => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener("mousedown", h)
+    return () => document.removeEventListener("mousedown", h)
+  }, [])
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => setOpen(o => !o)} title="Depuración"
+        style={{ padding: "5px 9px", borderRadius: "6px", border: "1px solid #e8e8e8", backgroundColor: "#fff", color: "#ccc", fontSize: "15px", cursor: "pointer", letterSpacing: "2px", lineHeight: 1 }}>
+        ···
+      </button>
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px", boxShadow: "0 8px 24px rgba(0,0,0,0.09)", minWidth: "170px", zIndex: 100, overflow: "hidden" }}>
+          <div style={{ padding: "5px 12px 4px", fontSize: "10px", fontWeight: 700, color: "#ccc", textTransform: "uppercase", letterSpacing: "0.08em", borderBottom: "1px solid #f0f0f0" }}>Depuración</div>
+          {[{ label: "↑ Importar JSON", fn: onImportar }, { label: "↓ Exportar JSON", fn: onExportar }].map(item => (
+            <button key={item.label} onClick={() => { item.fn(); setOpen(false) }}
+              style={{ display: "block", width: "100%", padding: "9px 14px", border: "none", backgroundColor: "#fff", color: "#555", fontSize: "13px", textAlign: "left", cursor: "pointer" }}
+              onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#f9f9f9")}
+              onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#fff")}>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Panel detalle de vehículo ────────────────────────────────────────────────
+
+function PanelVehiculo({
+  vehiculo, vehiculoIndex, onEdit, onDesactivar, onVehiculoUpdated,
+}: {
+  vehiculo: Vehiculo; vehiculoIndex: number
+  onEdit: () => void; onDesactivar: () => void; onVehiculoUpdated: () => void
+}) {
+  const [modalRepostaje, setModalRepostaje] = useState<Repostaje | null | "nuevo">(null)
+  const [filtroDesde, setFiltroDesde] = useState("")
+  const [filtroHasta, setFiltroHasta] = useState("")
+  const [confirmandoDesactivar, setConfirmandoDesactivar] = useState(false)
+  const { confirm } = useConfirm()
+  const toast = useToast()
+  const color = colorVehiculo(vehiculoIndex)
+
+  const buildFiltros = useCallback((): FiltrosRepostaje => {
+    const f: FiltrosRepostaje = { vehiculo_id: vehiculo.id }
+    if (filtroDesde) f.fecha_desde = filtroDesde
+    if (filtroHasta) f.fecha_hasta = filtroHasta
+    return f
+  }, [vehiculo.id, filtroDesde, filtroHasta])
+
+  const fetchFn = useCallback(
+    (pageSize: number, offset: number) => getRepostajesPaginados(buildFiltros(), pageSize, offset),
+    [buildFiltros]
+  )
+
+  const { items: repostajes, total, page, pageSize, totalPages, loading, goToPage, setPageSize } = usePagination<Repostaje>({
+    fetchFn, deps: [vehiculo.id, filtroDesde, filtroHasta], defaultPageSize: 25,
+  })
+
+  const totalGasto = repostajes.reduce((s, r) => s + r.coste, 0)
+  const hayFiltros = filtroDesde || filtroHasta
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column" }}>
+      {/* Cabecera */}
+      <div style={{ padding: "22px 28px 18px", borderBottom: "1px solid #f0f0f0" }}>
+        {/* Fila 1: icono + nombre/matrícula | botones */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: 0 }}>
+            <div style={{ width: "42px", height: "42px", borderRadius: "10px", backgroundColor: color + "18", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <div style={{ width: "13px", height: "13px", borderRadius: "50%", backgroundColor: color }} />
+            </div>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: "18px", fontWeight: 700, color: "#111", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vehiculo.nombre}</div>
+              <div style={{ fontSize: "13px", color: "#888", fontFamily: "monospace", marginTop: "3px", textAlign: "left" }}>{vehiculo.matricula}</div>
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center", flexShrink: 0 }}>
+            <button onClick={() => setModalRepostaje("nuevo")}
+              style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 16px", borderRadius: "8px", border: "none", backgroundColor: color, color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
+              ⛽ Añadir repostaje
+            </button>
+            <button onClick={e => { e.stopPropagation(); onEdit() }}
+              style={{ padding: "8px 13px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "13px", cursor: "pointer" }}>
+              Editar
+            </button>
+            {confirmandoDesactivar ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 10px", borderRadius: "8px", border: "1px solid #fca5a5", backgroundColor: "#fff5f5" }}>
+                <span style={{ fontSize: "12px", color: "#dc2626", whiteSpace: "nowrap" }}>¿Desactivar?</span>
+                <button onClick={() => { setConfirmandoDesactivar(false); onDesactivar() }}
+                  style={{ padding: "4px 10px", borderRadius: "6px", border: "none", backgroundColor: "#dc2626", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
+                  Sí
+                </button>
+                <button onClick={() => setConfirmandoDesactivar(false)}
+                  style={{ padding: "4px 8px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#888", fontSize: "12px", cursor: "pointer" }}>
+                  No
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmandoDesactivar(true)}
+                style={{ padding: "8px 13px", borderRadius: "8px", border: "1px solid #fca5a5", backgroundColor: "#fff", color: "#dc2626", fontSize: "13px", cursor: "pointer" }}>
+                Desactivar
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Resumen + filtros en la misma fila */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "16px", flexWrap: "wrap", gap: "10px" }}>
+          {total > 0 && (
+            <div style={{ display: "flex", gap: "20px" }}>
+              {[
+                { label: "Repostajes", value: total },
+                { label: hayFiltros ? "Gasto filtrado" : "Gasto total", value: formatEuro(totalGasto) },
+                { label: "Media", value: repostajes.length > 0 ? formatEuro(totalGasto / repostajes.length) : "—" },
+              ].map(c => (
+                <div key={c.label}>
+                  <div style={{ fontSize: "10px", color: "#bbb", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "2px" }}>{c.label}</div>
+                  <div style={{ fontSize: "15px", fontWeight: 700, color: "#111" }}>{c.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: "7px" }}>
+            <input type="date" value={filtroDesde} onChange={e => setFiltroDesde(e.target.value)}
+              style={{ padding: "6px 9px", borderRadius: "6px", border: `1px solid ${filtroDesde ? color : "#e0e0e0"}`, fontSize: "12px", backgroundColor: filtroDesde ? color + "10" : "#fff", outline: "none" }} />
+            <span style={{ color: "#ccc", fontSize: "12px" }}>→</span>
+            <input type="date" value={filtroHasta} onChange={e => setFiltroHasta(e.target.value)}
+              style={{ padding: "6px 9px", borderRadius: "6px", border: `1px solid ${filtroHasta ? color : "#e0e0e0"}`, fontSize: "12px", backgroundColor: filtroHasta ? color + "10" : "#fff", outline: "none" }} />
+            {hayFiltros && (
+              <button onClick={() => { setFiltroDesde(""); setFiltroHasta("") }}
+                style={{ padding: "6px 9px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#888", fontSize: "12px", cursor: "pointer" }}>✕</button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Tabla */}
+      <div style={{ padding: "0 28px 24px" }}>
+        {loading ? (
+          <div style={{ padding: "60px", textAlign: "center", color: "#ccc", fontSize: "14px" }}>Cargando…</div>
+        ) : repostajes.length === 0 ? (
+          <div style={{ padding: "60px 20px", textAlign: "center", color: "#ccc", fontSize: "14px", border: "1px dashed #e8e8e8", borderRadius: "10px", marginTop: "16px" }}>
+            <div style={{ fontSize: "36px", marginBottom: "10px" }}>⛽</div>
+            {hayFiltros ? "Sin repostajes en ese período." : "Sin repostajes todavía. ¡Añade el primero!"}
+          </div>
+        ) : (
+          <>
+            <div style={{ backgroundColor: "#fff", border: "1px solid #f0f0f0", borderRadius: "10px", overflow: "hidden", marginTop: "16px" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ backgroundColor: "#fafafa", borderBottom: "1px solid #f0f0f0" }}>
+                    {["Fecha", "Coste", "Notas", ""].map(h => (
+                      <th key={h} style={{ padding: "9px 16px", textAlign: "left", fontSize: "10px", fontWeight: 700, color: "#bbb", textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {repostajes.map(r => (
+                    <tr key={r.id} style={{ borderBottom: "1px solid #f9f9f9" }}
+                      onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#fafafa")}
+                      onMouseLeave={e => (e.currentTarget.style.backgroundColor = "")}>
+                      <td style={{ padding: "11px 16px", fontSize: "13px", color: "#555", whiteSpace: "nowrap" }}>
+                        {new Date(r.fecha + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                      </td>
+                      <td style={{ padding: "11px 16px", fontSize: "15px", fontWeight: 700, color: color, whiteSpace: "nowrap" }}>{formatEuro(r.coste)}</td>
+                      <td style={{ padding: "11px 16px", fontSize: "13px", color: "#aaa", maxWidth: "260px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.notas || "—"}</td>
+                      <td style={{ padding: "11px 16px", textAlign: "right" }}>
+                        <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
+                          <button onClick={() => setModalRepostaje(r)}
+                            style={{ padding: "4px 10px", borderRadius: "5px", border: "1px solid #e8e8e8", backgroundColor: "#fff", color: "#555", fontSize: "12px", cursor: "pointer" }}>Editar</button>
+                          <button onClick={async () => {
+                            const ok = await confirm(`¿Eliminar repostaje de ${formatEuro(r.coste)}?`, { confirmLabel: "Eliminar", danger: true })
+                            if (!ok) return
+                            await eliminarRepostaje(r.id)
+                            toast.success("Repostaje eliminado")
+                            goToPage(page)
+                            onVehiculoUpdated()
+                          }}
+                            style={{ padding: "4px 10px", borderRadius: "5px", border: "1px solid #fca5a5", backgroundColor: "#fff", color: "#dc2626", fontSize: "12px", cursor: "pointer" }}>✕</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <PaginacionControls page={page} totalPages={totalPages} total={total} pageSize={pageSize} onPageChange={goToPage} onPageSizeChange={setPageSize} />
+          </>
+        )}
+      </div>
+
+      {modalRepostaje !== null && (
+        <ModalRepostaje
+          repostaje={modalRepostaje === "nuevo" ? null : modalRepostaje}
+          vehiculo={vehiculo}
+          onClose={() => setModalRepostaje(null)}
+          onSaved={() => { goToPage(page); onVehiculoUpdated() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// ─── Página principal ────────────────────────────────────────────────────────
 
 export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([])
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [busqueda, setBusqueda] = useState("")
   const [modalVehiculo, setModalVehiculo] = useState<Vehiculo | null | "nuevo">(null)
-  const [modalRepostaje, setModalRepostaje] = useState<Repostaje | null | "nuevo">(null)
+  const [statsOpen, setStatsOpen] = useState(false)
 
-  // Filtros de repostajes
-  const [filtroVehiculo, setFiltroVehiculo] = useState<number | "">("")
-  const [filtroDesde, setFiltroDesde] = useState("")
-  const [filtroHasta, setFiltroHasta] = useState("")
-
-  // Estadísticas: gasto por vehículo y total
   const [gastoPorVehiculo, setGastoPorVehiculo] = useState<ResumenVehiculo[]>([])
   const [totalConsumo, setTotalConsumo] = useState<number>(0)
-
-  // Filtros de fecha para estadísticas
   const [filtroStatsDesde, setFiltroStatsDesde] = useState("")
   const [filtroStatsHasta, setFiltroStatsHasta] = useState("")
 
   const { confirm } = useConfirm()
   const toast = useToast()
 
-  // Cargar vehículos al montar
-  useEffect(() => {
+  const recargarVehiculos = useCallback(() => {
     getVehiculos(true).then(setVehiculos)
   }, [])
 
-  // Cargar estadísticas (gráfico y total)
-  const cargarEstadisticas = () => {
+  useEffect(() => { recargarVehiculos() }, [])
+
+  const cargarEstadisticas = useCallback(() => {
     const filtros: FiltrosRepostaje = {}
     if (filtroStatsDesde) filtros.fecha_desde = filtroStatsDesde
     if (filtroStatsHasta) filtros.fecha_hasta = filtroStatsHasta
-
     getResumenPorVehiculo(filtros).then(res => {
       setGastoPorVehiculo(res)
       setTotalConsumo(res.reduce((s, r) => s + (r.gasto_total ?? 0), 0))
-    }).catch(e => {
-      toast.error("Error", e?.message ?? String(e))
-    })
-  }
-
-  // Cargar estadísticas cuando cambian los filtros de fecha
-  useEffect(() => {
-    cargarEstadisticas()
+    }).catch(e => toast.error("Error", e?.message ?? String(e)))
   }, [filtroStatsDesde, filtroStatsHasta])
 
-  // Función para construir filtros
-  const buildFiltros = useCallback((): FiltrosRepostaje => {
-    const f: FiltrosRepostaje = {}
-    if (filtroVehiculo) f.vehiculo_id = Number(filtroVehiculo)
-    if (filtroDesde) f.fecha_desde = filtroDesde
-    if (filtroHasta) f.fecha_hasta = filtroHasta
-    return f
-  }, [filtroVehiculo, filtroDesde, filtroHasta])
+  useEffect(() => { cargarEstadisticas() }, [cargarEstadisticas])
 
-  // Fetch function para paginación de repostajes
-  const fetchRepostajes = useCallback(async (pageSize: number, offset: number): Promise<[Repostaje[], number]> => {
-    const filtros = buildFiltros()
-    return getRepostajesPaginados(filtros, pageSize, offset)
-  }, [buildFiltros])
+  // Auto-seleccionar el primero al cargar
+  const vehiculosVisibles = vehiculos.filter(v => v.activo === 1)
+  useEffect(() => {
+    if (vehiculosVisibles.length > 0 && selectedId === null) {
+      setSelectedId(vehiculosVisibles[0].id)
+    }
+  }, [vehiculosVisibles.length])
 
-  // Hook de paginación
-  const {
-    items: repostajes,
-    total,
-    page,
-    pageSize,
-    totalPages,
-    loading,
-    goToPage,
-    setPageSize,
-  } = usePagination<Repostaje>({
-    fetchFn: fetchRepostajes,
-    deps: [filtroVehiculo, filtroDesde, filtroHasta],
-    defaultPageSize: 25,
-  })
-
-  // Handlers para vehículos
   async function handleDesactivar(v: Vehiculo) {
-    const ok = await confirm(`¿Desactivar "${v.nombre}"?`, {
-      confirmLabel: "Desactivar", danger: true,
-      detail: "El historial de repostajes se conserva.",
-    })
+    const ok = await confirm(`¿Desactivar "${v.nombre}"?`, { confirmLabel: "Desactivar", danger: true, detail: "El historial de repostajes se conserva." })
     if (!ok) return
     await desactivarVehiculo(v.id)
     toast.success("Vehículo desactivado")
-    getVehiculos(true).then(setVehiculos)
+    recargarVehiculos()
     cargarEstadisticas()
+    if (selectedId === v.id) setSelectedId(null)
   }
-  
-  const vehiculosVisibles = vehiculos.filter(v => v.activo === 1)
-  const totalFiltrado = repostajes.reduce((s, r) => s + r.coste, 0)
 
-  // ── Exportar a JSON ──────────────────────────────────────────────────────
   async function handleExportar() {
     try {
       const data = await exportarDatos()
-      const json = JSON.stringify(data, null, 2)
-      const blob = new Blob([json], { type: "application/json" })
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
-      const fecha = new Date().toISOString().slice(0, 10)
-      a.href = url
-      a.download = `gasolina_backup_${fecha}.json`
-      a.click()
+      a.href = url; a.download = `gasolina_backup_${new Date().toISOString().slice(0, 10)}.json`; a.click()
       URL.revokeObjectURL(url)
       toast.success(`Exportado: ${data.vehiculos.length} vehículos, ${data.repostajes.length} repostajes`)
-    } catch (e: any) {
-      toast.error("Error al exportar", e?.message ?? String(e))
-    }
+    } catch (e: any) { toast.error("Error al exportar", e?.message ?? String(e)) }
   }
 
-  // ── Importar desde JSON ──────────────────────────────────────────────────
   function handleImportar() {
     const input = document.createElement("input")
-    input.type = "file"
-    input.accept = ".json,application/json"
+    input.type = "file"; input.accept = ".json,application/json"
     input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return
+      const file = input.files?.[0]; if (!file) return
       try {
-        const text = await file.text()
-        const data: ExportData = JSON.parse(text)
+        const data: ExportData = JSON.parse(await file.text())
         const result = await importarDatos(data)
-        toast.success(
-          `Importación completada: ${result.vehiculosInsertados} vehículos nuevos, ${result.repostalesInsertados} repostajes nuevos` +
-          (result.vehiculosOmitidos + result.repostalesOmitidos > 0
-            ? ` (${result.vehiculosOmitidos} veh. y ${result.repostalesOmitidos} repos. omitidos por duplicado)`
-            : "")
-        )
-        getVehiculos(true).then(setVehiculos)
-        goToPage(0)
-        cargarEstadisticas()
-      } catch (e: any) {
-        toast.error("Error al importar", e?.message ?? String(e))
-      }
+        toast.success(`Importación completada: ${result.vehiculosInsertados} vehículos, ${result.repostalesInsertados} repostajes`)
+        recargarVehiculos(); cargarEstadisticas()
+      } catch (e: any) { toast.error("Error al importar", e?.message ?? String(e)) }
     }
     input.click()
   }
 
+  const vehiculosFiltrados = vehiculosVisibles.filter(v =>
+    busqueda === "" ||
+    v.nombre.toLowerCase().includes(busqueda.toLowerCase()) ||
+    v.matricula.toLowerCase().includes(busqueda.toLowerCase())
+  )
+
+  const vehiculoSeleccionado = vehiculosVisibles.find(v => v.id === selectedId) ?? null
+  const vehiculoIndex = vehiculosVisibles.findIndex(v => v.id === selectedId)
+
   return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f5", fontFamily: "system-ui, sans-serif" }}>
+    <div style={{ minHeight: "100vh", backgroundColor: "#f2f2f2", fontFamily: "system-ui, sans-serif" }}>
       <AppHeader page="gasolina" onNavigate={onNavigate} />
 
-      <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "28px 24px" }}>
-        {/* ========== ESTADÍSTICAS ========== */}
-        <div style={{ marginBottom: "28px" }}>
-          {/* Filtros de fecha para estadísticas */}
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
-            <span style={{ fontSize: "12px", color: "#888", fontWeight: 600 }}>Período:</span>
-            <input
-              type="date"
-              value={filtroStatsDesde}
-              onChange={e => setFiltroStatsDesde(e.target.value)}
-              placeholder="Desde"
-              style={{ padding: "6px 10px", borderRadius: "6px", border: `1px solid ${filtroStatsDesde ? "#ea580c" : "#e0e0e0"}`, fontSize: "13px", backgroundColor: filtroStatsDesde ? "#fff7ed" : "#fff" }}
-            />
-            <span style={{ color: "#aaa", fontSize: "14px" }}>→</span>
-            <input
-              type="date"
-              value={filtroStatsHasta}
-              onChange={e => setFiltroStatsHasta(e.target.value)}
-              placeholder="Hasta"
-              style={{ padding: "6px 10px", borderRadius: "6px", border: `1px solid ${filtroStatsHasta ? "#ea580c" : "#e0e0e0"}`, fontSize: "13px", backgroundColor: filtroStatsHasta ? "#fff7ed" : "#fff" }}
-            />
-            {(filtroStatsDesde || filtroStatsHasta) && (
-              <button
-                onClick={() => { setFiltroStatsDesde(""); setFiltroStatsHasta("") }}
-                style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#888", fontSize: "13px", cursor: "pointer" }}
-              >
-                ✕ Limpiar
-              </button>
+      {/* ── Barra de estadísticas colapsable ── */}
+      <div style={{ backgroundColor: "#fff", borderBottom: "1px solid #e8e8e8" }}>
+        <div style={{ maxWidth: "1300px", margin: "0 auto", padding: "0 24px" }}>
+          <button onClick={() => setStatsOpen(o => !o)}
+            style={{ display: "flex", alignItems: "center", gap: "8px", padding: "11px 0", border: "none", backgroundColor: "transparent", cursor: "pointer", color: "#888", fontSize: "13px", fontWeight: 500 }}>
+            <span style={{ display: "inline-block", transform: statsOpen ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", fontSize: "9px" }}>▶</span>
+            Resumen general
+            <span style={{ color: "#ea580c", fontWeight: 700, marginLeft: "4px" }}>{formatEuro(totalConsumo)}</span>
+          </button>
+          {statsOpen && (
+            <div style={{ paddingBottom: "20px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "12px" }}>
+                <span style={{ fontSize: "12px", color: "#bbb" }}>Período:</span>
+                <input type="date" value={filtroStatsDesde} onChange={e => setFiltroStatsDesde(e.target.value)}
+                  style={{ padding: "5px 9px", borderRadius: "6px", border: `1px solid ${filtroStatsDesde ? "#ea580c" : "#e0e0e0"}`, fontSize: "12px", backgroundColor: filtroStatsDesde ? "#fff7ed" : "#fff" }} />
+                <span style={{ color: "#ccc" }}>→</span>
+                <input type="date" value={filtroStatsHasta} onChange={e => setFiltroStatsHasta(e.target.value)}
+                  style={{ padding: "5px 9px", borderRadius: "6px", border: `1px solid ${filtroStatsHasta ? "#ea580c" : "#e0e0e0"}`, fontSize: "12px", backgroundColor: filtroStatsHasta ? "#fff7ed" : "#fff" }} />
+                {(filtroStatsDesde || filtroStatsHasta) && (
+                  <button onClick={() => { setFiltroStatsDesde(""); setFiltroStatsHasta("") }}
+                    style={{ padding: "5px 9px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#888", fontSize: "12px", cursor: "pointer" }}>✕</button>
+                )}
+              </div>
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={gastoPorVehiculo.filter(r => r.gasto_total > 0)} margin={{ top: 4, right: 16, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                  <XAxis dataKey="vehiculo_nombre" tick={{ fontSize: 11, fill: "#bbb" }} />
+                  <YAxis tickFormatter={v => `${v}€`} tick={{ fontSize: 11, fill: "#bbb" }} />
+                  <Tooltip formatter={(v: number) => formatEuro(v)} />
+                  <Bar dataKey="gasto_total" name="Gasto total" radius={[4, 4, 0, 0]}>
+                    {gastoPorVehiculo.filter(r => r.gasto_total > 0).map((_, i) => (
+                      <Cell key={i} fill={colorVehiculo(i)} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Layout dos columnas ── */}
+      <div style={{ maxWidth: "1300px", margin: "0 auto", padding: "20px 24px", display: "grid", gridTemplateColumns: "280px 1fr", gap: "16px", alignItems: "start" }}>
+
+        {/* Columna izquierda: lista de vehículos */}
+        <div style={{ backgroundColor: "#fff", borderRadius: "12px", border: "1px solid #e8e8e8", overflow: "hidden", position: "sticky", top: "20px" }}>
+          <div style={{ padding: "14px 14px 10px", borderBottom: "1px solid #f0f0f0" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+              <span style={{ fontSize: "13px", fontWeight: 600, color: "#111" }}>
+                Vehículos
+                <span style={{ fontSize: "12px", fontWeight: 400, color: "#ccc", marginLeft: "6px" }}>{vehiculosVisibles.length}</span>
+              </span>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <MenuDebug onImportar={handleImportar} onExportar={handleExportar} />
+                <button onClick={() => setModalVehiculo("nuevo")}
+                  style={{ padding: "5px 10px", borderRadius: "6px", border: "none", backgroundColor: "#ea580c", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
+                  + Añadir
+                </button>
+              </div>
+            </div>
+            <div style={{ position: "relative" }}>
+              <span style={{ position: "absolute", left: "9px", top: "50%", transform: "translateY(-50%)", fontSize: "12px", color: "#ccc", pointerEvents: "none" }}>🔍</span>
+              <input value={busqueda} onChange={e => setBusqueda(e.target.value)} placeholder="Buscar por nombre o matrícula…"
+                style={{ width: "100%", padding: "7px 10px 7px 28px", borderRadius: "7px", border: "1px solid #e8e8e8", fontSize: "12px", boxSizing: "border-box", outline: "none", backgroundColor: "#fafafa" }} />
+            </div>
+          </div>
+
+          <div style={{ maxHeight: "calc(100vh - 260px)", overflowY: "auto" }}>
+            {vehiculosFiltrados.length === 0 ? (
+              <div style={{ padding: "30px", textAlign: "center", color: "#ccc", fontSize: "13px" }}>Sin resultados</div>
+            ) : (
+              vehiculosFiltrados.map((v, i) => {
+                const realIndex = vehiculosVisibles.findIndex(vv => vv.id === v.id)
+                const color = colorVehiculo(realIndex)
+                const selected = selectedId === v.id
+                const resumen = gastoPorVehiculo.find(r => r.vehiculo_id === v.id)
+                return (
+                  <button key={v.id} onClick={() => setSelectedId(v.id)}
+                    style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "11px 14px", border: "none", backgroundColor: selected ? color + "0e" : "#fff", borderLeft: `3px solid ${selected ? color : "transparent"}`, cursor: "pointer", textAlign: "left", borderBottom: i < vehiculosFiltrados.length - 1 ? "1px solid #f9f9f9" : "none", transition: "background-color 0.1s" }}
+                    onMouseEnter={e => { if (!selected) e.currentTarget.style.backgroundColor = "#fafafa" }}
+                    onMouseLeave={e => { if (!selected) e.currentTarget.style.backgroundColor = "#fff" }}>
+                    <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: color, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: "13px", fontWeight: selected ? 600 : 400, color: selected ? "#111" : "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {v.nombre}
+                      </div>
+                      <div style={{ fontSize: "13px", color: "#666", fontFamily: "monospace", marginTop: "2px" }}>{v.matricula}</div>
+                    </div>
+                    {resumen?.gasto_total ? (
+                      <div style={{ fontSize: "11px", color: "#bbb", whiteSpace: "nowrap", flexShrink: 0 }}>{formatEuro(resumen.gasto_total)}</div>
+                    ) : null}
+                  </button>
+                )
+              })
             )}
           </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "16px" }}>
-            {/* Gráfico de barras: Gasto por vehículo */}
-            <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px", padding: "20px" }}>
-              <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "16px" }}>
-                Gasto total por coche
-              </div>
-              {gastoPorVehiculo.filter(r => r.gasto_total > 0).length > 0 ? (
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart
-                    data={gastoPorVehiculo.filter(r => r.gasto_total > 0)}
-                    margin={{ top: 4, right: 16, bottom: 0, left: 0 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                    <XAxis dataKey="vehiculo_nombre" tick={{ fontSize: 12, fill: "#888" }} />
-                    <YAxis tickFormatter={v => `${v}€`} tick={{ fontSize: 12, fill: "#888" }} />
-                    <Tooltip formatter={(v: number) => formatEuro(v)} />
-                    <Bar dataKey="gasto_total" name="Gasto total" radius={[4, 4, 0, 0]}>
-                      {gastoPorVehiculo
-                        .filter(r => r.gasto_total > 0)
-                        .map((_, i) => (
-                          <Cell key={`cell-${i}`} fill={COLORES_VEHICULO[i % COLORES_VEHICULO.length]} />
-                        ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div style={{ textAlign: "center", padding: "40px", color: "#aaa", fontSize: "14px" }}>
-                  No hay datos para el período seleccionado
-                </div>
-              )}
-            </div>
-
-            {/* Tarjeta de total consumo */}
-            <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px", padding: "20px", display: "flex", flexDirection: "column", justifyContent: "center" }}>
-              <div style={{ fontSize: "12px", color: "#888", marginBottom: "8px" }}>Total consumo</div>
-              <div style={{ fontSize: "32px", fontWeight: 700, color: "#ea580c" }}>
-                {formatEuro(totalConsumo)}
-              </div>
-            </div>
-          </div>
         </div>
 
-        {/* ========== SECCIÓN VEHÍCULOS ========== */}
-        <div style={{ marginBottom: "32px" }}>
-          {/* Toolbar */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              <h2 style={{ fontSize: "16px", fontWeight: 600, margin: 0 }}>Vehículos</h2>
-              <span style={{ fontSize: "13px", color: "#aaa" }}>{vehiculosVisibles.length} vehículo{vehiculosVisibles.length !== 1 ? "s" : ""}</span>
-            </div>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button
-                onClick={handleImportar}
-                style={{ padding: "8px 14px", borderRadius: "7px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "13px", fontWeight: 500, cursor: "pointer" }}
-                title="Importar datos desde un archivo JSON"
-              >
-                ↑ Importar
-              </button>
-              <button
-                onClick={handleExportar}
-                style={{ padding: "8px 14px", borderRadius: "7px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "13px", fontWeight: 500, cursor: "pointer" }}
-                title="Exportar todos los datos a un archivo JSON"
-              >
-                ↓ Exportar
-              </button>
-              <button
-                onClick={() => setModalVehiculo("nuevo")}
-                style={{ padding: "8px 16px", borderRadius: "7px", border: "none", backgroundColor: "#ea580c", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
-              >
-                + Añadir coche
-              </button>
-            </div>
-          </div>
-
-          {/* Lista de vehículos */}
-          {vehiculosVisibles.length === 0 ? (
-            <div style={{ padding: "60px 20px", textAlign: "center", color: "#aaa", fontSize: "14px", border: "1px dashed #e0e0e0", borderRadius: "10px", backgroundColor: "#fafafa" }}>
-              <div style={{ fontSize: "40px", marginBottom: "12px" }}>🚗</div>
-              No hay vehículos registrados. Pulsa "+ Añadir coche" para empezar.
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {vehiculosVisibles.map((v, i) => (
-                <div
-                  key={v.id}
-                  style={{
-                    display: "flex", alignItems: "center", gap: "16px",
-                    padding: "16px 20px", borderRadius: "10px",
-                    backgroundColor: "#fff", border: "1px solid #e0e0e0",
-                  }}
-                >
-                  <div style={{
-                    width: "40px", height: "40px", borderRadius: "50%", flexShrink: 0,
-                    backgroundColor: COLORES_VEHICULO[i % COLORES_VEHICULO.length] + "22",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: "20px",
-                  }}>
-                    🚗
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: "15px", fontWeight: 600, color: "#111" }}>{v.nombre}</div>
-                    <div style={{ fontSize: "13px", color: "#888", fontFamily: "monospace", marginTop: "2px" }}>{v.matricula}</div>
-                  </div>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <button
-                      onClick={() => setModalVehiculo(v)}
-                      style={{ padding: "6px 14px", borderRadius: "7px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#444", fontSize: "13px", cursor: "pointer" }}
-                    >
-                      ✏︎ Editar
-                    </button>
-                    <button
-                      onClick={() => handleDesactivar(v)}
-                      style={{ padding: "6px 14px", borderRadius: "7px", border: "1px solid #fca5a5", backgroundColor: "#fff", color: "#dc2626", fontSize: "13px", cursor: "pointer" }}
-                    >
-                      Desactivar
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {modalVehiculo !== null && (
-            <ModalVehiculo
-              vehiculo={modalVehiculo === "nuevo" ? null : modalVehiculo}
-              onClose={() => setModalVehiculo(null)}
-              onSaved={() => {
-                getVehiculos(true).then(setVehiculos)
-                cargarEstadisticas()
-              }}
+        {/* Columna derecha: panel detalle */}
+        <div style={{ backgroundColor: "#fff", borderRadius: "12px", border: "1px solid #e8e8e8", minHeight: "500px", overflow: "hidden" }}>
+          {vehiculoSeleccionado ? (
+            <PanelVehiculo
+              key={vehiculoSeleccionado.id}
+              vehiculo={vehiculoSeleccionado}
+              vehiculoIndex={vehiculoIndex}
+              onEdit={() => setModalVehiculo(vehiculoSeleccionado)}
+              onDesactivar={() => handleDesactivar(vehiculoSeleccionado)}
+              onVehiculoUpdated={cargarEstadisticas}
             />
-          )}
-        </div>
-
-        {/* ========== SECCIÓN REPOSTAJES ========== */}
-        <div>
-          {/* Toolbar */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px", flexWrap: "wrap", gap: "10px" }}>
-            <div style={{ display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-              <select
-                value={filtroVehiculo}
-                onChange={e => setFiltroVehiculo(e.target.value === "" ? "" : Number(e.target.value))}
-                style={{ padding: "8px 12px", borderRadius: "7px", border: `1px solid ${filtroVehiculo ? "#ea580c" : "#e0e0e0"}`, fontSize: "13px", backgroundColor: filtroVehiculo ? "#fff7ed" : "#fff", color: filtroVehiculo ? "#ea580c" : "#555", cursor: "pointer", fontWeight: filtroVehiculo ? 600 : 400 }}
-              >
-                <option value="">Todos los vehículos</option>
-                {vehiculos.map(v => (
-                  <option key={v.id} value={v.id}>{v.nombre} — {v.matricula}</option>
-                ))}
-              </select>
-              <input
-                type="date"
-                value={filtroDesde}
-                onChange={e => setFiltroDesde(e.target.value)}
-                style={{ padding: "8px 12px", borderRadius: "7px", border: `1px solid ${filtroDesde ? "#ea580c" : "#e0e0e0"}`, fontSize: "13px", backgroundColor: filtroDesde ? "#fff7ed" : "#fff" }}
-              />
-              <span style={{ color: "#aaa", fontSize: "13px" }}>→</span>
-              <input
-                type="date"
-                value={filtroHasta}
-                onChange={e => setFiltroHasta(e.target.value)}
-                style={{ padding: "8px 12px", borderRadius: "7px", border: `1px solid ${filtroHasta ? "#ea580c" : "#e0e0e0"}`, fontSize: "13px", backgroundColor: filtroHasta ? "#fff7ed" : "#fff" }}
-              />
-              {(filtroVehiculo || filtroDesde || filtroHasta) && (
-                <button
-                  onClick={() => { setFiltroVehiculo(""); setFiltroDesde(""); setFiltroHasta("") }}
-                  style={{ padding: "8px 12px", borderRadius: "7px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#888", fontSize: "13px", cursor: "pointer" }}
-                >
-                  ✕ Limpiar
-                </button>
-              )}
-            </div>
-            <button
-              onClick={() => setModalRepostaje("nuevo")}
-              style={{ padding: "8px 16px", borderRadius: "7px", border: "none", backgroundColor: "#ea580c", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
-            >
-              + Nuevo repostaje
-            </button>
-          </div>
-
-          {/* Resumen rápido */}
-          {repostajes.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", marginBottom: "16px" }}>
-              {[
-                { label: "Repostajes (página)", value: repostajes.length },
-                { label: "Gasto total (filtrado)", value: formatEuro(totalFiltrado) },
-                { label: "Media por repostaje", value: formatEuro(totalFiltrado / repostajes.length) },
-              ].map(card => (
-                <div key={card.label} style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px", padding: "16px 20px" }}>
-                  <div style={{ fontSize: "12px", color: "#888", marginBottom: "4px" }}>{card.label}</div>
-                  <div style={{ fontSize: "22px", fontWeight: 700, color: "#111" }}>{card.value}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Tabla de repostajes */}
-          {loading ? (
-            <div style={{ padding: "60px", textAlign: "center", color: "#888", backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px" }}>
-              Cargando repostajes...
-            </div>
-          ) : repostajes.length === 0 ? (
-            <div style={{ padding: "60px 20px", textAlign: "center", color: "#aaa", fontSize: "14px", border: "1px dashed #e0e0e0", borderRadius: "10px", backgroundColor: "#fafafa" }}>
-              <div style={{ fontSize: "40px", marginBottom: "12px" }}>⛽</div>
-              No hay repostajes para los filtros seleccionados.
-            </div>
           ) : (
-            <>
-              <div style={{ backgroundColor: "#fff", border: "1px solid #e0e0e0", borderRadius: "10px", overflow: "hidden" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                  <thead>
-                    <tr style={{ backgroundColor: "#fafafa", borderBottom: "1px solid #e0e0e0" }}>
-                      {["Fecha", "Vehículo", "Matrícula", "Coste", "Notas", ""].map(h => (
-                        <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: "11px", fontWeight: 600, color: "#888", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {repostajes.map((r) => (
-                      <tr
-                        key={r.id}
-                        style={{ borderBottom: "1px solid #f5f5f5" }}
-                        onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#fafafa")}
-                        onMouseLeave={e => (e.currentTarget.style.backgroundColor = "")}
-                      >
-                        <td style={{ padding: "12px 16px", fontSize: "13px", color: "#555", whiteSpace: "nowrap" }}>
-                          {new Date(r.fecha + "T00:00:00").toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" })}
-                        </td>
-                        <td style={{ padding: "12px 16px", fontSize: "14px", fontWeight: 600, color: "#111" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: "8px" }}>
-                            <span style={{ width: "10px", height: "10px", borderRadius: "50%", backgroundColor: COLORES_VEHICULO[vehiculos.findIndex(v => v.id === r.vehiculo_id) % COLORES_VEHICULO.length], flexShrink: 0 }} />
-                            {r.vehiculo_nombre}
-                          </span>
-                        </td>
-                        <td style={{ padding: "12px 16px", fontSize: "13px", color: "#888", fontFamily: "monospace" }}>
-                          {r.vehiculo_matricula}
-                        </td>
-                        <td style={{ padding: "12px 16px", fontSize: "15px", fontWeight: 700, color: "#ea580c", whiteSpace: "nowrap" }}>
-                          {formatEuro(r.coste)}
-                        </td>
-                        <td style={{ padding: "12px 16px", fontSize: "13px", color: "#888", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {r.notas || "—"}
-                        </td>
-                        <td style={{ padding: "12px 16px", textAlign: "right" }}>
-                          <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
-                            <button
-                              onClick={() => setModalRepostaje(r)}
-                              style={{ padding: "5px 12px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#444", fontSize: "12px", cursor: "pointer" }}
-                            >
-                              ✏︎
-                            </button>
-                            <button
-                              onClick={async () => {
-                                const ok = await confirm(`¿Eliminar este repostaje de ${formatEuro(r.coste)}?`, {
-                                  confirmLabel: "Eliminar", danger: true,
-                                })
-                                if (!ok) return
-                                await eliminarRepostaje(r.id)
-                                toast.success("Repostaje eliminado")
-                                goToPage(page) // Recargar página actual
-                                cargarEstadisticas()
-                              }}
-                              style={{ padding: "5px 12px", borderRadius: "6px", border: "1px solid #fca5a5", backgroundColor: "#fff", color: "#dc2626", fontSize: "12px", cursor: "pointer" }}
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Controles de paginación */}
-              <PaginacionControls
-                page={page}
-                totalPages={totalPages}
-                total={total}
-                pageSize={pageSize}
-                onPageChange={goToPage}
-                onPageSizeChange={setPageSize}
-              />
-            </>
-          )}
-
-          {modalRepostaje !== null && (
-            <ModalRepostaje
-              repostaje={modalRepostaje === "nuevo" ? null : modalRepostaje}
-              vehiculos={vehiculos}
-              defaultVehiculoId={filtroVehiculo ? Number(filtroVehiculo) : undefined}
-              onClose={() => setModalRepostaje(null)}
-              onSaved={() => {
-                goToPage(page) // Recargar página actual
-                cargarEstadisticas()
-              }}
-            />
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "400px", color: "#ccc", fontSize: "14px", gap: "12px" }}>
+              <span style={{ fontSize: "40px" }}>🚗</span>
+              Selecciona un vehículo para ver sus repostajes
+            </div>
           )}
         </div>
+      </div>
 
-      </main>
+      {modalVehiculo !== null && (
+        <ModalVehiculo
+          vehiculo={modalVehiculo === "nuevo" ? null : modalVehiculo}
+          onClose={() => setModalVehiculo(null)}
+          onSaved={() => { recargarVehiculos(); cargarEstadisticas() }}
+        />
+      )}
     </div>
   )
 }

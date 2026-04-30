@@ -26,6 +26,7 @@ import {
   claveSalida,
   exportarProductosJSON,
   importarProductosJSON,
+  eliminarSalidasDepartamento,
   type CategoriaProducto,
   type ProductoAlmacen,
   type DepartamentoProd,
@@ -525,6 +526,25 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }
 
+  // ─── Limpiar movimientos del departamento ────────────────────────────────
+
+  const handleLimpiarMovimientos = async () => {
+    if (departamentoId === "") return
+    const deptNombre = departamentos.find(d => d.id === departamentoId)?.nombre ?? ""
+    const ok = await confirm(
+      `¿Eliminar todos los movimientos de "${deptNombre}" en ${year}?`,
+      { confirmLabel: "Eliminar todo", danger: true, detail: "Se borrarán todos los registros de consumo de este departamento para el año seleccionado. Esta acción no se puede deshacer." }
+    )
+    if (!ok) return
+    try {
+      const eliminados = await eliminarSalidasDepartamento(Number(departamentoId), year)
+      setSalidasMap(new Map())
+      toast.success("Movimientos eliminados", `${eliminados} registros eliminados`)
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
+  }
+
   // ─── Exportación JSON ─────────────────────────────────────────────────────
 
   const handleExportJSON = async () => {
@@ -792,33 +812,51 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                     </svg>
                     Unidades de presentación
                   </button>
+
+                  {/* ── Sección avanzada ── */}
+                  <div style={{ height: "1px", backgroundColor: "#f1f5f9", margin: "4px 6px" }} />
+                  <div style={{ padding: "6px 12px 4px", fontSize: "10px", fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.08em" }}>Avanzado</div>
+                  <button
+                    onClick={() => { handleImportClick(); setGestionarDropdownOpen(false) }}
+                    disabled={isImporting}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: isImporting ? "not-allowed" : "pointer", textAlign: "left", fontSize: "13px", color: "#64748b", fontWeight: 400, opacity: isImporting ? 0.5 : 1 }}
+                    onMouseEnter={e => { if (!isImporting) e.currentTarget.style.backgroundColor = "#f8fafc" }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent" }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    {isImporting ? "Importando..." : "Importar JSON"}
+                  </button>
+                  <button
+                    onClick={() => { handleExportJSON(); setGestionarDropdownOpen(false) }}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: "pointer", textAlign: "left", fontSize: "13px", color: "#64748b", fontWeight: 400 }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc" }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent" }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Exportar JSON
+                  </button>
+                  <button
+                    onClick={() => { handleLimpiarMovimientos(); setGestionarDropdownOpen(false) }}
+                    disabled={departamentoId === ""}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: departamentoId === "" ? "not-allowed" : "pointer", textAlign: "left", fontSize: "13px", color: departamentoId === "" ? "#cbd5e1" : "#dc2626", fontWeight: 400, opacity: departamentoId === "" ? 0.5 : 1 }}
+                    onMouseEnter={e => { if (departamentoId !== "") e.currentTarget.style.backgroundColor = "#fef2f2" }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent" }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={departamentoId === "" ? "#cbd5e1" : "#dc2626"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+                    </svg>
+                    Limpiar movimientos de {year}
+                  </button>
                 </div>
               </div>
             )}
           </div>
 
-          {/* Import/Export */}
-          <div style={{ display: "flex", gap: "4px" }}>
-            <button
-              onClick={handleImportClick}
-              disabled={isImporting}
-              title={isImporting ? "Importando..." : "Importar JSON"}
-              style={{
-                height: "40px", width: "40px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
-                backgroundColor: "#fff", fontSize: "16px", cursor: isImporting ? "not-allowed" : "pointer",
-                opacity: isImporting ? 0.5 : 0.6, display: "flex", alignItems: "center", justifyContent: "center",
-              }}
-            >📥</button>
-            <button
-              onClick={handleExportJSON}
-              title="Exportar JSON"
-              style={{
-                height: "40px", width: "40px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
-                backgroundColor: "#fff", fontSize: "16px", cursor: "pointer",
-                opacity: 0.6, display: "flex", alignItems: "center", justifyContent: "center",
-              }}
-            >📤</button>
-          </div>
+
         </div>
 
         {/* ── Chips de filtro de meses ── */}

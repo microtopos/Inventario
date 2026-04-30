@@ -387,6 +387,29 @@ export async function eliminarSalida(id: number): Promise<void> {
   await db.execute("DELETE FROM salidas_productos WHERE id = ?", [id]);
 }
 
+/**
+ * Elimina todos los movimientos de salida de un departamento.
+ * Si se proporciona anio, solo elimina los de ese año.
+ * Si se proporciona anio = undefined, elimina TODOS los años.
+ */
+export async function eliminarSalidasDepartamento(
+  departamentoId: number,
+  anio?: number
+): Promise<number> {
+  const db = await getDbWithRetry();
+
+  const sql = anio !== undefined
+    ? "DELETE FROM salidas_productos WHERE departamento_id = ? AND anio = ?"
+    : "DELETE FROM salidas_productos WHERE departamento_id = ?";
+
+  const params = anio !== undefined
+    ? [departamentoId, anio]
+    : [departamentoId];
+
+  const result = await db.execute(sql, params);
+  return result.rowsAffected ?? 0;
+}
+
 // ─── Estadísticas ─────────────────────────────────────────────────────────────
 
 export interface ConsumoMensualDepartamento {
