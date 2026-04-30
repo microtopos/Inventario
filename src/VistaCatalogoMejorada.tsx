@@ -62,7 +62,7 @@ function getConsumoTextColor(valor: number): string {
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
 // Ref + Nombre + Presentación + Precio + Categoría + Stock + meses visibles + Total + Acciones
-// TOTAL_COLS es dinámico: 6 columnas fijas + mesesVisibles.length + Total + Acciones = 9 + mesesVisibles.length
+// TOTAL_COLS es dinámico: 6 columnas fijas + mesesVisibles.length + Total + Acciones = 8 + mesesVisibles.length
 
 // ─── Componente principal ────────────────────────────────────────────────────
 
@@ -111,7 +111,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [isImporting, setIsImporting] = useState(false)
   // Modal Gestionar (departamentos + unidades)
   const [showGestionarModal, setShowGestionarModal] = useState(false)
-  const [gestionarTab, setGestionarTab] = useState<"departamentos" | "unidades">("departamentos")
+  const [gestionarTab, setGestionarTab] = useState<"departamentos" | "unidades" | "productos">("departamentos")
   const [newDeptName, setNewDeptName] = useState("")
   const [newUnitNameGlobal, setNewUnitNameGlobal] = useState("")
   const [gestionarDropdownOpen, setGestionarDropdownOpen] = useState(false)
@@ -120,6 +120,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [editingDeptName, setEditingDeptName] = useState("")
   const [editingUnitId, setEditingUnitId] = useState<number | null>(null)
   const [editingUnitName, setEditingUnitName] = useState("")
+  const [gestionarProductoSearch, setGestionarProductoSearch] = useState("")
   const [availableYears, setAvailableYears] = useState<number[]>([])
   const departamentoIdRef = useRef<number | "" | undefined>(undefined)
   useEffect(() => { departamentoIdRef.current = departamentoId }, [departamentoId])
@@ -673,18 +674,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             <span style={{ fontSize: "15px", lineHeight: 1 }}>+</span> Nueva salida
           </button>
 
-          {/* + Nuevo producto */}
-          <button
-            onClick={() => setEditingProductId("nuevo")}
-            style={{
-              height: "40px", padding: "0 16px", border: "none", borderRadius: "10px",
-              backgroundColor: "#16a34a", color: "#fff", fontSize: "13px", fontWeight: 600,
-              cursor: "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: "5px",
-            }}
-          >
-            <span style={{ fontSize: "15px", lineHeight: 1 }}>+</span> Nuevo producto
-          </button>
-
           {/* ⚙ Gestionar (dropdown) */}
           <div style={{ position: "relative" }} onMouseDown={e => e.stopPropagation()}>
             <button
@@ -712,6 +701,18 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                 boxShadow: "0 8px 24px rgba(0,0,0,0.10)", minWidth: "200px", overflow: "hidden",
               }}>
                 <div style={{ padding: "6px" }}>
+                  <button
+                    onClick={() => { setGestionarTab("productos"); setShowGestionarModal(true); setGestionarDropdownOpen(false) }}
+                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: "pointer", textAlign: "left", fontSize: "13px", color: "#374151", fontWeight: 500 }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc" }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent" }}
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                    </svg>
+                    Productos
+                  </button>
+                  <div style={{ height: "1px", backgroundColor: "#f1f5f9", margin: "4px 6px" }} />
                   <button
                     onClick={() => { setGestionarTab("departamentos"); setShowGestionarModal(true); setGestionarDropdownOpen(false) }}
                     style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: "pointer", textAlign: "left", fontSize: "13px", color: "#374151", fontWeight: 500 }}
@@ -830,7 +831,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                   <th key={i} style={{ ...thStyle, minWidth: "70px", textAlign: "center" }}>{MESES[i]}</th>
                 ))}
                 <th style={{ ...thStyle, minWidth: "100px", textAlign: "center" }}>Total</th>
-                <th style={{ ...thStyle, position: "sticky", right: 0, zIndex: 3, minWidth: "130px", textAlign: "center", boxShadow: "-2px 0 4px -2px rgba(0,0,0,0.15)" }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -848,7 +848,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                       onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eff6ff" }}
                       onMouseLeave={e => { e.currentTarget.style.backgroundColor = isExpanded ? "#eff6ff" : "#f8fafc" }}
                     >
-                      <td colSpan={9 + mesesVisibles.length} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", position: "sticky", left: 0, backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", zIndex: 1 }}>
+                      <td colSpan={8 + mesesVisibles.length} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", position: "sticky", left: 0, backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", zIndex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <span style={{ fontSize: "12px", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", color: "#3b82f6" }}>▶</span>
                           <span style={{ fontSize: "13px" }}>{cat.nombre}</span>
@@ -1027,20 +1027,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, fontSize: "13px", color: "#059669", backgroundColor: totalProd > 0 ? "#ecfdf5" : "transparent" }}>
                             {totalProd.toLocaleString()}
                           </td>
-
-                          {/* Acciones */}
-                          <td style={{ ...tdStyle, position: "sticky", right: 0, zIndex: 3, backgroundColor: "#fff", boxShadow: "-2px 0 4px -2px rgba(0,0,0,0.12)" }}>
-                            <div style={{ display: "flex", gap: "6px", justifyContent: "center" }}>
-                              <button
-                                onClick={() => setEditingProductId(prod.id)}
-                                style={{ padding: "4px 10px", border: "1px solid #e5e7eb", borderRadius: "6px", backgroundColor: "#fff", fontSize: "12px", cursor: "pointer", color: "#444" }}
-                              >Editar</button>
-                              <button
-                                onClick={() => handleDeleteProduct(prod)}
-                                style={{ padding: "4px 10px", border: "1px solid #fca5a5", borderRadius: "6px", backgroundColor: "#fff", fontSize: "12px", cursor: "pointer", color: "#dc2626" }}
-                              >Eliminar</button>
-                            </div>
-                          </td>
                         </tr>
                       )
                     })}
@@ -1058,15 +1044,14 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                   <td style={{ padding: "14px", textAlign: "right", color: "#fbbf24", fontSize: "14px" }}>
                     {mesesVisibles.reduce((a, i) => a + totalesPorMes[i], 0).toLocaleString()}
                   </td>
-                  <td></td>
                 </tr>
               )}
 
               {productosFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={9 + mesesVisibles.length} style={{ padding: "60px", textAlign: "center", color: "#6b7280", backgroundColor: "#fafafa" }}>
+                  <td colSpan={8 + mesesVisibles.length} style={{ padding: "60px", textAlign: "center", color: "#6b7280", backgroundColor: "#fafafa" }}>
                     <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "8px" }}>No se encontraron productos</div>
-                    <div style={{ fontSize: "13px" }}>{searchTerm ? "Intenta con otro término de búsqueda" : "Agrega productos usando el botón '+ Nuevo producto'"}</div>
+                    <div style={{ fontSize: "13px" }}>{searchTerm ? "Intenta con otro término de búsqueda" : "Agrega productos desde el menú Gestionar → Productos"}</div>
                   </td>
                 </tr>
               )}
@@ -1204,25 +1189,25 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       {/* ── Modal: Gestionar departamentos y unidades ── */}
       {showGestionarModal && (
         <div
-          onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingUnitId(null) }}
+          onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingUnitId(null); setGestionarProductoSearch("") }}
           style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           <div
             onClick={e => e.stopPropagation()}
-            style={{ backgroundColor: "#fff", borderRadius: "16px", width: "480px", maxWidth: "calc(100vw - 32px)", boxShadow: "0 20px 48px rgba(0,0,0,0.15)", overflow: "hidden", maxHeight: "80vh", display: "flex", flexDirection: "column" }}
+            style={{ backgroundColor: "#fff", borderRadius: "16px", width: gestionarTab === "productos" ? "620px" : "480px", maxWidth: "calc(100vw - 32px)", boxShadow: "0 20px 48px rgba(0,0,0,0.15)", overflow: "hidden", maxHeight: "80vh", display: "flex", flexDirection: "column", transition: "width 0.2s" }}
           >
             {/* Header */}
             <div style={{ padding: "20px 24px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <h2 style={{ fontSize: "16px", fontWeight: 700, margin: 0, color: "#111827" }}>Gestionar</h2>
               <button
-                onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingUnitId(null) }}
+                onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingUnitId(null); setGestionarProductoSearch("") }}
                 style={{ width: "28px", height: "28px", border: "none", backgroundColor: "#f1f5f9", borderRadius: "6px", cursor: "pointer", color: "#64748b", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}
               >✕</button>
             </div>
 
             {/* Tabs */}
             <div style={{ display: "flex", gap: "0", padding: "16px 24px 0", borderBottom: "1px solid #f1f5f9" }}>
-              {(["departamentos", "unidades"] as const).map(tab => (
+              {(["productos", "departamentos", "unidades"] as const).map(tab => (
                 <button
                   key={tab}
                   onClick={() => { setGestionarTab(tab); setEditingDeptId(null); setEditingUnitId(null) }}
@@ -1231,16 +1216,85 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                     fontSize: "13px", fontWeight: gestionarTab === tab ? 700 : 500,
                     color: gestionarTab === tab ? "#1d4ed8" : "#64748b",
                     borderBottom: gestionarTab === tab ? "2px solid #3b82f6" : "2px solid transparent",
-                    marginBottom: "-1px", textTransform: "capitalize",
+                    marginBottom: "-1px",
                   }}
                 >
-                  {tab === "departamentos" ? "Departamentos" : "Unidades de presentación"}
+                  {tab === "productos" ? "Productos" : tab === "departamentos" ? "Departamentos" : "Unidades"}
                 </button>
               ))}
             </div>
 
             {/* Contenido */}
             <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1 }}>
+
+              {/* ── Tab Productos ── */}
+              {gestionarTab === "productos" && (() => {
+                const term = gestionarProductoSearch.toLowerCase()
+                const productosFiltradosModal = productos.filter(p =>
+                  !term || p.referencia.toLowerCase().includes(term) || p.nombre.toLowerCase().includes(term)
+                )
+                const porCategoria = new Map<number, ProductoAlmacen[]>()
+                for (const p of productosFiltradosModal) {
+                  if (!porCategoria.has(p.categoria_id)) porCategoria.set(p.categoria_id, [])
+                  porCategoria.get(p.categoria_id)!.push(p)
+                }
+                return (
+                  <>
+                    {/* Cabecera: buscador + botón nuevo */}
+                    <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
+                      <input
+                        type="text"
+                        placeholder="🔍 Buscar producto..."
+                        value={gestionarProductoSearch}
+                        onChange={e => setGestionarProductoSearch(e.target.value)}
+                        style={{ flex: 1, height: "36px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "13px", outline: "none" }}
+                      />
+                      <button
+                        onClick={() => { setShowGestionarModal(false); setEditingProductId("nuevo") }}
+                        style={{ height: "36px", padding: "0 14px", border: "none", borderRadius: "8px", backgroundColor: "#16a34a", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: "5px" }}
+                      >
+                        <span style={{ fontSize: "15px", lineHeight: 1 }}>+</span> Nuevo
+                      </button>
+                    </div>
+
+                    {/* Lista agrupada por categoría */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                      {porCategoria.size === 0 ? (
+                        <p style={{ fontSize: "13px", color: "#94a3b8", textAlign: "center", padding: "20px 0", margin: 0 }}>No se encontraron productos</p>
+                      ) : categorias.filter(c => porCategoria.has(c.id)).map(cat => (
+                        <div key={cat.id}>
+                          <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "6px", paddingLeft: "2px" }}>
+                            {cat.nombre} <span style={{ fontWeight: 500, color: "#cbd5e1" }}>({porCategoria.get(cat.id)!.length})</span>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                            {porCategoria.get(cat.id)!.map(prod => (
+                              <div key={prod.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", backgroundColor: prod.activo === 0 ? "#fafafa" : "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
+                                <span style={{ fontSize: "10px", fontWeight: 700, color: "#1d4ed8", backgroundColor: "#eff6ff", padding: "2px 6px", borderRadius: "4px", flexShrink: 0 }}>{prod.referencia}</span>
+                                <span style={{ flex: 1, fontSize: "13px", color: prod.activo === 0 ? "#9ca3af" : "#374151", fontWeight: 500 }}>
+                                  {prod.nombre}
+                                  {prod.activo === 0 && <span style={{ marginLeft: "6px", fontSize: "9px", padding: "1px 4px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#9ca3af", border: "1px solid #e5e7eb" }}>INACT.</span>}
+                                </span>
+                                <button
+                                  onClick={() => { setShowGestionarModal(false); setEditingProductId(prod.id) }}
+                                  style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#475569", fontSize: "12px", cursor: "pointer", flexShrink: 0 }}
+                                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1" }}
+                                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff"; e.currentTarget.style.borderColor = "#e2e8f0" }}
+                                >Editar</button>
+                                <button
+                                  onClick={() => handleDeleteProduct(prod)}
+                                  style={{ padding: "4px 8px", border: "1px solid #fca5a5", borderRadius: "6px", backgroundColor: "#fff", color: "#dc2626", fontSize: "12px", cursor: "pointer", flexShrink: 0 }}
+                                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#fef2f2" }}
+                                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}
+                                >Eliminar</button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )
+              })()}
 
               {/* ── Tab Departamentos ── */}
               {gestionarTab === "departamentos" && (
