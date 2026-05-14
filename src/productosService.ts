@@ -23,6 +23,7 @@ export interface ProductoAlmacen {
 
 export interface StockProducto {
   producto_id: number;
+  presentacion_id: number;
   cantidad: number;
   actualizado_el: string; // ISO timestamp
 }
@@ -167,16 +168,14 @@ export async function getProductos(soloActivos = true): Promise<ProductoAlmacen[
   const db = await getDbWithRetry();
   const where = soloActivos ? "WHERE p.activo = 1" : "";
   return db.select<ProductoAlmacen[]>(
-    `SELECT
-       p.id, p.referencia, p.nombre, p.categoria_id,
-       c.nombre AS categoria_nombre,
-       p.unidad_medida, p.activo, p.precio,
-       sp.cantidad AS stock
-     FROM productos_almacen p
-     JOIN categorias_producto c ON c.id = p.categoria_id
-     LEFT JOIN stock_productos sp ON sp.producto_id = p.id
-     ${where}
-     ORDER BY c.nombre ASC, p.referencia ASC`
+  `SELECT
+     p.id, p.referencia, p.nombre, p.categoria_id,
+     c.nombre AS categoria_nombre,
+     p.unidad_medida, p.activo, p.precio
+   FROM productos_almacen p
+   JOIN categorias_producto c ON c.id = p.categoria_id
+   ${where}
+   ORDER BY c.nombre ASC, p.referencia ASC`
   );
 }
 
@@ -710,37 +709,46 @@ export async function ensureProduct(
 // ─── Stock ────────────────────────────────────────────────────────────────────
 
 /**
- * Obtiene el stock actual de todos los productos en un único SELECT.
- * Devuelve un mapa producto_id → cantidad.
+ * Obtiene el stock de todos los productos/presentaciones en un único SELECT.
+ * Devuelve un mapa con clave "productoId_presentacionId" → cantidad | null.
  */
-export async function getAllStock(): Promise<Map<number, number>> {
+export async function getStockPorPresentacion(): Promise<Map<string, number | null>> {
   const db = await getDbWithRetry();
-  const rows = await db.select<{ producto_id: number; cantidad: number }[]>(
-    "SELECT producto_id, cantidad FROM stock_productos"
+  const rows = await db.select<{ producto_id: number; presentacion_id: number; cantidad: number }[]>(
+    "SELECT producto_id, presentacion_id, cantidad FROM stock_productos"
   );
-  const mapa = new Map<number, number>();
+  const mapa = new Map<string, number | null>();
   for (const row of rows) {
-    mapa.set(row.producto_id, row.cantidad);
+    mapa.set(`${row.producto_id}_${row.presentacion_id}`, row.cantidad);
   }
   return mapa;
 }
 
 /**
- * Inserta o actualiza el stock de un producto.
+ * Inserta o actualiza el stock de un producto + presentación.
  * Si cantidad = null, elimina el registro (stock desconocido).
  */
-export async function upsertStock(productoId: number, cantidad: number | null): Promise<void> {
+export async function upsertStock(
+  productoId: number,
+  cantidad: number | null,
+  presentacionId: number | null
+): Promise<void> {
   const db = await getDbWithRetry();
-  if (cantidad === null) {
-    await db.execute("DELETE FROM stock_productos WHERE producto_id = ?", [productoId]);
+  if (cantidad === null || presentacionId === null) {
+    if (presentacionId !== null) {
+      await db.execute(
+        "DELETE FROM stock_productos WHERE producto_id = ? AND presentacion_id = ?",
+        [productoId, presentacionId]
+      );
+    }
     return;
   }
   await db.execute(
-    `INSERT INTO stock_productos (producto_id, cantidad, actualizado_el)
-     VALUES (?, ?, datetime('now'))
-     ON CONFLICT(producto_id)
+    `INSERT INTO stock_productos (producto_id, presentacion_id, cantidad, actualizado_el)
+     VALUES (?, ?, ?, datetime('now'))
+     ON CONFLICT(producto_id, presentacion_id)
      DO UPDATE SET cantidad = excluded.cantidad, actualizado_el = excluded.actualizado_el`,
-    [productoId, cantidad]
+    [productoId, presentacionId, cantidad]
   );
 }
 

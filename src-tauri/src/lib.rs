@@ -335,6 +335,36 @@ pub fn run() {
                             ",
                             kind: MigrationKind::Up,
                         },
+                        Migration {
+                            version: 7,
+                            description: "stock por producto y presentacion",
+                            sql: "
+                                -- Migrar datos existentes a la nueva tabla con clave compuesta
+                                CREATE TABLE IF NOT EXISTS stock_productos_new (
+                                    producto_id     INTEGER NOT NULL
+                                                    REFERENCES productos_almacen(id) ON DELETE CASCADE,
+                                    presentacion_id INTEGER NOT NULL
+                                                    REFERENCES producto_presentaciones(id) ON DELETE CASCADE,
+                                    cantidad        REAL    NOT NULL CHECK (cantidad >= 0),
+                                    actualizado_el  TEXT    NOT NULL DEFAULT (datetime('now')),
+                                    PRIMARY KEY (producto_id, presentacion_id)
+                                );
+
+                                -- Intentar conservar stock antiguo asignándolo a la primera presentación de cada producto
+                                INSERT OR IGNORE INTO stock_productos_new (producto_id, presentacion_id, cantidad, actualizado_el)
+                                SELECT sp.producto_id, pp.id, sp.cantidad, sp.actualizado_el
+                                FROM stock_productos sp
+                                JOIN (
+                                    SELECT producto_id, MIN(id) AS id
+                                    FROM producto_presentaciones
+                                    GROUP BY producto_id
+                                ) pp ON pp.producto_id = sp.producto_id;
+
+                                DROP TABLE IF EXISTS stock_productos;
+                                ALTER TABLE stock_productos_new RENAME TO stock_productos;
+                            ",
+                            kind: MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),

@@ -8,6 +8,7 @@ import {
   deleteProduct,
   upsertSalida,
   upsertStock,
+  getStockPorPresentacion,
   crearDepartamentoProd,
   getSalidasByYear,
   getAniosDisponibles,
@@ -107,9 +108,13 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   // ── Salidas: mapa "productoId_presentacionId" → mes → cantidad ──
   const [salidasMap, setSalidasMap] = useState<Map<string, Map<number, number>>>(new Map())
 
+  // ── Stock por (producto_id, presentacion_id) ──
+  // clave: "productoId_presentacionId"
+  const [stockMap, setStockMap] = useState<Map<string, number | null>>(new Map())
+
   // ── UI helpers ──
   const [wideNombre, setWideNombre] = useState(false)
-  const [savingStock, setSavingStock] = useState<number | null>(null) // producto_id guardando
+  const [savingStock, setSavingStock] = useState<string | null>(null) // clave "productoId_presId" guardando
   const [loading, setLoading] = useState(true)
   const [savingCell, setSavingCell] = useState<{ clave: string; mes: number; tipoUnidad: string | null } | null>(null)
   const [isImporting, setIsImporting] = useState(false)
@@ -147,13 +152,14 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const loadInitialData = useCallback(async () => {
     setLoading(true)
     try {
-      const [cats, prods, depts, anios, unidades, todasPresentaciones] = await Promise.all([
+      const [cats, prods, depts, anios, unidades, todasPresentaciones, stockInicial] = await Promise.all([
         getCategorias(),
         getProductos(false),
         getDepartamentosProd(),
         getAniosDisponibles(),
         getUnidadesPresentacion(),
         getAllPresentaciones(),
+        getStockPorPresentacion(),
       ])
       setCategorias(cats)
       setProductos(prods)
@@ -162,6 +168,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       setUnidadesPresentacion(unidades)
       setPresentacionesPorProducto(todasPresentaciones)
       setExpandedCategories(new Set(cats.map(c => c.id)))
+      setStockMap(stockInicial)
 
       const activaInicial = new Map<number, number | null>()
       for (const prod of prods) {
@@ -275,15 +282,22 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
   // ─── Actualizar stock ─────────────────────────────────────────────────────
 
-  const handleStockChange = useCallback(async (productoId: number, valorStr: string) => {
+  const handleStockChange = useCallback(async (
+    productoId: number,
+    presentacionId: number | null,
+    valorStr: string
+  ) => {
     const valor = valorStr.trim() === "" ? null : Number(valorStr)
     if (valor !== null && (isNaN(valor) || valor < 0)) return
-    setSavingStock(productoId)
+    const clave = `${productoId}_${presentacionId ?? "null"}`
+    setSavingStock(clave)
     try {
-      await upsertStock(productoId, valor)
-      setProductos(prev => prev.map(p =>
-        p.id === productoId ? { ...p, stock: valor } : p
-      ))
+      await upsertStock(productoId, valor, presentacionId)
+      setStockMap(prev => {
+        const nuevo = new Map(prev)
+        nuevo.set(clave, valor)
+        return nuevo
+      })
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     } finally {
@@ -305,6 +319,13 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       setSalidasMap(prev => {
         const nuevo = new Map(prev)
         // Limpiar todas las claves de este producto
+        for (const k of [...nuevo.keys()]) {
+          if (k.startsWith(`${producto.id}_`)) nuevo.delete(k)
+        }
+        return nuevo
+      })
+      setStockMap(prev => {
+        const nuevo = new Map(prev)
         for (const k of [...nuevo.keys()]) {
           if (k.startsWith(`${producto.id}_`)) nuevo.delete(k)
         }
@@ -386,6 +407,12 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       setPresentacionesPorProducto(prev => {
         const nuevo = new Map(prev)
         nuevo.set(productoId, nuevaLista)
+        return nuevo
+      })
+      // Limpiar stock de la presentación eliminada
+      setStockMap(prev => {
+        const nuevo = new Map(prev)
+        nuevo.delete(`${productoId}_${pres.id}`)
         return nuevo
       })
       // Si era la activa, pasar a la primera disponible o null
@@ -1041,32 +1068,42 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           {/* Categoría */}
                           <td style={{ ...tdStyle }}>{prod.categoria_nombre || "—"}</td>
 
-                          {/* Stock */}
+                          {/* Stock — por producto + presentación activa */}
                           <td style={{ ...tdStyle, padding: "4px 8px", textAlign: "center" }}>
-                            <input
-                              type="number"
-                              min="0"
-                              value={prod.stock ?? ""}
-                              onChange={e => handleStockChange(prod.id, e.target.value)}
-                              disabled={savingStock === prod.id}
-                              placeholder="—"
-                              title="Stock actual en almacén"
-                              style={{
-                                width: "64px", padding: "4px 6px", border: "1.5px solid #d1d5db",
-                                borderRadius: "6px", textAlign: "center", fontSize: "12px",
-                                backgroundColor: savingStock === prod.id ? "#f5f5f5"
-                                  : prod.stock == null ? "#fff"
-                                  : prod.stock === 0 ? "#fef2f2"
-                                  : prod.stock <= 5 ? "#fff7ed"
-                                  : "#f0fdf4",
-                                color: prod.stock == null ? "#9ca3af"
-                                  : prod.stock === 0 ? "#dc2626"
-                                  : prod.stock <= 5 ? "#c2410c"
-                                  : "#15803d",
-                                fontWeight: prod.stock != null ? 600 : 400,
-                                outline: "none",
-                              }}
-                            />
+                            {(() => {
+                              const presIdActiva = presentacionActiva.get(prod.id) ?? null
+                              const claveStock = `${prod.id}_${presIdActiva ?? "null"}`
+                              const stockVal = stockMap.get(claveStock) ?? null
+                              const isSavingThis = savingStock === claveStock
+                              const sinPres = listaPresProducto.length === 0
+                              return (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  value={stockVal ?? ""}
+                                  onChange={e => handleStockChange(prod.id, presIdActiva, e.target.value)}
+                                  disabled={isSavingThis || sinPres}
+                                  placeholder={sinPres ? "—" : "0"}
+                                  title={sinPres ? "Añade una presentación primero" : `Stock de ${presActiva?.nombre ?? "esta presentación"}`}
+                                  style={{
+                                    width: "64px", padding: "4px 6px", border: "1.5px solid #d1d5db",
+                                    borderRadius: "6px", textAlign: "center", fontSize: "12px",
+                                    backgroundColor: (isSavingThis || sinPres) ? "#f5f5f5"
+                                      : stockVal == null ? "#fff"
+                                      : stockVal === 0 ? "#fef2f2"
+                                      : stockVal <= 5 ? "#fff7ed"
+                                      : "#f0fdf4",
+                                    color: (sinPres || stockVal == null) ? "#9ca3af"
+                                      : stockVal === 0 ? "#dc2626"
+                                      : stockVal <= 5 ? "#c2410c"
+                                      : "#15803d",
+                                    fontWeight: stockVal != null ? 600 : 400,
+                                    cursor: sinPres ? "not-allowed" : "auto",
+                                    outline: "none",
+                                  }}
+                                />
+                              )
+                            })()}
                           </td>
 
                           {/* Celdas de meses */}
