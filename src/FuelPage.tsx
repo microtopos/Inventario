@@ -6,7 +6,7 @@ import { useToast } from "./Toast"
 import { usePagination } from "./usePagination"
 import {
   getVehiculos, crearVehiculo, actualizarVehiculo,
-  desactivarVehiculo,
+  desactivarVehiculo, reactivarVehiculo,
   getRepostajesPaginados, crearRepostaje, actualizarRepostaje, eliminarRepostaje,
   getResumenPorVehiculo, exportarDatos, importarDatos,
   type Vehiculo, type Repostaje, type FiltrosRepostaje, type ResumenVehiculo, type ExportData,
@@ -233,18 +233,18 @@ function MenuDebug({ onImportar, onExportar }: { onImportar: () => void; onExpor
 // ─── Panel detalle de vehículo ────────────────────────────────────────────────
 
 function PanelVehiculo({
-  vehiculo, vehiculoIndex, onEdit, onDesactivar, onVehiculoUpdated,
+  vehiculo, vehiculoIndex, onEdit, onDesactivar, onReactivar, onVehiculoUpdated,
 }: {
   vehiculo: Vehiculo; vehiculoIndex: number
-  onEdit: () => void; onDesactivar: () => void; onVehiculoUpdated: () => void
+  onEdit: () => void; onDesactivar: () => void; onReactivar: () => void; onVehiculoUpdated: () => void
 }) {
   const [modalRepostaje, setModalRepostaje] = useState<Repostaje | null | "nuevo">(null)
   const [filtroDesde, setFiltroDesde] = useState("")
   const [filtroHasta, setFiltroHasta] = useState("")
-  const [confirmandoDesactivar, setConfirmandoDesactivar] = useState(false)
   const { confirm } = useConfirm()
   const toast = useToast()
   const color = colorVehiculo(vehiculoIndex)
+  const activo = vehiculo.activo === 1
 
   const buildFiltros = useCallback((): FiltrosRepostaje => {
     const f: FiltrosRepostaje = { vehiculo_id: vehiculo.id }
@@ -276,35 +276,33 @@ function PanelVehiculo({
               <div style={{ width: "13px", height: "13px", borderRadius: "50%", backgroundColor: color }} />
             </div>
             <div style={{ minWidth: 0, flex: 1 }}>
-              <div style={{ fontSize: "18px", fontWeight: 700, color: "#111", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vehiculo.nombre}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{ fontSize: "18px", fontWeight: 700, color: "#111", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{vehiculo.nombre}</div>
+                {!activo && <span style={{ fontSize: "10px", fontWeight: 700, color: "#9ca3af", backgroundColor: "#f3f4f6", padding: "2px 7px", borderRadius: "4px", textTransform: "uppercase", letterSpacing: "0.06em", flexShrink: 0 }}>Inactivo</span>}
+              </div>
               <div style={{ fontSize: "13px", color: "#888", fontFamily: "monospace", marginTop: "3px", textAlign: "left" }}>{vehiculo.matricula}</div>
             </div>
           </div>
           <div style={{ display: "flex", gap: "8px", alignItems: "center", flexShrink: 0 }}>
-            <button onClick={() => setModalRepostaje("nuevo")}
-              style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 16px", borderRadius: "8px", border: "none", backgroundColor: color, color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
-              ⛽ Añadir repostaje
-            </button>
+            {activo && (
+              <button onClick={() => setModalRepostaje("nuevo")}
+                style={{ display: "flex", alignItems: "center", gap: "7px", padding: "8px 16px", borderRadius: "8px", border: "none", backgroundColor: color, color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
+                ⛽ Añadir repostaje
+              </button>
+            )}
             <button onClick={e => { e.stopPropagation(); onEdit() }}
               style={{ padding: "8px 13px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "13px", cursor: "pointer" }}>
               Editar
             </button>
-            {confirmandoDesactivar ? (
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 10px", borderRadius: "8px", border: "1px solid #fca5a5", backgroundColor: "#fff5f5" }}>
-                <span style={{ fontSize: "12px", color: "#dc2626", whiteSpace: "nowrap" }}>¿Desactivar?</span>
-                <button onClick={() => { setConfirmandoDesactivar(false); onDesactivar() }}
-                  style={{ padding: "4px 10px", borderRadius: "6px", border: "none", backgroundColor: "#dc2626", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
-                  Sí
-                </button>
-                <button onClick={() => setConfirmandoDesactivar(false)}
-                  style={{ padding: "4px 8px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#888", fontSize: "12px", cursor: "pointer" }}>
-                  No
-                </button>
-              </div>
-            ) : (
-              <button onClick={() => setConfirmandoDesactivar(true)}
+            {activo ? (
+              <button onClick={onDesactivar}
                 style={{ padding: "8px 13px", borderRadius: "8px", border: "1px solid #fca5a5", backgroundColor: "#fff", color: "#dc2626", fontSize: "13px", cursor: "pointer" }}>
                 Desactivar
+              </button>
+            ) : (
+              <button onClick={onReactivar}
+                style={{ padding: "8px 13px", borderRadius: "8px", border: "1px solid #86efac", backgroundColor: "#fff", color: "#16a34a", fontSize: "13px", cursor: "pointer" }}>
+                Reactivar
               </button>
             )}
           </div>
@@ -415,17 +413,18 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
   const [busqueda, setBusqueda] = useState("")
   const [modalVehiculo, setModalVehiculo] = useState<Vehiculo | null | "nuevo">(null)
   const [statsOpen, setStatsOpen] = useState(false)
+  const [mostrarInactivos, setMostrarInactivos] = useState(false)
 
   const [gastoPorVehiculo, setGastoPorVehiculo] = useState<ResumenVehiculo[]>([])
   const [totalConsumo, setTotalConsumo] = useState<number>(0)
   const [filtroStatsDesde, setFiltroStatsDesde] = useState("")
   const [filtroStatsHasta, setFiltroStatsHasta] = useState("")
 
-  const { confirm } = useConfirm()
+  const { confirm, dialog } = useConfirm()
   const toast = useToast()
 
   const recargarVehiculos = useCallback(() => {
-    getVehiculos(true).then(setVehiculos)
+    getVehiculos(false).then(setVehiculos)
   }, [])
 
   useEffect(() => { recargarVehiculos() }, [])
@@ -442,13 +441,16 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
 
   useEffect(() => { cargarEstadisticas() }, [cargarEstadisticas])
 
-  // Auto-seleccionar el primero al cargar
-  const vehiculosVisibles = vehiculos.filter(v => v.activo === 1)
+  // Auto-seleccionar el primero al cargar o al cambiar de pestaña
+  const vehiculosVisibles = vehiculos.filter(v => mostrarInactivos ? v.activo === 0 : v.activo === 1)
+  useEffect(() => {
+    setSelectedId(null)
+  }, [mostrarInactivos])
   useEffect(() => {
     if (vehiculosVisibles.length > 0 && selectedId === null) {
       setSelectedId(vehiculosVisibles[0].id)
     }
-  }, [vehiculosVisibles.length])
+  }, [vehiculosVisibles.length, selectedId])
 
   async function handleDesactivar(v: Vehiculo) {
     const ok = await confirm(`¿Desactivar "${v.nombre}"?`, { confirmLabel: "Desactivar", danger: true, detail: "El historial de repostajes se conserva." })
@@ -457,7 +459,17 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
     toast.success("Vehículo desactivado")
     recargarVehiculos()
     cargarEstadisticas()
-    if (selectedId === v.id) setSelectedId(null)
+    setSelectedId(null)
+  }
+
+  async function handleReactivar(v: Vehiculo) {
+    const ok = await confirm(`¿Reactivar "${v.nombre}"?`, { confirmLabel: "Reactivar" })
+    if (!ok) return
+    await reactivarVehiculo(v.id)
+    toast.success("Vehículo reactivado")
+    recargarVehiculos()
+    cargarEstadisticas()
+    setSelectedId(null)
   }
 
   async function handleExportar() {
@@ -493,7 +505,7 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
     v.matricula.toLowerCase().includes(busqueda.toLowerCase())
   )
 
-  const vehiculoSeleccionado = vehiculosVisibles.find(v => v.id === selectedId) ?? null
+  const vehiculoSeleccionado = vehiculos.find(v => v.id === selectedId) ?? null
   const vehiculoIndex = vehiculosVisibles.findIndex(v => v.id === selectedId)
 
   return (
@@ -554,11 +566,21 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
               </span>
               <div style={{ display: "flex", gap: "6px" }}>
                 <MenuDebug onImportar={handleImportar} onExportar={handleExportar} />
-                <button onClick={() => setModalVehiculo("nuevo")}
-                  style={{ padding: "5px 10px", borderRadius: "6px", border: "none", backgroundColor: "#ea580c", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
-                  + Añadir
-                </button>
+                {!mostrarInactivos && (
+                  <button onClick={() => setModalVehiculo("nuevo")}
+                    style={{ padding: "5px 10px", borderRadius: "6px", border: "none", backgroundColor: "#ea580c", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
+                    + Añadir
+                  </button>
+                )}
               </div>
+            </div>
+            <div style={{ display: "flex", gap: "0", marginBottom: "10px", border: "1px solid #e8e8e8", borderRadius: "7px", overflow: "hidden" }}>
+              {(["activos", "inactivos"] as const).map(tab => (
+                <button key={tab} onClick={() => setMostrarInactivos(tab === "inactivos")}
+                  style={{ flex: 1, padding: "5px 0", border: "none", fontSize: "12px", fontWeight: 500, cursor: "pointer", backgroundColor: (tab === "inactivos") === mostrarInactivos ? "#ea580c" : "#fff", color: (tab === "inactivos") === mostrarInactivos ? "#fff" : "#888", transition: "background-color 0.15s" }}>
+                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                </button>
+              ))}
             </div>
             <div style={{ position: "relative" }}>
               <span style={{ position: "absolute", left: "9px", top: "50%", transform: "translateY(-50%)", fontSize: "12px", color: "#ccc", pointerEvents: "none" }}>🔍</span>
@@ -607,6 +629,7 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
               vehiculoIndex={vehiculoIndex}
               onEdit={() => setModalVehiculo(vehiculoSeleccionado)}
               onDesactivar={() => handleDesactivar(vehiculoSeleccionado)}
+              onReactivar={() => handleReactivar(vehiculoSeleccionado)}
               onVehiculoUpdated={cargarEstadisticas}
             />
           ) : (
@@ -625,6 +648,7 @@ export default function GasolinaPage({ onNavigate }: { onNavigate: (page: Page) 
           onSaved={() => { recargarVehiculos(); cargarEstadisticas() }}
         />
       )}
+      {dialog}
     </div>
   )
 }

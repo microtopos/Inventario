@@ -10,11 +10,8 @@ export async function importInventory() {
   )
 
   if ((check as any)[0].total > 0) {
-    console.log("Inventario ya importado")
     return
   }
-
-  console.log("Importando inventario...")
 
   for (const d of inventario.departamentos) {
 
@@ -42,7 +39,5 @@ export async function importInventory() {
     }
 
   }
-
-  console.log("Inventario importado correctamente")
 
 }

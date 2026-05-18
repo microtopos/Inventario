@@ -88,43 +88,6 @@ export async function reactivarVehiculo(id: number): Promise<void> {
 
 // ─── Repostajes ───────────────────────────────────────────────────────────────
 
-export async function getRepostajes(
-  filtros: FiltrosRepostaje = {}
-): Promise<Repostaje[]> {
-  const db = await getDb();
-
-  const condiciones: string[] = [];
-  const params: (string | number)[] = [];
-
-  if (filtros.vehiculo_id) {
-    condiciones.push("r.vehiculo_id = ?");
-    params.push(filtros.vehiculo_id);
-  }
-  if (filtros.fecha_desde) {
-    condiciones.push("r.fecha >= ?");
-    params.push(filtros.fecha_desde);
-  }
-  if (filtros.fecha_hasta) {
-    condiciones.push("r.fecha <= ?");
-    params.push(filtros.fecha_hasta);
-  }
-
-  const where =
-    condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : "";
-
-  return db.select<Repostaje[]>(
-    `SELECT
-       r.id, r.vehiculo_id, r.fecha, r.coste, r.notas,
-       v.nombre AS vehiculo_nombre,
-       v.matricula AS vehiculo_matricula
-     FROM repostajes r
-     JOIN vehiculos v ON v.id = r.vehiculo_id
-     ${where}
-     ORDER BY r.fecha DESC`,
-    params
-  );
-}
-
 export async function getRepostajesPaginados(
   filtros: FiltrosRepostaje = {},
   pageSize: number,
