@@ -1,5 +1,5 @@
 import { getDB } from "./db"
-import { addStock } from "./productService"
+import { addStock } from "./clothingService"
 
 // ─── Pedidos normales ─────────────────────────────────────────────────────────
 

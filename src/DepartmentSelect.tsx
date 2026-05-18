@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { getDepartments, addDepartment } from "./productService"
+import { getDepartments, addDepartment } from "./clothingService"
 
 interface Props {
   value: number | null

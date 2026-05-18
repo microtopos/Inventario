@@ -4,7 +4,7 @@ import { join } from "@tauri-apps/api/path"
 import { writeFile } from "@tauri-apps/plugin-fs"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { getInventory, getProductsWithSizes, getAllMovements } from "./inventoryService"
-import { ordenarTallas } from "./sortTallas"
+import { ordenarTallas } from "./sortSizes"
 import { getExportDir, setExportDir, getStockThresholds } from "./settingsService"
 
 // ─── Fecha ────────────────────────────────────────────────────────────────────

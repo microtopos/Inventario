@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rmdir *)",
+      "Bash(del *)",
+      "Bash(npm run *)",
+      "Bash(npx *)",
+      "Bash(npm install)",
+      "Bash(git mv *)",
+      "Bash(dir *)",
+      "Bash(findstr *)"
+    ]
+  },
+  "$version": 4
+}

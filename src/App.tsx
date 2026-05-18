@@ -1,15 +1,15 @@
 import './App.css'
 import { useState, useEffect, useRef } from "react"
-import { importInventory } from "./importInventory"
-import ProductDetail from "./ProductDetail"
-import { deleteProduct } from "./productService"
-import ProductForm from "./ProductForm"
+import { importInventory } from "./seedInventory"
+import ClothingDetail from "./ClothingDetail"
+import { deleteProduct } from "./clothingService"
+import ClothingForm from "./ClothingForm"
 import OrderPage from "./OrderPage"
 import AppHeader from "./AppHeader"
-import StatisticsPage from "./StatisticsPage"
+import ClothingStatsPage from "./ClothingStatsPage"
 import { useConfirm } from "./ConfirmDialog"
-import GasolinaPage from "./GasolinaPage"
-import ProductsPage from "./ProductsPage"
+import FuelPage from "./FuelPage"
+import CleaningPage from "./CleaningPage"
 import {
   exportInventarioPDF, exportInventarioXLSX,
   exportTallasPDF, exportTallasXLSX,
@@ -32,7 +32,7 @@ import {
   exportInventarioJSON,
   importInventarioJSON,
   type InventarioJSON,
-} from "./productService"
+} from "./clothingService"
 
 // ── Miniaturas ────────────────────────────────────────────────────────────────
 
@@ -181,7 +181,7 @@ function App() {
 
   if (selectedProduct) {
     return (
-      <ProductDetail
+      <ClothingDetail
         product={selectedProduct}
         stockThresholds={stockThresholds}
         onBack={() => setSelectedProduct(null)}
@@ -196,7 +196,7 @@ function App() {
 
   if (showForm) {
     return (
-      <ProductForm
+      <ClothingForm
         onClose={() => setShowForm(false)}
         onNavigate={(p: string) => { setShowForm(false); setPage(p) }}
         onSaved={async () => { await inv.reload() }}
@@ -216,13 +216,13 @@ function App() {
   }
 
   if (page === "dashboard") {
-    return <StatisticsPage onNavigate={setPage as any} />
+    return <ClothingStatsPage onNavigate={setPage as any} />
   }
   if (page === "gasolina") {
-    return <GasolinaPage onNavigate={setPage} />
+    return <FuelPage onNavigate={setPage} />
   }
   if (page === "productos") {
-    return <ProductsPage onNavigate={setPage} />
+    return <CleaningPage onNavigate={setPage} />
   }
 
   // ── Vista de inventario ───────────────────────────────────────────────────

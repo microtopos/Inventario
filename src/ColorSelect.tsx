@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react"
-import { getColors, addColor } from "./productService"
+import { getColors, addColor } from "./clothingService"
 
 interface Props {
   value: string

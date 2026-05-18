@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { getInventory } from "./inventoryService"
 import { getImageUrlSync, preloadImages } from "./getImageUrl"
-import { getDepartments } from "./productService"
+import { getDepartments } from "./clothingService"
 import type { StockThresholds } from "./settingsService"
 
 export interface InventoryItem {

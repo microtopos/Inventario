@@ -9,7 +9,7 @@ import {
 } from "./orderService"
 import AppHeader from "./AppHeader"
 import { useConfirm } from "./ConfirmDialog"
-import { ordenarTallas } from "./sortTallas"
+import { ordenarTallas } from "./sortSizes"
 import { jsPDF } from "jspdf"
 import { join } from "@tauri-apps/api/path"
 import { writeFile } from "@tauri-apps/plugin-fs"

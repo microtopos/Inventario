@@ -1,31 +1,140 @@
-# Gestión de Ropa — Contexto de la aplicación
+# Gestión de Almacén — App de escritorio
+
+Aplicación de escritorio para la gestión integral del almacén: inventario de ropa de trabajo, control de repostajes de vehículos y seguimiento de consumo de productos de limpieza.
+
+---
 
 ## Stack
 
-**Framework desktop:** [Tauri v2](https://tauri.app/) (Rust + WebView)
-**Frontend:** React + TypeScript (Vite)
-**Base de datos:** SQLite local vía tauri-plugin-sql (archivo inventario.db)
-**Estilos:** Inline styles 100% (sin CSS framework)
-**Gráficos:** Recharts
-**Exports:** jsPDF + SheetJS (xlsx)
-**Backend Rust:** comandos personalizados para imágenes (leer/guardar/borrar) y backups de BD
+| Capa | Tecnología |
+|---|---|
+| Framework desktop | [Tauri v2](https://tauri.app/) (Rust + WebView) |
+| Frontend | React 19 + TypeScript (Vite) |
+| Base de datos | SQLite local vía `tauri-plugin-sql` (archivo `inventario.db`) |
+| Estilos | CSS inline (100%) + `src/index.css` + `src/App.css` |
+| Gráficos | Recharts |
+| Iconos | Lucide React |
+| Exportación | jsPDF (PDF) + SheetJS/xlsx (Excel) |
+| Backend Rust | Comandos para imágenes y backups de BD |
+
 ---
 
-## Qué hace la app
+## Requisitos previos
 
-App de escritorio para gestionar el inventario de ropa de trabajo de una empresa. Permite:
+- **Node.js** ≥ 18
+- **Rust** ≥ 1.77.2 ([rustup](https://rustup.rs/))
+- **Windows**: [Microsoft Visual C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) (para compilar dependencias Rust)
+- **npm** (viene con Node.js)
 
-**Inventario:** CRUD de prendas con código, nombre, color, departamento, tallas y stock. Vista tabla o cuadrícula. Foto por producto.
-**Stock:** Ajustes manuales de stock por talla (entrada/salida) con historial de movimientos y opción de deshacer.
-**Pedidos:** Crear borradores de pedido (persistidos en BD con debounce), confirmar, exportar a PDF, y gestionar recepción parcial/total por línea.
-**Historial de pedidos:** Ver pedidos pasados, modificar cantidades acordadas, marcar como recibido (actualiza stock automáticamente), exportar PDF.
-**Estadísticas (Dashboard):** Gráficos de stock, entradas y consumo por departamento con filtros de fecha.
-**Exportación:** PDF y Excel del inventario completo, stock por tallas e historial de movimientos.
-**Backups:** Copia automática de la BD al confirmar pedidos, y manual desde ajustes.
 ---
 
-## Modelo de datos (SQLite)
+## Primer arranque
 
+```bash
+# Instalar dependencias frontend
+npm install
+
+# Arrancar en modo desarrollo (Vite + Tauri)
+npm run tauri dev
+```
+
+El comando `tauri dev` levanta el servidor Vite en `localhost:5173` y abre la ventana nativa de Tauri.
+
+---
+
+## Comandos disponibles
+
+| Comando | Descripción |
+|---|---|
+| `npm run dev` | Solo frontend (Vite, sin Tauri) — útil para desarrollo rápido de UI |
+| `npm run tauri dev` | App completa (frontend + backend Rust) |
+| `npm run build` | Compila TypeScript y empaqueta con Vite |
+| `npm run tauri build` | Genera el instalable (.msi/.exe) para distribución |
+| `npm run lint` | ESLint sobre todo el proyecto |
+
+---
+
+## Estructura del proyecto
+
+```
+Inventario Ropa/
+├── index.html                 # Entry point HTML
+├── package.json               # Dependencias y scripts npm
+├── vite.config.ts             # Configuración de Vite
+├── tsconfig.json              # TypeScript
+├── eslint.config.js           # ESLint
+├── public/
+│   └── vite.svg               # Favicon
+├── src/                       # ── Código fuente frontend ──
+│   ├── main.tsx               # Punto de entrada React
+│   ├── App.tsx                # Componente raíz + vista de inventario de ropa
+│   ├── App.css / index.css    # Estilos globales
+│   ├── styles.ts              # Objetos de estilo reutilizables
+│   │
+│   │  # ── Páginas ──
+│   ├── ProductsPage.tsx       # Catálogo de productos de limpieza
+│   ├── VistaCatalogoMejorada.tsx  # Vista tabla del catálogo con salidas mensuales
+│   ├── GasolinaPage.tsx       # Gestión de vehículos y repostajes
+│   ├── OrderPage.tsx          # Creación de pedido (borrador)
+│   ├── OrderHistoryPage.tsx   # Historial y recepción de pedidos
+│   ├── StatisticsPage.tsx     # Dashboard / estadísticas
+│   │
+│   │  # ── Componentes ──
+│   ├── AppHeader.tsx          # Barra superior con navegación
+│   ├── ProductDetail.tsx      # Detalle de prenda: edición, stock, historial
+│   ├── ProductForm.tsx        # Formulario crear/editar prenda de ropa
+│   ├── ProductModal.tsx       # Modal crear/editar producto de limpieza
+│   ├── SalidaModal.tsx        # Modal para registrar salida de producto
+│   ├── Field.tsx              # Campo de formulario reutilizable
+│   ├── ColorSelect.tsx        # Selector de color para prendas
+│   ├── DepartmentSelect.tsx   # Selector de departamento
+│   ├── ConfirmDialog.tsx      # Diálogo de confirmación genérico
+│   ├── Toast.tsx              # Sistema de notificaciones toast
+│   │
+│   │  # ── Servicios (lógica de BD) ──
+│   ├── db.ts                  # Conexión a SQLite + helpers
+│   ├── productService.ts      # CRUD prendas de ropa, tallas, stock, movimientos
+│   ├── inventoryService.ts    # Consultas avanzadas de inventario de ropa
+│   ├── orderService.ts        # CRUD pedidos, borrador, recepción
+│   ├── productosService.ts    # CRUD productos de limpieza, salidas, categorías
+│   ├── gasolinaService.ts     # CRUD vehículos y repostajes
+│   ├── dashboardService.ts    # Consultas agregadas para estadísticas
+│   ├── exportService.ts       # Generación de PDFs y Excel
+│   ├── backupService.ts       # Copias de seguridad de la BD
+│   ├── settingsService.ts     # Preferencias persistidas en BD
+│   ├── imageService.ts        # Guardado/lectura de imágenes vía comandos Rust
+│   │
+│   │  # ── Hooks / Utilidades ──
+│   ├── DraftContext.tsx        # Estado global del borrador de pedido (debounced a BD)
+│   ├── useInventory.ts        # Hook para carga y caché de inventario
+│   ├── useAsyncAction.ts      # Hook para acciones asíncronas con loading/error
+│   ├── usePagination.ts       # Hook genérico de paginación
+│   ├── useSortableTable.ts    # Hook para tablas con ordenación
+│   ├── getImageUrl.ts         # Resolución de URLs de imágenes desde disco
+│   ├── sortTallas.ts          # Ordenación de tallas (XS, S, M, L, XL…)
+│   ├── importInventory.ts     # Importación de inventario desde Excel
+│   └── data/inventario.json   # Datos semilla de ejemplo
+│
+└── src-tauri/                 # ── Backend Rust (Tauri) ──
+    ├── Cargo.toml             # Dependencias Rust
+    ├── tauri.conf.json        # Configuración de Tauri
+    ├── build.rs               # Script de build
+    ├── capabilities/
+    │   └── default.json       # Permisos de plugins Tauri
+    ├── icons/                 # Iconos de la app (todos los tamaños)
+    └── src/
+        ├── main.rs            # Entry point Rust
+        └── lib.rs             # Comandos Tauri (imágenes, backups)
+```
+
+---
+
+## Modelo de datos
+
+Base de datos única: `inventario.db` (SQLite). Se crea automáticamente al primer arranque.
+
+### Ropa
+```
 departamentos       id, nombre
 productos           id, codigo, nombre, departamento_id, color, foto
 tallas              id, producto_id, talla, stock
@@ -33,30 +142,71 @@ movimientos         id, talla_id, cambio, origen (manual|pedido), fecha
 pedidos             id, fecha, recibido, borrador, notas, fecha_recibido
 pedido_items        id, pedido_id, talla_id, cantidad, cantidad_acordada, cantidad_recibida, estado
 colores             id, nombre
+```
+
+### Gasolina
+```
+vehiculos           id, matricula, nombre, activo
+repostajes          id, vehiculo_id, fecha, coste, litros, notas
+```
+
+### Productos de limpieza
+```
+categorias_producto     id, nombre
+productos_almacen       id, referencia, nombre, categoria_id, unidad_medida, activo, precio
+departamentos_prod      id, nombre
+salidas_productos       id, producto_id, departamento_id, cantidad, mes, anio
+presentaciones          id, producto_id, unidad_id, precio
+unidades_presentacion   id, nombre
+```
+
+### Configuración
+```
 settings            key, value
----
-
-## Estructura frontend relevante
-
-| Archivo | Responsabilidad |
-|---|---|
-| App.tsx | Vista de inventario principal, modales de ajustes/ayuda |
-| ProductDetail.tsx | Detalle de prenda: edición, ajuste de stock, historial |
-| OrderPage.tsx | Creación de nuevo pedido (borrador) |
-| OrderHistoryPage.tsx | Historial y recepción de pedidos |
-| DashboardPage.tsx | Estadísticas y gráficos |
-| DraftContext.tsx | Estado global del borrador de pedido (sincronizado a BD con debounce) |
-| productService.ts | CRUD productos, tallas, stock, movimientos |
-| orderService.ts | CRUD pedidos, borrador, recepción |
-| exportService.ts | Generación de PDFs y Excel |
-| settingsService.ts | Preferencias persistidas (carpetas, umbrales de stock) |
+```
 
 ---
 
-## Patrones destacados
+## Los 3 módulos de la app
 
-**DraftContext:** El borrador del pedido vive en React context y se sincroniza a SQLite con debounce de 600ms. Se persiste entre sesiones.
-**Imágenes:** Se guardan como .jpg en disco (AppData/images/) redimensionadas a 600×600. Se leen como base64 vía comando Rust y se cachean en memoria.
-**Umbrales de stock configurables:** Rojo (crítico), naranja (aviso) y verde. Se aplican en toda la UI y en los exports PDF.
-**usePagination:** Hook genérico para paginación de cualquier consulta async.
-**useAsyncAction:** Hook para encapsular loading + error toast en acciones async.
+### 1. Ropa
+Gestión de inventario de ropa de trabajo con tallas. CRUD de prendas, ajustes de stock (entrada/salida) con historial, pedidos con borradores persistentes, recepción de pedidos, estadísticas y exportación a PDF/Excel.
+
+### 2. Gasolina
+Registro de vehículos y repostajes. CRUD de vehículos, registro de repostajes (fecha + coste), gráficos de evolución y filtros por vehículo/fechas.
+
+### 3. Productos de limpieza
+Catálogo de ~60 productos de limpieza por categoría. Registro de salidas mensuales por departamento, vista de matriz de consumo (producto × departamento × mes), presentaciones con precios, importación desde Excel.
+
+---
+
+## Patrones y convenciones
+
+Seguir estos patrones al añadir funcionalidad o arreglar bugs:
+
+- **Servicios:** Toda la lógica de BD va en archivos `xxxService.ts`. Las queries son SQL directas vía `db.ts` (que usa `@tauri-apps/plugin-sql`). No hay ORM.
+- **Hooks reutilizables:** `useAsyncAction` para loading/error, `usePagination` para listas, `useSortableTable` para ordenación.
+- **Estilos:** Objetos inline en `styles.ts`. No usar Tailwind ni CSS modules. Los estilos se definen como objetos TypeScript y se pasan vía `style={}`.
+- **Modales:** Patrón de `ConfirmDialog` para confirmaciones y `ProductModal`/`SalidaModal` para edición.
+- **Toast:** Usar `useToast()` para notificaciones.
+- **Borrador de pedido:** El `DraftContext` sincroniza automáticamente a BD con debounce de 600ms. No hace falta guardar manualmente.
+- **Imágenes:** Se guardan como .jpg en disco (carpeta `AppData/images/`) redimensionadas a 600×600. Se leen vía comando Rust y se cachean en `imageService.ts`.
+
+---
+
+## Build para distribución
+
+```bash
+npm run tauri build
+```
+
+Genera el instalable en `src-tauri/target/release/bundle/`. Configuración en `src-tauri/tauri.conf.json`.
+
+---
+
+## Notas
+
+- La app es monousuario, ejecutándose en local en Windows.
+- Los datos de los 3 módulos comparten la misma BD (`inventario.db`).
+- Los departamentos de Ropa y de Productos son entidades separadas (tablas distintas).
+- El backend Rust (`src-tauri/src/lib.rs`) expone comandos para leer/guardar/borrar imágenes del sistema de archivos y hacer backup de la BD.
