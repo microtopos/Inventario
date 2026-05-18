@@ -72,20 +72,20 @@ Inventario Ropa/
 │   ├── styles.ts              # Objetos de estilo reutilizables
 │   │
 │   │  # ── Páginas ──
-│   ├── ProductsPage.tsx       # Catálogo de productos de limpieza
-│   ├── VistaCatalogoMejorada.tsx  # Vista tabla del catálogo con salidas mensuales
-│   ├── GasolinaPage.tsx       # Gestión de vehículos y repostajes
+│   ├── CleaningPage.tsx       # Gestión de productos de limpieza (estadísticas, departamentos)
+│   ├── CatalogView.tsx        # Vista tabla del catálogo con salidas mensuales
+│   ├── FuelPage.tsx           # Gestión de vehículos y repostajes
 │   ├── OrderPage.tsx          # Creación de pedido (borrador)
 │   ├── OrderHistoryPage.tsx   # Historial y recepción de pedidos
-│   ├── StatisticsPage.tsx     # Dashboard / estadísticas
+│   ├── ClothingStatsPage.tsx  # Dashboard / estadísticas de ropa
 │   │
 │   │  # ── Componentes ──
 │   ├── AppHeader.tsx          # Barra superior con navegación
-│   ├── ProductDetail.tsx      # Detalle de prenda: edición, stock, historial
-│   ├── ProductForm.tsx        # Formulario crear/editar prenda de ropa
-│   ├── ProductModal.tsx       # Modal crear/editar producto de limpieza
-│   ├── SalidaModal.tsx        # Modal para registrar salida de producto
-│   ├── Field.tsx              # Campo de formulario reutilizable
+│   ├── ClothingDetail.tsx     # Detalle de prenda: edición, stock, historial
+│   ├── ClothingForm.tsx       # Formulario crear/editar prenda de ropa
+│   ├── CleaningProductModal.tsx  # Modal crear/editar producto de limpieza
+│   ├── ConsumptionModal.tsx   # Modal para registrar salida de producto
+│   ├── FormField.tsx          # Campo de formulario reutilizable
 │   ├── ColorSelect.tsx        # Selector de color para prendas
 │   ├── DepartmentSelect.tsx   # Selector de departamento
 │   ├── ConfirmDialog.tsx      # Diálogo de confirmación genérico
@@ -93,27 +93,27 @@ Inventario Ropa/
 │   │
 │   │  # ── Servicios (lógica de BD) ──
 │   ├── db.ts                  # Conexión a SQLite + helpers
-│   ├── productService.ts      # CRUD prendas de ropa, tallas, stock, movimientos
+│   ├── clothingService.ts     # CRUD prendas de ropa, tallas, stock, movimientos
 │   ├── inventoryService.ts    # Consultas avanzadas de inventario de ropa
 │   ├── orderService.ts        # CRUD pedidos, borrador, recepción
-│   ├── productosService.ts    # CRUD productos de limpieza, salidas, categorías
-│   ├── gasolinaService.ts     # CRUD vehículos y repostajes
-│   ├── dashboardService.ts    # Consultas agregadas para estadísticas
+│   ├── cleaningService.ts     # CRUD productos de limpieza, salidas, categorías
+│   ├── fuelService.ts         # CRUD vehículos y repostajes
+│   ├── statisticsService.ts   # Consultas agregadas para estadísticas de ropa
 │   ├── exportService.ts       # Generación de PDFs y Excel
 │   ├── backupService.ts       # Copias de seguridad de la BD
 │   ├── settingsService.ts     # Preferencias persistidas en BD
 │   ├── imageService.ts        # Guardado/lectura de imágenes vía comandos Rust
 │   │
 │   │  # ── Hooks / Utilidades ──
-│   ├── DraftContext.tsx        # Estado global del borrador de pedido (debounced a BD)
+│   ├── DraftContext.tsx       # Estado global del borrador de pedido (debounced a BD)
 │   ├── useInventory.ts        # Hook para carga y caché de inventario
 │   ├── useAsyncAction.ts      # Hook para acciones asíncronas con loading/error
 │   ├── usePagination.ts       # Hook genérico de paginación
 │   ├── useSortableTable.ts    # Hook para tablas con ordenación
 │   ├── getImageUrl.ts         # Resolución de URLs de imágenes desde disco
-│   ├── sortTallas.ts          # Ordenación de tallas (XS, S, M, L, XL…)
-│   ├── importInventory.ts     # Importación de inventario desde Excel
-│   └── data/inventario.json   # Datos semilla de ejemplo
+│   ├── sortSizes.ts           # Ordenación de tallas (XS, S, M, L, XL…)
+│   ├── seedInventory.ts       # Importación de inventario semilla desde JSON
+│   └── data/inventario.json  # Datos semilla de ejemplo
 │
 └── src-tauri/                 # ── Backend Rust (Tauri) ──
     ├── Cargo.toml             # Dependencias Rust
@@ -173,7 +173,7 @@ settings            key, value
 Gestión de inventario de ropa de trabajo con tallas. CRUD de prendas, ajustes de stock (entrada/salida) con historial, pedidos con borradores persistentes, recepción de pedidos, estadísticas y exportación a PDF/Excel.
 
 ### 2. Gasolina
-Registro de vehículos y repostajes. CRUD de vehículos, registro de repostajes (fecha + coste), gráficos de evolución y filtros por vehículo/fechas.
+Registro de vehículos y repostajes. CRUD de vehículos (con activación/desactivación), registro de repostajes (fecha + coste), gráficos de evolución y filtros por vehículo/fechas.
 
 ### 3. Productos de limpieza
 Catálogo de ~60 productos de limpieza por categoría. Registro de salidas mensuales por departamento, vista de matriz de consumo (producto × departamento × mes), presentaciones con precios, importación desde Excel.
@@ -187,7 +187,7 @@ Seguir estos patrones al añadir funcionalidad o arreglar bugs:
 - **Servicios:** Toda la lógica de BD va en archivos `xxxService.ts`. Las queries son SQL directas vía `db.ts` (que usa `@tauri-apps/plugin-sql`). No hay ORM.
 - **Hooks reutilizables:** `useAsyncAction` para loading/error, `usePagination` para listas, `useSortableTable` para ordenación.
 - **Estilos:** Objetos inline en `styles.ts`. No usar Tailwind ni CSS modules. Los estilos se definen como objetos TypeScript y se pasan vía `style={}`.
-- **Modales:** Patrón de `ConfirmDialog` para confirmaciones y `ProductModal`/`SalidaModal` para edición.
+- **Modales:** Patrón de `ConfirmDialog` para confirmaciones y `CleaningProductModal`/`ConsumptionModal` para edición. El hook `useConfirm()` devuelve `{ confirm, alert, dialog }` — hay que renderizar `{dialog}` en el JSX del componente que lo use.
 - **Toast:** Usar `useToast()` para notificaciones.
 - **Borrador de pedido:** El `DraftContext` sincroniza automáticamente a BD con debounce de 600ms. No hace falta guardar manualmente.
 - **Imágenes:** Se guardan como .jpg en disco (carpeta `AppData/images/`) redimensionadas a 600×600. Se leen vía comando Rust y se cachean en `imageService.ts`.
