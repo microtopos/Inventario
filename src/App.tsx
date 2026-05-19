@@ -1,5 +1,6 @@
 import './App.css'
 import { useState, useEffect, useRef } from "react"
+import StockPage from "./StockPage"
 import { importInventory } from "./seedInventory"
 import ClothingDetail from "./ClothingDetail"
 import { deleteProduct } from "./clothingService"
@@ -223,6 +224,9 @@ function App() {
   }
   if (page === "productos") {
     return <CleaningPage onNavigate={setPage} />
+  }
+  if (page === "almacen") {
+    return <StockPage onNavigate={setPage} />
   }
 
   // ── Vista de inventario ───────────────────────────────────────────────────

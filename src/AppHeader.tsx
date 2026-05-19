@@ -7,6 +7,7 @@ export type Page =
   | "orderHistory"
   | "gasolina"
   | "productos"
+  | "almacen" 
 
 interface AppHeaderProps {
   page: Page
@@ -25,12 +26,14 @@ const NAV_ITEMS: { key: Page; label: string; group: "ropa" | "gasolina" | "produ
   { key: "orders",    label: "🛒 Pedidos",      group: "ropa" },
   { key: "gasolina",  label: "🚗 Coches",       group: "gasolina" },
   { key: "productos", label: "🧴 Productos",    group: "productos" },
+  { key: "almacen",   label: "🗄️ Almacén",      group: "almacen" },
 ]
 
 const GROUP_ACCENT: Record<string, string> = {
   ropa:      "#2563eb",
   gasolina:  "#ea580c",
   productos: "#16a34a",
+  almacen:   "#7c3aed",
 }
 
 export default function AppHeader({ page, onNavigate, onBack, title, actions, onHelp, onSettings }: AppHeaderProps) {
@@ -124,7 +127,7 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions, on
           </div>
         )}
 
-        {(["ropa", "gasolina", "productos"] as const).map((group, gi) => {
+        {(["ropa", "gasolina", "productos", "almacen"] as const).map((group, gi) => {
           const items = NAV_ITEMS.filter(i => i.group === group)
           const groupAccent = GROUP_ACCENT[group]
 

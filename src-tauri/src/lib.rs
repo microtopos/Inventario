@@ -365,6 +365,46 @@ pub fn run() {
                             ",
                             kind: MigrationKind::Up,
                         },
+Migration {
+    version: 8,
+    description: "modulo almacen general",
+    sql: "
+        -- Categorías opcionales para agrupar artículos (herramientas, papelería…)
+        CREATE TABLE IF NOT EXISTS categorias_stock (
+            id     INTEGER PRIMARY KEY,
+            nombre TEXT    NOT NULL UNIQUE
+        );
+ 
+        -- Catálogo de artículos del almacén general
+        CREATE TABLE IF NOT EXISTS articulos_stock (
+            id           INTEGER PRIMARY KEY,
+            nombre       TEXT    NOT NULL,
+            categoria_id INTEGER REFERENCES categorias_stock(id) ON DELETE SET NULL,
+            unidad       TEXT    NOT NULL DEFAULT 'ud',
+            stock_actual INTEGER NOT NULL DEFAULT 0 CHECK (stock_actual >= 0),
+            stock_minimo INTEGER,                          -- nullable: sin alerta si NULL
+            activo       INTEGER NOT NULL DEFAULT 1
+        );
+ 
+        -- Historial de movimientos (fuente de verdad del stock)
+        CREATE TABLE IF NOT EXISTS movimientos_stock (
+            id          INTEGER PRIMARY KEY,
+            articulo_id INTEGER NOT NULL REFERENCES articulos_stock(id) ON DELETE CASCADE,
+            tipo        TEXT    NOT NULL CHECK (tipo IN ('entrada', 'salida')),
+            cantidad    INTEGER NOT NULL CHECK (cantidad > 0),
+            notas       TEXT,
+            fecha       TEXT    NOT NULL DEFAULT (date('now')),
+            created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+        );
+ 
+        CREATE INDEX IF NOT EXISTS idx_mov_stock_articulo
+            ON movimientos_stock(articulo_id);
+ 
+        CREATE INDEX IF NOT EXISTS idx_mov_stock_fecha
+            ON movimientos_stock(fecha DESC);
+    ",
+    kind: MigrationKind::Up,
+},
                     ],
                 )
                 .build(),
