@@ -6,7 +6,7 @@ import { useToast } from "./Toast"
 import { usePagination } from "./usePagination"
 import {
   getArticulos, getCategorias, getResumen, getMovimientosRecientes,
-  getMovimientosPaginados, eliminarMovimiento,
+  getMovimientosPaginados, eliminarMovimiento, desactivarArticulo,
   type ArticuloStock, type CategoriaStock, type MovimientoStock,
   type ResumenStock, type MovimientoReciente,
 } from "./stockService"
@@ -77,8 +77,24 @@ function PanelArticulo({
   const [filtroTipo, setFiltroTipo] = useState<"" | "entrada" | "salida">("")
   const [filtroDesde, setFiltroDesde] = useState("")
   const [filtroHasta, setFiltroHasta] = useState("")
+  const [confirmandoDesactivar, setConfirmandoDesactivar] = useState(false)
+  const [desactivando, setDesactivando] = useState(false)
   const { confirm } = useConfirm()
   const toast = useToast()
+
+  async function handleDesactivar() {
+    setDesactivando(true)
+    try {
+      await desactivarArticulo(articulo.id)
+      toast.success(`"${articulo.nombre}" desactivado`)
+      onActualizado()
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    } finally {
+      setDesactivando(false)
+      setConfirmandoDesactivar(false)
+    }
+  }
 
   const { bg, color: stockCol, label: stockLabel } = stockColor(articulo)
   const hayFiltros = filtroTipo || filtroDesde || filtroHasta
@@ -168,6 +184,26 @@ function PanelArticulo({
             style={{ padding: "8px 13px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#555", fontSize: "13px", cursor: "pointer" }}>
             Editar
           </button>
+
+          {/* Desactivar — confirmación inline */}
+          {confirmandoDesactivar ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 10px", borderRadius: "8px", border: "1px solid #fca5a5", backgroundColor: "#fff5f5" }}>
+              <span style={{ fontSize: "12px", color: "#dc2626", fontWeight: 500 }}>¿Desactivar?</span>
+              <button onClick={handleDesactivar} disabled={desactivando}
+                style={{ padding: "4px 10px", borderRadius: "6px", border: "none", backgroundColor: "#dc2626", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: desactivando ? "not-allowed" : "pointer" }}>
+                {desactivando ? "…" : "Sí"}
+              </button>
+              <button onClick={() => setConfirmandoDesactivar(false)}
+                style={{ padding: "4px 8px", borderRadius: "6px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#888", fontSize: "12px", cursor: "pointer" }}>
+                No
+              </button>
+            </div>
+          ) : (
+            <button onClick={() => setConfirmandoDesactivar(true)}
+              style={{ padding: "8px 13px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#fff", color: "#aaa", fontSize: "13px", cursor: "pointer", marginLeft: "auto" }}>
+              Desactivar
+            </button>
+          )}
         </div>
 
         {/* Filtros historial */}
@@ -243,7 +279,9 @@ function PanelArticulo({
                       </td>
                       <td style={{ padding: "11px 16px", textAlign: "right" }}>
                         <button onClick={() => handleEliminarMovimiento(m)}
-                          style={{ padding: "4px 10px", borderRadius: "5px", border: "1px solid #fca5a5", backgroundColor: "#fff", color: "#dc2626", fontSize: "12px", cursor: "pointer" }}>✕</button>
+                          style={{ padding: "5px 12px", borderRadius: "6px", border: "1px solid #fca5a5", backgroundColor: "#fff5f5", color: "#dc2626", fontSize: "12px", fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                          Eliminar
+                        </button>
                       </td>
                     </tr>
                   ))}
@@ -273,7 +311,8 @@ function PanelArticulo({
 // ─── Barra de resumen colapsable ──────────────────────────────────────────────
 
 function BarraResumen({ resumen, recientes }: { resumen: ResumenStock; recientes: MovimientoReciente[] }) {
-  const [open, setOpen] = useState(false)
+  const hayAlertas = resumen.articulos_bajo_minimo > 0 || resumen.articulos_sin_stock > 0
+  const [open, setOpen] = useState(hayAlertas)
 
   const stats = [
     { label: "Artículos", value: resumen.total_articulos },
@@ -438,7 +477,7 @@ export default function StockPage({ onNavigate }: { onNavigate: (page: Page) => 
                     style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "11px 14px", border: "none", backgroundColor: selected ? ACENTO + "0e" : "#fff", borderLeft: `3px solid ${selected ? ACENTO : "transparent"}`, cursor: "pointer", textAlign: "left", borderBottom: i < articulosFiltrados.length - 1 ? "1px solid #f9f9f9" : "none", transition: "background-color 0.1s" }}
                     onMouseEnter={e => { if (!selected) e.currentTarget.style.backgroundColor = "#fafafa" }}
                     onMouseLeave={e => { if (!selected) e.currentTarget.style.backgroundColor = "#fff" }}>
-                    <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: alerta ? "#dc2626" : "#d1d5db", flexShrink: 0 }} />
+                    <div style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: a.stock_actual === 0 ? "#dc2626" : (a.stock_minimo !== null && a.stock_actual <= a.stock_minimo) ? "#f97316" : "#d1d5db", flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: "13px", fontWeight: selected ? 600 : 400, color: selected ? "#111" : "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {a.nombre}

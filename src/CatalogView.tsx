@@ -8,70 +8,110 @@ import {
   deleteProduct,
   upsertSalida,
   upsertStock,
-  getStockPorPresentacion,
+  ajustarStock,
+  getStockProductos,
   crearDepartamentoProd,
   getSalidasByYear,
   getAniosDisponibles,
-  getUnidadesPresentacion,
-  getAllPresentaciones,
-  upsertPresentacion,
-  deletePresentacion,
-  crearUnidadPresentacion,
-  actualizarUnidadPresentacion,
   actualizarDepartamentoProd,
   eliminarDepartamentoProd,
-  eliminarUnidadPresentacion,
   crearCategoria,
   actualizarCategoria,
   eliminarCategoria,
-  claveSalida,
   exportarProductosJSON,
   importarProductosJSON,
   eliminarSalidasDepartamento,
+  claveSalida,
+  stockVisible,
+  labelPrecio,
+  getPreferenciaPres,
+  setPreferenciaPres,
+  type TipoProducto,
   type CategoriaProducto,
   type ProductoAlmacen,
   type DepartamentoProd,
-  type UnidadPresentacion,
-  type ProductoPresentacion,
   type ExportacionProductos,
 } from "./cleaningService"
 import { ModalProducto } from "./CleaningProductModal"
 import { ModalSalida } from "./ConsumptionModal"
 
-
 const MESES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
 ]
-
 const MESES_CORTOS = [
   "Ene", "Feb", "Mar", "Abr", "May", "Jun",
-  "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"
+  "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
 ]
 
-// ─── Colores heatmap ──────────────────────────────────────────────────────────
+// ─── Heatmap ──────────────────────────────────────────────────────────────────
 
 function getConsumoColor(valor: number, maxValor: number): string {
   if (valor === 0) return "#ffffff"
-  const intensidad = Math.min(valor / (maxValor || 1), 1)
-  if (intensidad < 0.25) return "#fef9c3"
-  if (intensidad < 0.5)  return "#fef08a"
-  if (intensidad < 0.75) return "#bef264"
+  const i = Math.min(valor / (maxValor || 1), 1)
+  if (i < 0.25) return "#fef9c3"
+  if (i < 0.5)  return "#fef08a"
+  if (i < 0.75) return "#bef264"
   return "#65a30d"
 }
-
-function getConsumoTextColor(valor: number): string {
-  return valor > 0 ? "#1a1a1a" : "#9ca3af"
+function getConsumoTextColor(v: number): string {
+  return v > 0 ? "#1a1a1a" : "#9ca3af"
 }
 
-// ─── Constantes ───────────────────────────────────────────────────────────────
+// ─── Badge tipo producto ──────────────────────────────────────────────────────
 
-// Ref + Nombre + Presentación + Precio + Categoría + Stock + meses visibles + Total + Acciones
-// TOTAL_COLS es dinámico: 6 columnas fijas + mesesVisibles.length + Total + Acciones = 8 + mesesVisibles.length
+const TIPO_CONFIG: Record<TipoProducto, { label: string; bg: string; color: string }> = {
+  UNIDAD: { label: "Ud",    bg: "#eff6ff", color: "#2563eb" },
+  CAJA:   { label: "Caja",  bg: "#f0fdf4", color: "#16a34a" },
+  FARDO:  { label: "Fardo", bg: "#fef3c7", color: "#d97706" },
+}
 
-// ─── Componente principal ────────────────────────────────────────────────────
+function TipoBadge({ tipo }: { tipo: TipoProducto }) {
+  const cfg = TIPO_CONFIG[tipo]
+  return (
+    <span style={{
+      fontSize: "10px", fontWeight: 700, padding: "1px 6px", borderRadius: "4px",
+      backgroundColor: cfg.bg, color: cfg.color, letterSpacing: "0.02em", flexShrink: 0,
+    }}>{cfg.label}</span>
+  )
+}
 
-export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepartamentoCreado?: () => void }) {
+// ─── Toggle Caja/Unidades (solo para tipo CAJA) ───────────────────────────────
+
+function PresToggle({
+  value,
+  onChange,
+}: {
+  value: "caja" | "unidad"
+  onChange: (v: "caja" | "unidad") => void
+}) {
+  const btn = (v: "caja" | "unidad", label: string) => (
+    <button
+      key={v}
+      onClick={() => onChange(v)}
+      style={{
+        padding: "2px 8px", fontSize: "11px", fontWeight: 600,
+        border: "none", borderRadius: "4px", cursor: "pointer",
+        backgroundColor: value === v ? "#2563eb" : "transparent",
+        color: value === v ? "#fff" : "#94a3b8",
+        transition: "all 0.1s",
+      }}
+    >{label}</button>
+  )
+  return (
+    <div style={{
+      display: "inline-flex", alignItems: "center", gap: "1px",
+      backgroundColor: "#f1f5f9", borderRadius: "6px", padding: "2px",
+    }}>
+      {btn("caja", "Cajas")}
+      {btn("unidad", "Uds")}
+    </div>
+  )
+}
+
+// ─── Componente principal ─────────────────────────────────────────────────────
+
+export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamentoCreado?: () => void }) {
   const toast = useToast()
   const { confirm, dialog } = useConfirm()
 
@@ -79,66 +119,54 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const [showSalidaModal, setShowSalidaModal] = useState(false)
   const [editingProductId, setEditingProductId] = useState<number | "nuevo" | null>(null)
 
-  // Modal añadir presentación a un producto
-  const [showPresModal, setShowPresModal] = useState(false)
-  const [presModalProductoId, setPresModalProductoId] = useState<number | null>(null)
-  const [presModalUnidadId, setPresModalUnidadId] = useState<number | "">("")
-  const [presModalPrecio, setPresModalPrecio] = useState("")
-  // Modal nueva unidad global — ahora integrado en Gestionar
-
   // ── Datos principales ──
   const [categorias, setCategorias] = useState<CategoriaProducto[]>([])
   const [productos, setProductos] = useState<ProductoAlmacen[]>([])
   const [departamentos, setDepartamentos] = useState<DepartamentoProd[]>([])
-  const [unidadesPresentacion, setUnidadesPresentacion] = useState<UnidadPresentacion[]>([])
-  // mapa producto_id → presentaciones configuradas
-  const [presentacionesPorProducto, setPresentacionesPorProducto] = useState<Map<number, ProductoPresentacion[]>>(new Map())
 
   // ── Filtros ──
   const [departamentoId, setDepartamentoId] = useState<number | "">("")
   const [year, setYear] = useState(new Date().getFullYear())
   const [searchTerm, setSearchTerm] = useState("")
   const [expandedCategories, setExpandedCategories] = useState<Set<number>>(new Set())
-  const [mesesFiltro, setMesesFiltro] = useState<Set<number>>(new Set()) // vacío = todos
+  const [mesesFiltro, setMesesFiltro] = useState<Set<number>>(new Set())
 
-  // ── Presentación activa por producto (qué fila se muestra) ──
-  // producto_id → presentacion_id (null = "sin presentación")
-  const [presentacionActiva, setPresentacionActiva] = useState<Map<number, number | null>>(new Map())
-
-  // ── Salidas: mapa "productoId_presentacionId" → mes → cantidad ──
+  // ── Salidas: productoId(string) → mes → cantidad (siempre unidades base) ──
   const [salidasMap, setSalidasMap] = useState<Map<string, Map<number, number>>>(new Map())
 
-  // ── Stock por (producto_id, presentacion_id) ──
-  // clave: "productoId_presentacionId"
-  const [stockMap, setStockMap] = useState<Map<string, number | null>>(new Map())
+  // ── Stock: producto_id → cantidad en unidades base ──
+  const [stockMap, setStockMap] = useState<Map<number, number>>(new Map())
 
-  // ── UI helpers ──
+  // ── Preferencia de presentación: productoId → "caja"|"unidad" (solo CAJA) ──
+  // Se inicializa desde localStorage al cargar el departamento
+  const [prefMap, setPrefMap] = useState<Map<number, "caja" | "unidad">>(new Map())
+
+  // ── UI ──
   const [wideNombre, setWideNombre] = useState(false)
-  const [savingStock, setSavingStock] = useState<string | null>(null) // clave "productoId_presId" guardando
+  const [savingStock, setSavingStock] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
-  const [savingCell, setSavingCell] = useState<{ clave: string; mes: number; tipoUnidad: string | null } | null>(null)
+  const [savingCell, setSavingCell] = useState<{ productoId: number; mes: number } | null>(null)
   const [isImporting, setIsImporting] = useState(false)
-  // Modal Gestionar (departamentos + unidades)
+  const [availableYears, setAvailableYears] = useState<number[]>([])
+
+  // ── Gestionar modal ──
   const [showGestionarModal, setShowGestionarModal] = useState(false)
-  const [gestionarTab, setGestionarTab] = useState<"departamentos" | "unidades" | "productos" | "categorias">("departamentos")
+  const [gestionarTab, setGestionarTab] = useState<"departamentos" | "productos" | "categorias">("departamentos")
   const [newDeptName, setNewDeptName] = useState("")
-  const [newUnitNameGlobal, setNewUnitNameGlobal] = useState("")
   const [gestionarDropdownOpen, setGestionarDropdownOpen] = useState(false)
-  // Estado de edición inline en modal Gestionar
   const [editingDeptId, setEditingDeptId] = useState<number | null>(null)
   const [editingDeptName, setEditingDeptName] = useState("")
-  const [editingUnitId, setEditingUnitId] = useState<number | null>(null)
-  const [editingUnitName, setEditingUnitName] = useState("")
   const [editingCatId, setEditingCatId] = useState<number | null>(null)
   const [editingCatName, setEditingCatName] = useState("")
   const [newCatName, setNewCatName] = useState("")
   const [gestionarProductoSearch, setGestionarProductoSearch] = useState("")
-  const [availableYears, setAvailableYears] = useState<number[]>([])
+
   const departamentoIdRef = useRef<number | "" | undefined>(undefined)
   useEffect(() => { departamentoIdRef.current = departamentoId }, [departamentoId])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const toastRef = useRef(toast)
   useEffect(() => { toastRef.current = toast })
+
   // Cerrar dropdown al hacer click fuera
   useEffect(() => {
     if (!gestionarDropdownOpen) return
@@ -152,45 +180,30 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   const loadInitialData = useCallback(async () => {
     setLoading(true)
     try {
-      const [cats, prods, depts, anios, unidades, todasPresentaciones, stockInicial] = await Promise.all([
+      const [cats, prods, depts, anios, stockInicial] = await Promise.all([
         getCategorias(),
         getProductos(false),
         getDepartamentosProd(),
         getAniosDisponibles(),
-        getUnidadesPresentacion(),
-        getAllPresentaciones(),
-        getStockPorPresentacion(),
+        getStockProductos(),
       ])
       setCategorias(cats)
       setProductos(prods)
       setDepartamentos(depts)
       setAvailableYears(anios)
-      setUnidadesPresentacion(unidades)
-      setPresentacionesPorProducto(todasPresentaciones)
       setExpandedCategories(new Set(cats.map(c => c.id)))
       setStockMap(stockInicial)
-
-      const activaInicial = new Map<number, number | null>()
-      for (const prod of prods) {
-        const lista = todasPresentaciones.get(prod.id) ?? []
-        activaInicial.set(prod.id, lista.length > 0 ? lista[0].id : null)
-      }
-      setPresentacionActiva(activaInicial)
-
     } catch (e: any) {
       toastRef.current.error("Error", e?.message ?? String(e))
     } finally {
       setLoading(false)
     }
-  }, []) // sin dependencias → nunca se recrea
+  }, [])
 
   // ─── Carga de salidas ──────────────────────────────────────────────────────
 
   const cargarSalidas = useCallback(async () => {
-    if (departamentoId === "") {
-      setSalidasMap(new Map())
-      return
-    }
+    if (departamentoId === "") { setSalidasMap(new Map()); return }
     try {
       const mapa = await getSalidasByYear(year, Number(departamentoId))
       setSalidasMap(mapa)
@@ -200,8 +213,20 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }, [departamentoId, year])
 
-  useEffect(() => { loadInitialData() }, [loadInitialData])
+  // ─── Inicializar preferencias desde localStorage cuando cambia el departamento ──
 
+  useEffect(() => {
+    if (departamentoId === "" || productos.length === 0) return
+    const nuevoPrefMap = new Map<number, "caja" | "unidad">()
+    for (const prod of productos) {
+      if (prod.tipo_producto === "CAJA") {
+        nuevoPrefMap.set(prod.id, getPreferenciaPres(prod.id, Number(departamentoId)))
+      }
+    }
+    setPrefMap(nuevoPrefMap)
+  }, [departamentoId, productos])
+
+  useEffect(() => { loadInitialData() }, [loadInitialData])
   useEffect(() => { cargarSalidas() }, [departamentoId, year, cargarSalidas])
 
   // Auto-seleccionar primer departamento
@@ -211,91 +236,108 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }, [departamentos, departamentoId])
 
-  // ─── Helpers de presentación ──────────────────────────────────────────────
+  // ─── Helpers de consumo ───────────────────────────────────────────────────
 
-  /** Presentación actualmente seleccionada para un producto */
-  function getPresActiva(productoId: number): ProductoPresentacion | null {
-    const presId = presentacionActiva.get(productoId)
-    if (presId == null) return null
-    return presentacionesPorProducto.get(productoId)?.find(p => p.id === presId) ?? null
+  /** Cantidad en unidades base almacenada en BD para un producto/mes */
+  function getConsumoBase(productoId: number, mes: number): number {
+    return salidasMap.get(claveSalida(productoId))?.get(mes) ?? 0
   }
 
-  /** Salidas para la presentación activa de un producto en un mes */
-  function getConsumo(productoId: number, mes: number): number {
-    const presId = presentacionActiva.get(productoId) ?? null
-    // tipo_unidad en la BD es unidad_id (FK a unidades_presentacion), no id de producto_presentaciones
-    const presObj = presId !== null
-      ? (presentacionesPorProducto.get(productoId)?.find(p => p.id === presId) ?? null)
-      : null
-    const tipoUnidad = presObj !== null ? String(presObj.unidad_id) : null
-    const clave = claveSalida(productoId, presId, tipoUnidad)
-    return salidasMap.get(clave)?.get(mes) ?? 0
+  /**
+   * Cantidad a mostrar en la celda según la preferencia actual del departamento.
+   * Para CAJA en modo "caja": valor / uds_por_caja (puede ser decimal).
+   * Para el resto: valor en unidades base.
+   */
+  function getConsumoDisplay(prod: ProductoAlmacen, mes: number): number {
+    const base = getConsumoBase(prod.id, mes)
+    if (prod.tipo_producto === "CAJA" && prefMap.get(prod.id) === "caja" && prod.uds_por_caja && prod.uds_por_caja > 1) {
+      return base / prod.uds_por_caja
+    }
+    return base
   }
 
   // ─── Actualizar celda ─────────────────────────────────────────────────────
 
   const handleCellChange = useCallback(async (
-    productoId: number,
+    prod: ProductoAlmacen,
     mes: number,
     valorStr: string
   ) => {
     if (departamentoIdRef.current === "") return
-    const valor = Number(valorStr)
-    if (isNaN(valor) || valor < 0) return
+    const valorInput = Number(valorStr)
+    if (isNaN(valorInput) || valorInput < 0) return
 
-    const presId = presentacionActiva.get(productoId) ?? null
-    const presObj = presId !== null
-      ? (presentacionesPorProducto.get(productoId)?.find(p => p.id === presId) ?? null)
-      : null
-    // tipo_unidad debe ser unidad_id (FK a unidades_presentacion), no id de producto_presentaciones
-    const tipoUnidad = presObj?.unidad_id ?? null
-    const tipoUnidadStr = tipoUnidad !== null ? String(tipoUnidad) : null
-    const clave = claveSalida(productoId, presId, tipoUnidadStr)
+    // Convertir a unidades base antes de guardar
+    let valorBase: number = valorInput
+    const pref = prefMap.get(prod.id) ?? "unidad"
+    if (prod.tipo_producto === "CAJA" && pref === "caja" && prod.uds_por_caja && prod.uds_por_caja > 1) {
+      valorBase = Math.round(valorInput * prod.uds_por_caja)
+    }
 
-    setSavingCell({ clave, mes, tipoUnidad: tipoUnidadStr })
+    setSavingCell({ productoId: prod.id, mes })
     try {
-      await upsertSalida({
-        producto_id: productoId,
+      // upsertSalida devuelve la cantidad anterior para calcular el delta de stock
+      const cantidadAnterior = await upsertSalida({
+        producto_id: prod.id,
         departamento_id: Number(departamentoIdRef.current),
-        presentacion_id: presId,
-        cantidad: valor,
+        cantidad: valorBase,
         mes,
         anio: year,
-        tipo_unidad: tipoUnidad,
       })
-  
+
+      // Ajustar stock: delta positivo devuelve unidades, negativo las descuenta
+      const delta = cantidadAnterior - valorBase
+      await ajustarStock(prod.id, delta)
+
+      // Actualizar mapa local de salidas
+      const clave = claveSalida(prod.id)
       setSalidasMap(prev => {
         const nuevo = new Map(prev)
         if (!nuevo.has(clave)) nuevo.set(clave, new Map())
         const mesMap = nuevo.get(clave)!
-        if (valor === 0) mesMap.delete(mes)
-        else mesMap.set(mes, valor)
+        if (valorBase === 0) mesMap.delete(mes)
+        else mesMap.set(mes, valorBase)
         return nuevo
       })
-  
+
+      // Reflejar el cambio en el stock local sin necesidad de recargar
+      setStockMap(prev => {
+        const nuevo = new Map(prev)
+        const actual = nuevo.get(prod.id) ?? 0
+        nuevo.set(prod.id, Math.max(0, actual + delta))
+        return nuevo
+      })
     } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
+      toastRef.current.error("Error", e?.message ?? String(e))
     } finally {
       setSavingCell(null)
     }
-  }, [departamentoId, year, presentacionActiva, toast])
+  }, [year, prefMap])
 
   // ─── Actualizar stock ─────────────────────────────────────────────────────
 
   const handleStockChange = useCallback(async (
-    productoId: number,
-    presentacionId: number | null,
+    prod: ProductoAlmacen,
     valorStr: string
   ) => {
     const valor = valorStr.trim() === "" ? null : Number(valorStr)
     if (valor !== null && (isNaN(valor) || valor < 0)) return
-    const clave = `${productoId}_${presentacionId ?? "null"}`
-    setSavingStock(clave)
+
+    // Convertir cajas → unidades base si el input es en cajas
+    let valorBase: number | null = valor
+    if (valor !== null && prod.tipo_producto === "CAJA" && prod.uds_por_caja && prod.uds_por_caja > 1) {
+      // El stock siempre se edita en unidades base directamente (campo numérico)
+      // pero mostramos la versión legible. No hay toggle aquí, solo se escribe en uds.
+      valorBase = valor
+    }
+
+    setSavingStock(prod.id)
     try {
-      await upsertStock(productoId, valor, presentacionId)
+      await upsertStock(prod.id, valorBase)
       setStockMap(prev => {
         const nuevo = new Map(prev)
-        nuevo.set(clave, valor)
+        if (valorBase === null) nuevo.delete(prod.id)
+        else nuevo.set(prod.id, valorBase)
         return nuevo
       })
     } catch (e: any) {
@@ -310,7 +352,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   async function handleDeleteProduct(producto: ProductoAlmacen) {
     const ok = await confirm(
       `¿Eliminar el producto "${producto.referencia}"?`,
-      { confirmLabel: "Eliminar", danger: true, detail: "Se borrarán también todos los registros de salida y presentaciones asociados." }
+      { confirmLabel: "Eliminar", danger: true, detail: "Se borrarán también todos los registros de salida asociados." }
     )
     if (!ok) return
     try {
@@ -318,114 +360,29 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       setProductos(prev => prev.filter(p => p.id !== producto.id))
       setSalidasMap(prev => {
         const nuevo = new Map(prev)
-        // Limpiar todas las claves de este producto
-        for (const k of [...nuevo.keys()]) {
-          if (k.startsWith(`${producto.id}_`)) nuevo.delete(k)
-        }
+        nuevo.delete(claveSalida(producto.id))
         return nuevo
       })
-      setStockMap(prev => {
-        const nuevo = new Map(prev)
-        for (const k of [...nuevo.keys()]) {
-          if (k.startsWith(`${producto.id}_`)) nuevo.delete(k)
-        }
-        return nuevo
-      })
-      setPresentacionesPorProducto(prev => {
-        const nuevo = new Map(prev)
-        nuevo.delete(producto.id)
-        return nuevo
-      })
+      setStockMap(prev => { const n = new Map(prev); n.delete(producto.id); return n })
       toast.success("Producto eliminado")
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     }
   }
 
-  // ─── Gestión de presentaciones ────────────────────────────────────────────
+  // ─── Gestión departamentos ────────────────────────────────────────────────
 
-  function abrirModalPresentacion(productoId: number) {
-    setPresModalProductoId(productoId)
-    setPresModalUnidadId("")
-    setPresModalPrecio("")
-    setShowPresModal(true)
-  }
-
-  async function handleGuardarPresentacion() {
-    if (presModalProductoId == null || presModalUnidadId === "") return
-    const precio = presModalPrecio.trim() !== "" ? parseFloat(presModalPrecio.replace(",", ".")) : null
-    if (precio !== null && isNaN(precio)) {
-      toast.error("Error", "El precio no es un número válido")
-      return
-    }
+  async function handleCrearDepartamento() {
+    if (!newDeptName.trim()) return
     try {
-      const presId = await upsertPresentacion(presModalProductoId, Number(presModalUnidadId), precio)
-
-      // Refrescar presentaciones del producto
-      const nuevaLista: ProductoPresentacion[] = [
-        ...(presentacionesPorProducto.get(presModalProductoId) ?? []).filter(p => p.unidad_id !== Number(presModalUnidadId)),
-        {
-          id: presId,
-          producto_id: presModalProductoId,
-          unidad_id: Number(presModalUnidadId),
-          nombre: unidadesPresentacion.find(u => u.id === Number(presModalUnidadId))?.nombre ?? "",
-          precio,
-        }
-      ].sort((a, b) => a.nombre.localeCompare(b.nombre))
-
-      setPresentacionesPorProducto(prev => {
-        const nuevo = new Map(prev)
-        nuevo.set(presModalProductoId!, nuevaLista)
-        return nuevo
-      })
-
-      // Si el producto no tenía presentación activa, activar esta
-      if (!presentacionActiva.has(presModalProductoId) || presentacionActiva.get(presModalProductoId) == null) {
-        setPresentacionActiva(prev => {
-          const nuevo = new Map(prev)
-          nuevo.set(presModalProductoId!, presId)
-          return nuevo
-        })
-      }
-
-      setShowPresModal(false)
-      toast.success("Presentación guardada")
+      const deptId = await crearDepartamentoProd(newDeptName.trim())
+      setDepartamentos(prev => [...prev, { id: deptId, nombre: newDeptName.trim() }])
+      setDepartamentoId(deptId)
+      setNewDeptName("")
+      if (onDepartamentoCreado) onDepartamentoCreado()
+      toast.success("Departamento creado")
     } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    }
-  }
-
-  async function handleEliminarPresentacion(productoId: number, pres: ProductoPresentacion) {
-    const ok = await confirm(
-      `¿Eliminar la presentación "${pres.nombre}" de este producto?`,
-      { confirmLabel: "Eliminar", danger: true, detail: "Solo se puede eliminar si no tiene salidas registradas." }
-    )
-    if (!ok) return
-    try {
-      await deletePresentacion(pres.id)
-      const nuevaLista = (presentacionesPorProducto.get(productoId) ?? []).filter(p => p.id !== pres.id)
-      setPresentacionesPorProducto(prev => {
-        const nuevo = new Map(prev)
-        nuevo.set(productoId, nuevaLista)
-        return nuevo
-      })
-      // Limpiar stock de la presentación eliminada
-      setStockMap(prev => {
-        const nuevo = new Map(prev)
-        nuevo.delete(`${productoId}_${pres.id}`)
-        return nuevo
-      })
-      // Si era la activa, pasar a la primera disponible o null
-      if (presentacionActiva.get(productoId) === pres.id) {
-        setPresentacionActiva(prev => {
-          const nuevo = new Map(prev)
-          nuevo.set(productoId, nuevaLista[0]?.id ?? null)
-          return nuevo
-        })
-      }
-      toast.success("Presentación eliminada")
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
+      toast.error("Error", e?.message ?? "Error al crear departamento")
     }
   }
 
@@ -441,17 +398,26 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }
 
-  async function handleGuardarUnidad(id: number) {
-    if (!editingUnitName.trim()) return
+  async function handleEliminarDepartamento(dept: DepartamentoProd) {
+    const ok = await confirm(
+      `¿Eliminar el departamento "${dept.nombre}"?`,
+      { confirmLabel: "Eliminar", danger: true, detail: "Se eliminarán también todos los registros de consumo asociados." }
+    )
+    if (!ok) return
     try {
-      await actualizarUnidadPresentacion(id, editingUnitName.trim())
-      setUnidadesPresentacion(prev => prev.map(u => u.id === id ? { ...u, nombre: editingUnitName.trim() } : u))
-      setEditingUnitId(null)
-      toast.success("Unidad actualizada")
+      await eliminarDepartamentoProd(dept.id)
+      setDepartamentos(prev => prev.filter(d => d.id !== dept.id))
+      if (departamentoId === dept.id) {
+        const remaining = departamentos.filter(d => d.id !== dept.id)
+        setDepartamentoId(remaining[0]?.id ?? "")
+      }
+      toast.success("Departamento eliminado")
     } catch (e: any) {
       toast.error("Error", e?.message ?? String(e))
     }
   }
+
+  // ─── Gestión categorías ───────────────────────────────────────────────────
 
   async function handleCrearCategoria() {
     if (!newCatName.trim()) return
@@ -492,75 +458,14 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }
 
-  async function handleCrearUnidadGlobal() {
-    if (!newUnitNameGlobal.trim()) return
-    try {
-      const id = await crearUnidadPresentacion(newUnitNameGlobal.trim())
-      const nuevaUnidad: UnidadPresentacion = { id, nombre: newUnitNameGlobal.trim() }
-      setUnidadesPresentacion(prev => [...prev, nuevaUnidad].sort((a, b) => a.nombre.localeCompare(b.nombre)))
-      setNewUnitNameGlobal("")
-      toast.success("Unidad creada", `"${nuevaUnidad.nombre}" ya está disponible`)
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    }
-  }
-
-  async function handleCrearDepartamento() {
-    if (!newDeptName.trim()) return
-    try {
-      const deptId = await crearDepartamentoProd(newDeptName.trim())
-      setDepartamentos(prev => [...prev, { id: deptId, nombre: newDeptName.trim() }])
-      setDepartamentoId(deptId)
-      setNewDeptName("")
-      if (onDepartamentoCreado) onDepartamentoCreado()
-      toast.success("Departamento creado")
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? "Error al crear departamento")
-    }
-  }
-
-  async function handleEliminarDepartamento(dept: DepartamentoProd) {
-    const ok = await confirm(
-      `¿Eliminar el departamento "${dept.nombre}"?`,
-      { confirmLabel: "Eliminar", danger: true, detail: "Se eliminarán también todos los registros de consumo asociados a este departamento." }
-    )
-    if (!ok) return
-    try {
-      await eliminarDepartamentoProd(dept.id)
-      setDepartamentos(prev => prev.filter(d => d.id !== dept.id))
-      if (departamentoId === dept.id) {
-        const remaining = departamentos.filter(d => d.id !== dept.id)
-        setDepartamentoId(remaining[0]?.id ?? "")
-      }
-      toast.success("Departamento eliminado")
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    }
-  }
-
-  async function handleEliminarUnidad(unidad: UnidadPresentacion) {
-    const ok = await confirm(
-      `¿Eliminar la unidad "${unidad.nombre}"?`,
-      { confirmLabel: "Eliminar", danger: true, detail: "Solo se puede eliminar si ningún producto la tiene asignada." }
-    )
-    if (!ok) return
-    try {
-      await eliminarUnidadPresentacion(unidad.id)
-      setUnidadesPresentacion(prev => prev.filter(u => u.id !== unidad.id))
-      toast.success("Unidad eliminada")
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    }
-  }
-
-  // ─── Limpiar movimientos del departamento ────────────────────────────────
+  // ─── Limpiar movimientos ──────────────────────────────────────────────────
 
   const handleLimpiarMovimientos = async () => {
     if (departamentoId === "") return
     const deptNombre = departamentos.find(d => d.id === departamentoId)?.nombre ?? ""
     const ok = await confirm(
       `¿Eliminar todos los movimientos de "${deptNombre}" en ${year}?`,
-      { confirmLabel: "Eliminar todo", danger: true, detail: "Se borrarán todos los registros de consumo de este departamento para el año seleccionado. Esta acción no se puede deshacer." }
+      { confirmLabel: "Eliminar todo", danger: true, detail: "Esta acción no se puede deshacer." }
     )
     if (!ok) return
     try {
@@ -572,18 +477,16 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     }
   }
 
-  // ─── Exportación JSON ─────────────────────────────────────────────────────
+  // ─── Export / Import JSON ─────────────────────────────────────────────────
 
   const handleExportJSON = async () => {
     try {
       const datos = await exportarProductosJSON()
-      const json = JSON.stringify(datos, null, 2)
-      const blob = new Blob([json], { type: "application/json" })
+      const blob = new Blob([JSON.stringify(datos, null, 2)], { type: "application/json" })
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
-      const fecha = new Date().toISOString().slice(0, 10)
       a.href = url
-      a.download = `productos_${fecha}.json`
+      a.download = `productos_${new Date().toISOString().slice(0, 10)}.json`
       a.click()
       URL.revokeObjectURL(url)
       toast.success("Exportación completada", `${datos.productos.length} productos exportados`)
@@ -591,8 +494,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
       toast.error("Error exportando", e?.message ?? String(e))
     }
   }
-
-  // ─── Importación JSON ─────────────────────────────────────────────────────
 
   const handleImportClick = () => fileInputRef.current?.click()
 
@@ -603,26 +504,18 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     try {
       const text = await file.text()
       let datos: ExportacionProductos
-      try {
-        datos = JSON.parse(text)
-      } catch {
-        throw new Error("El archivo no es un JSON válido.")
-      }
-
+      try { datos = JSON.parse(text) } catch { throw new Error("El archivo no es un JSON válido.") }
       const resultado = await importarProductosJSON(datos)
-
       const resumen = [
         `${resultado.importados} productos`,
         resultado.departamentosImportados > 0 ? `${resultado.departamentosImportados} departamentos` : null,
         resultado.salidasImportadas > 0 ? `${resultado.salidasImportadas} movimientos` : null,
       ].filter(Boolean).join(", ")
-
       if (resultado.errores.length > 0) {
         toast.error("Importación con errores", `${resumen}. Errores: ${resultado.errores.slice(0, 3).join(" | ")}`)
       } else {
         toast.success("Importación completada", resumen)
       }
-
       await loadInitialData()
       await cargarSalidas()
     } catch (err: any) {
@@ -639,8 +532,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     if (!searchTerm.trim()) return productos
     const term = searchTerm.toLowerCase()
     return productos.filter(p =>
-      p.referencia.toLowerCase().includes(term) ||
-      p.nombre.toLowerCase().includes(term)
+      p.referencia.toLowerCase().includes(term) || p.nombre.toLowerCase().includes(term)
     )
   }, [productos, searchTerm])
 
@@ -660,32 +552,32 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
     setExpandedCategories(nuevo)
   }
 
-  // Índices de meses visibles (0-11). Si el filtro está vacío, se muestran todos.
   const mesesVisibles = useMemo(() =>
     mesesFiltro.size === 0
       ? MESES.map((_, i) => i)
       : MESES.map((_, i) => i).filter(i => mesesFiltro.has(i))
   , [mesesFiltro])
 
+  // Totales por mes (siempre en unidades base)
   const totalesPorMes = useMemo(() => {
     const totals = new Array(12).fill(0)
     for (const prod of productosFiltrados) {
       for (let mes = 1; mes <= 12; mes++) {
-        totals[mes - 1] += getConsumo(prod.id, mes)
+        totals[mes - 1] += getConsumoBase(prod.id, mes)
       }
     }
     return totals
-  }, [productosFiltrados, salidasMap, presentacionActiva])
+  }, [productosFiltrados, salidasMap])
 
   const maxConsumo = useMemo(() => {
     let max = 0
     for (const prod of productosFiltrados) {
       for (let mes = 1; mes <= 12; mes++) {
-        max = Math.max(max, getConsumo(prod.id, mes))
+        max = Math.max(max, getConsumoBase(prod.id, mes))
       }
     }
     return max
-  }, [productosFiltrados, salidasMap, presentacionActiva])
+  }, [productosFiltrados, salidasMap])
 
   if (loading) {
     return <div style={{ padding: "40px", textAlign: "center", color: "#94a3b8" }}>Cargando datos...</div>
@@ -724,8 +616,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             value={departamentoId === "" ? "__todos__" : departamentoId}
             onChange={e => {
               const v = e.target.value
-              if (v === "__todos__") setDepartamentoId("")
-              else setDepartamentoId(Number(v))
+              setDepartamentoId(v === "__todos__" ? "" : Number(v))
             }}
             style={{
               height: "40px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "10px",
@@ -751,8 +642,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           </select>
 
           <div style={{ width: "1px", height: "28px", backgroundColor: "#e2e8f0", flexShrink: 0 }} />
-
-          {/* ── Acciones principales ── */}
 
           {/* + Nueva salida */}
           <button
@@ -793,56 +682,28 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                 boxShadow: "0 8px 24px rgba(0,0,0,0.10)", minWidth: "200px", overflow: "hidden",
               }}>
                 <div style={{ padding: "6px" }}>
-                  <button
-                    onClick={() => { setGestionarTab("productos"); setShowGestionarModal(true); setGestionarDropdownOpen(false) }}
-                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: "pointer", textAlign: "left", fontSize: "13px", color: "#374151", fontWeight: 500 }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc" }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent" }}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-                    </svg>
-                    Productos
-                  </button>
-                  <div style={{ height: "1px", backgroundColor: "#f1f5f9", margin: "4px 6px" }} />
-                  <button
-                    onClick={() => { setGestionarTab("categorias"); setShowGestionarModal(true); setGestionarDropdownOpen(false) }}
-                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: "pointer", textAlign: "left", fontSize: "13px", color: "#374151", fontWeight: 500 }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc" }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent" }}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                    </svg>
-                    Categorías
-                  </button>
-                  <div style={{ height: "1px", backgroundColor: "#f1f5f9", margin: "4px 6px" }} />
-                  <button
-                    onClick={() => { setGestionarTab("departamentos"); setShowGestionarModal(true); setGestionarDropdownOpen(false) }}
-                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: "pointer", textAlign: "left", fontSize: "13px", color: "#374151", fontWeight: 500 }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc" }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent" }}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
-                    </svg>
-                    Departamentos
-                  </button>
-                  <button
-                    onClick={() => { setGestionarTab("unidades"); setShowGestionarModal(true); setGestionarDropdownOpen(false) }}
-                    style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: "pointer", textAlign: "left", fontSize: "13px", color: "#374151", fontWeight: 500 }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc" }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent" }}
-                  >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
-                    </svg>
-                    Unidades de presentación
-                  </button>
+                  {[
+                    { tab: "productos" as const, icon: "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01", label: "Productos" },
+                    { tab: "categorias" as const, icon: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z", label: "Categorías" },
+                    { tab: "departamentos" as const, icon: "M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z", label: "Departamentos" },
+                  ].map(({ tab, icon, label }) => (
+                    <button
+                      key={tab}
+                      onClick={() => { setGestionarTab(tab); setShowGestionarModal(true); setGestionarDropdownOpen(false) }}
+                      style={{ width: "100%", display: "flex", alignItems: "center", gap: "10px", padding: "10px 12px", border: "none", backgroundColor: "transparent", borderRadius: "8px", cursor: "pointer", textAlign: "left", fontSize: "13px", color: "#374151", fontWeight: 500 }}
+                      onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc" }}
+                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = "transparent" }}
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d={icon}/>
+                      </svg>
+                      {label}
+                    </button>
+                  ))}
 
-                  {/* ── Sección avanzada ── */}
                   <div style={{ height: "1px", backgroundColor: "#f1f5f9", margin: "4px 6px" }} />
                   <div style={{ padding: "6px 12px 4px", fontSize: "10px", fontWeight: 700, color: "#cbd5e1", textTransform: "uppercase", letterSpacing: "0.08em" }}>Avanzado</div>
+
                   <button
                     onClick={() => { handleImportClick(); setGestionarDropdownOpen(false) }}
                     disabled={isImporting}
@@ -882,8 +743,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               </div>
             )}
           </div>
-
-
         </div>
 
         {/* ── Chips de filtro de meses ── */}
@@ -907,8 +766,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                 onClick={() => {
                   setMesesFiltro(prev => {
                     const next = new Set(prev)
-                    if (next.has(i)) next.delete(i)
-                    else next.add(i)
+                    if (next.has(i)) { next.delete(i) } else { next.add(i) }
                     return next
                   })
                 }}
@@ -930,7 +788,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         </div>
       </div>
 
-      {/* ── Tabla / Placeholder ── */}
+      {/* ── Tabla ── */}
       {departamentoId === "" ? (
         <div style={{ padding: "60px", textAlign: "center", color: "#6b7280", backgroundColor: "#fff", border: "2px dashed #e5e7eb", borderRadius: "16px", flex: 1 }}>
           <div style={{ fontSize: "18px", fontWeight: 600, marginBottom: "12px" }}>📊 Selecciona un departamento</div>
@@ -943,12 +801,16 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: "13px", whiteSpace: "nowrap" }}>
             <thead style={{ position: "sticky", top: 0, zIndex: 10 }}>
               <tr>
-                <th style={{ ...thStyle, width: "90px", minWidth: "90px", maxWidth: "90px" }}><div style={{ padding: "12px 16px" }}>Ref.</div></th>
-                <th onClick={() => setWideNombre(w => !w)} style={{ ...thStyle, padding: 0, position: "sticky", left: 0, zIndex: 3, width: wideNombre ? "320px" : "240px", minWidth: wideNombre ? "320px" : "240px", maxWidth: wideNombre ? "320px" : "240px", boxShadow: "none", cursor: "pointer", userSelect: "none", transition: "width 0.2s" }}><div style={{ padding: "12px 16px" }}>Nombre</div></th>
-                <th style={{ ...thStyle, padding: 0, position: "sticky", left: wideNombre ? "320px" : "240px", zIndex: 3, width: "170px", minWidth: "170px", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)", transition: "left 0.2s" }}><div style={{ padding: "12px 16px" }}>Presentación</div></th>
-                <th style={{ ...thStyle, minWidth: "100px" }}>Precio (€)</th>
+                <th style={{ ...thStyle, width: "90px", minWidth: "90px" }}><div style={{ padding: "12px 16px" }}>Ref.</div></th>
+                <th onClick={() => setWideNombre(w => !w)} style={{ ...thStyle, padding: 0, position: "sticky", left: 0, zIndex: 3, width: wideNombre ? "320px" : "240px", minWidth: wideNombre ? "320px" : "240px", boxShadow: "none", cursor: "pointer", userSelect: "none", transition: "width 0.2s" }}>
+                  <div style={{ padding: "12px 16px" }}>Nombre</div>
+                </th>
+                {/* Columna Tipo + Precio (reemplaza "Presentación" + "Precio") */}
+                <th style={{ ...thStyle, padding: 0, position: "sticky", left: wideNombre ? "320px" : "240px", zIndex: 3, width: "200px", minWidth: "200px", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)", transition: "left 0.2s" }}>
+                  <div style={{ padding: "12px 16px" }}>Tipo / Precio</div>
+                </th>
                 <th style={{ ...thStyle, minWidth: "120px" }}>Categoría</th>
-                <th style={{ ...thStyle, minWidth: "90px", textAlign: "center" }}>Stock</th>
+                <th style={{ ...thStyle, minWidth: "100px", textAlign: "center" }}>Stock</th>
                 {mesesVisibles.map(i => (
                   <th key={i} style={{ ...thStyle, minWidth: "70px", textAlign: "center" }}>{MESES[i]}</th>
                 ))}
@@ -963,14 +825,14 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
                 return (
                   <Fragment key={cat.id}>
-                    {/* Fila de categoría */}
+                    {/* Fila categoría */}
                     <tr
                       style={{ backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}
                       onClick={() => toggleCategory(cat.id)}
                       onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eff6ff" }}
                       onMouseLeave={e => { e.currentTarget.style.backgroundColor = isExpanded ? "#eff6ff" : "#f8fafc" }}
                     >
-                      <td colSpan={8 + mesesVisibles.length} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", position: "sticky", left: 0, backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", zIndex: 1 }}>
+                      <td colSpan={7 + mesesVisibles.length} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", position: "sticky", left: 0, backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", zIndex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <span style={{ fontSize: "12px", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", color: "#3b82f6" }}>▶</span>
                           <span style={{ fontSize: "13px" }}>{cat.nombre}</span>
@@ -981,13 +843,12 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
                     {/* Filas de productos */}
                     {isExpanded && prodsEnCat.map((prod, rowIdx) => {
-                      const totalProd = mesesVisibles.reduce((sum, idx) => sum + getConsumo(prod.id, idx + 1), 0)
-                      const presActiva = getPresActiva(prod.id)
-                      const listaPresProducto = presentacionesPorProducto.get(prod.id) ?? []
-
+                      // Para la columna Total: siempre en unidades base
+                      const totalProdBase = mesesVisibles.reduce((sum, idx) => sum + getConsumoBase(prod.id, idx + 1), 0)
                       const isEven = rowIdx % 2 === 0
                       const rowBg = prod.activo === 0 ? "#fafafa" : isEven ? "#fff" : "#f8fafc"
                       const rowBgHover = prod.activo === 0 ? "#fafafa" : "#eef2ff"
+                      const stockVal = stockMap.get(prod.id) ?? null
 
                       return (
                         <tr
@@ -997,14 +858,14 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           onMouseLeave={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = rowBg }}
                         >
                           {/* Referencia */}
-                          <td style={{ ...tdStyle, width: "90px", minWidth: "90px", maxWidth: "90px" }}>
+                          <td style={{ ...tdStyle, width: "90px" }}>
                             <div style={{ padding: "10px 16px", fontSize: "11px", fontWeight: 700, color: prod.activo === 0 ? "#9ca3af" : "#1d4ed8" }}>
                               {prod.referencia}
                             </div>
                           </td>
 
                           {/* Nombre */}
-                          <td onClick={() => setWideNombre(w => !w)} style={{ ...tdStyle, padding: 0, position: "sticky", left: 0, zIndex: 3, width: wideNombre ? "320px" : "240px", minWidth: wideNombre ? "320px" : "240px", maxWidth: wideNombre ? "320px" : "240px", backgroundColor: rowBg, transition: "width 0.2s", cursor: "pointer" }}>
+                          <td onClick={() => setWideNombre(w => !w)} style={{ ...tdStyle, padding: 0, position: "sticky", left: 0, zIndex: 3, width: wideNombre ? "320px" : "240px", minWidth: wideNombre ? "320px" : "240px", backgroundColor: rowBg, transition: "width 0.2s", cursor: "pointer" }}>
                             <div style={{ padding: "10px 16px", fontSize: "13px", color: prod.activo === 0 ? "#9ca3af" : "#1f2937", fontWeight: prod.activo === 0 ? 400 : 500 }}>
                               {prod.nombre}
                               {prod.activo === 0 && (
@@ -1013,95 +874,90 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                             </div>
                           </td>
 
-                          {/* Selector de presentación */}
-                          <td style={{ ...tdStyle, padding: 0, position: "sticky", left: wideNombre ? "320px" : "240px", zIndex: 3, width: "170px", minWidth: "170px", backgroundColor: rowBg, boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)", transition: "left 0.2s" }}>
-                            <div style={{ padding: "6px 10px", display: "flex", alignItems: "center", gap: "4px" }}>
-                              {listaPresProducto.length === 0 ? (
-                                <button
-                                  onClick={() => abrirModalPresentacion(prod.id)}
-                                  style={{ fontSize: "11px", padding: "3px 8px", border: "1px dashed #6366f1", borderRadius: "4px", backgroundColor: "#ede9fe", color: "#6366f1", cursor: "pointer" }}
-                                >+ Añadir presentación</button>
-                              ) : (
-                                <>
-                                  <select
-                                    value={presentacionActiva.get(prod.id) ?? ""}
-                                    onChange={e => {
-                                      const v = Number(e.target.value)
-                                      setPresentacionActiva(prev => { const n = new Map(prev); n.set(prod.id, v); return n })
-                                    }}
-                                    style={{ padding: "3px 6px", border: "1px solid #d1d5db", borderRadius: "4px", fontSize: "12px", minWidth: "90px", maxWidth: "110px" }}
-                                  >
-                                    {listaPresProducto.map(p => (
-                                      <option key={p.id} value={p.id}>
-                                        {p.nombre}{p.precio != null ? ` (${p.precio.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €)` : ""}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  {/* Botón editar/añadir presentación */}
-                                  <button
-                                    onClick={() => abrirModalPresentacion(prod.id)}
-                                    title="Añadir o editar presentación"
-                                    style={{ fontSize: "13px", padding: "2px 5px", border: "1px solid #e5e7eb", borderRadius: "4px", backgroundColor: "#fff", cursor: "pointer", color: "#6366f1" }}
-                                  >＋</button>
-                                  {/* Botón eliminar presentación activa */}
-                                  {presActiva && (
-                                    <button
-                                      onClick={() => handleEliminarPresentacion(prod.id, presActiva)}
-                                      title="Eliminar presentación seleccionada"
-                                      style={{ fontSize: "13px", padding: "2px 5px", border: "1px solid #fca5a5", borderRadius: "4px", backgroundColor: "#fff", cursor: "pointer", color: "#dc2626" }}
-                                    >✕</button>
+                          {/* Tipo + Precio + toggle caja/uds (solo CAJA) */}
+                          <td style={{ ...tdStyle, padding: 0, position: "sticky", left: wideNombre ? "320px" : "240px", zIndex: 3, width: "200px", minWidth: "200px", backgroundColor: rowBg, boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)", transition: "left 0.2s" }}>
+                            {(() => {
+                              const pref2 = prefMap.get(prod.id) ?? "caja"
+                              const upc = prod.uds_por_caja && prod.uds_por_caja > 1 ? prod.uds_por_caja : null
+                              // Precio a mostrar: si modo unidad y upc disponible → precio/upc
+                              const precioLabel = (() => {
+                                if (prod.tipo_producto === "CAJA" && pref2 === "unidad" && upc && prod.precio != null) {
+                                  const pu = prod.precio / upc
+                                  return `${pu.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/ud`
+                                }
+                                return labelPrecio(prod.precio, prod.tipo_producto, prod.uds_por_caja)
+                              })()
+                              return (
+                                <div style={{ padding: "6px 12px", display: "flex", flexDirection: "column", gap: "4px" }}>
+                                  {/* Línea 1: badge tipo + precio */}
+                                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <TipoBadge tipo={prod.tipo_producto} />
+                                    <span style={{ fontSize: "12px", fontWeight: 600, color: prod.precio != null ? "#059669" : "#9ca3af" }}>
+                                      {precioLabel}
+                                    </span>
+                                  </div>
+                                  {/* Línea 2: toggle caja/uds para productos CAJA */}
+                                  {prod.tipo_producto === "CAJA" && (
+                                    upc !== null
+                                      ? (
+                                        <PresToggle
+                                          value={pref2}
+                                          onChange={v => {
+                                            setPrefMap(prev => { const n = new Map(prev); n.set(prod.id, v); return n })
+                                            if (departamentoId !== "") setPreferenciaPres(prod.id, Number(departamentoId), v)
+                                          }}
+                                        />
+                                      ) : (
+                                        <span style={{ fontSize: "10px", color: "#f97316", fontWeight: 600 }}>
+                                          ⚠ Configura uds/caja
+                                        </span>
+                                      )
                                   )}
-                                </>
-                              )}
-                            </div>
-                          </td>
-
-                          {/* Precio de la presentación activa */}
-                          <td style={{ ...tdStyle, textAlign: "right", fontSize: "13px" }}>
-                            {presActiva?.precio != null
-                              ? <span style={{ fontWeight: 600, color: "#059669" }}>
-                                  {presActiva.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
-                                </span>
-                              : <span style={{ color: "#9ca3af" }}>—</span>}
+                                </div>
+                              )
+                            })()}
                           </td>
 
                           {/* Categoría */}
                           <td style={{ ...tdStyle }}>{prod.categoria_nombre || "—"}</td>
 
-                          {/* Stock — por producto + presentación activa */}
+                          {/* Stock — en unidades base, se muestra formateado */}
                           <td style={{ ...tdStyle, padding: "4px 8px", textAlign: "center" }}>
                             {(() => {
-                              const presIdActiva = presentacionActiva.get(prod.id) ?? null
-                              const claveStock = `${prod.id}_${presIdActiva ?? "null"}`
-                              const stockVal = stockMap.get(claveStock) ?? null
-                              const isSavingThis = savingStock === claveStock
-                              const sinPres = listaPresProducto.length === 0
+                              const isSavingThis = savingStock === prod.id
                               return (
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={stockVal ?? ""}
-                                  onChange={e => handleStockChange(prod.id, presIdActiva, e.target.value)}
-                                  disabled={isSavingThis || sinPres}
-                                  placeholder={sinPres ? "—" : "0"}
-                                  title={sinPres ? "Añade una presentación primero" : `Stock de ${presActiva?.nombre ?? "esta presentación"}`}
-                                  style={{
-                                    width: "64px", padding: "4px 6px", border: "1.5px solid #d1d5db",
-                                    borderRadius: "6px", textAlign: "center", fontSize: "12px",
-                                    backgroundColor: (isSavingThis || sinPres) ? "#f5f5f5"
-                                      : stockVal == null ? "#fff"
-                                      : stockVal === 0 ? "#fef2f2"
-                                      : stockVal <= 5 ? "#fff7ed"
-                                      : "#f0fdf4",
-                                    color: (sinPres || stockVal == null) ? "#9ca3af"
-                                      : stockVal === 0 ? "#dc2626"
-                                      : stockVal <= 5 ? "#c2410c"
-                                      : "#15803d",
-                                    fontWeight: stockVal != null ? 600 : 400,
-                                    cursor: sinPres ? "not-allowed" : "auto",
-                                    outline: "none",
-                                  }}
-                                />
+                                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={stockVal ?? ""}
+                                    onChange={e => handleStockChange(prod, e.target.value)}
+                                    disabled={isSavingThis}
+                                    placeholder="0"
+                                    title={`Stock en unidades base${prod.tipo_producto === "CAJA" ? ` (${prod.uds_por_caja ?? 1} uds/caja)` : ""}`}
+                                    style={{
+                                      width: "64px", padding: "4px 6px", border: "1.5px solid #d1d5db",
+                                      borderRadius: "6px", textAlign: "center", fontSize: "12px",
+                                      backgroundColor: isSavingThis ? "#f5f5f5"
+                                        : stockVal == null ? "#fff"
+                                        : stockVal === 0 ? "#fef2f2"
+                                        : stockVal <= (prod.uds_por_caja ?? 5) ? "#fff7ed"
+                                        : "#f0fdf4",
+                                      color: (isSavingThis || stockVal == null) ? "#9ca3af"
+                                        : stockVal === 0 ? "#dc2626"
+                                        : stockVal <= (prod.uds_por_caja ?? 5) ? "#c2410c"
+                                        : "#15803d",
+                                      fontWeight: stockVal != null ? 600 : 400,
+                                      outline: "none",
+                                    }}
+                                  />
+                                  {/* Resumen legible debajo del input */}
+                                  {stockVal != null && stockVal > 0 && (
+                                    <span style={{ fontSize: "9px", color: "#94a3b8", fontWeight: 500, whiteSpace: "nowrap" }}>
+                                      {stockVisible(stockVal, prod.tipo_producto, prod.uds_por_caja)}
+                                    </span>
+                                  )}
+                                </div>
                               )
                             })()}
                           </td>
@@ -1109,55 +965,57 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                           {/* Celdas de meses */}
                           {mesesVisibles.map(idx => {
                             const mes = idx + 1
-                            const presId = presentacionActiva.get(prod.id) ?? null
-                            const tipoPres = presId !== null ? String(presId) : null
-                            const clave = claveSalida(prod.id, presId, tipoPres)
-                            const valor = getConsumo(prod.id, mes)
-                            const isSaving = savingCell?.clave === clave && savingCell?.mes === mes
-                            const bgColor = listaPresProducto.length === 0
-                              ? "#fafafa"
-                              : getConsumoColor(valor, maxConsumo)
-                            const textColor = getConsumoTextColor(valor)
-                            const sinPresentacion = listaPresProducto.length === 0
+                            const valorBase = getConsumoBase(prod.id, mes)
+                            const valorDisplay = getConsumoDisplay(prod, mes)
+                            const isSaving = savingCell?.productoId === prod.id && savingCell?.mes === mes
+                            const bgColor = getConsumoColor(valorBase, maxConsumo)
+                            const textColor = getConsumoTextColor(valorBase)
+                            const pref = prefMap.get(prod.id) ?? "unidad"
+                            // El toggle solo tiene efecto real si uds_por_caja está relleno
+                            const udsPorCaja = prod.uds_por_caja && prod.uds_por_caja > 1 ? prod.uds_por_caja : null
+                            const usaCajas = prod.tipo_producto === "CAJA" && pref === "caja" && udsPorCaja !== null
 
                             return (
                               <td key={mes} style={{ padding: "4px", textAlign: "center", backgroundColor: bgColor }}>
                                 <input
                                   type="number"
                                   min="0"
-                                  value={valor}
-                                  onChange={e => handleCellChange(prod.id, mes, e.target.value)}
-                                  disabled={isSaving || sinPresentacion}
-                                  title={sinPresentacion ? "Añade una presentación primero" : undefined}
+                                  step={usaCajas ? "0.5" : "1"}
+                                  value={valorDisplay > 0 ? valorDisplay : ""}
+                                  placeholder="0"
+                                  onChange={e => handleCellChange(prod, mes, e.target.value)}
+                                  disabled={isSaving}
                                   style={{
                                     width: "60px", padding: "4px", border: "1px solid #d1d5db", borderRadius: "4px",
                                     textAlign: "center", fontSize: "12px",
-                                    backgroundColor: (isSaving || sinPresentacion) ? "#f5f5f5" : "rgba(255,255,255,0.92)",
-                                    color: sinPresentacion ? "#d1d5db" : textColor,
-                                    fontWeight: valor > 0 ? 600 : 400,
-                                    cursor: sinPresentacion ? "not-allowed" : "pointer",
+                                    backgroundColor: isSaving ? "#f5f5f5" : "rgba(255,255,255,0.92)",
+                                    color: textColor,
+                                    fontWeight: valorBase > 0 ? 600 : 400,
+                                    cursor: "pointer",
                                     outline: "none",
-                                    boxShadow: valor > 0 ? "0 0 0 1px rgba(34,197,94,0.25)" : "none",
-                                    borderColor: valor > 0 ? "#93c5fd" : "#d1d5db",
+                                    boxShadow: valorBase > 0 ? "0 0 0 1px rgba(34,197,94,0.25)" : "none",
+                                    borderColor: valorBase > 0 ? "#93c5fd" : "#d1d5db",
                                   }}
                                   onMouseEnter={e => {
-                                    if (!isSaving && !sinPresentacion) {
+                                    if (!isSaving) {
                                       e.currentTarget.style.borderColor = "#3b82f6"
-                                      e.currentTarget.style.boxShadow = `0 0 0 2px ${valor > 0 ? "rgba(59,130,246,0.2)" : "rgba(59,130,246,0.12)"}`
+                                      e.currentTarget.style.boxShadow = `0 0 0 2px ${valorBase > 0 ? "rgba(59,130,246,0.2)" : "rgba(59,130,246,0.12)"}`
                                     }
                                   }}
                                   onMouseLeave={e => {
-                                    e.currentTarget.style.borderColor = valor > 0 ? "#93c5fd" : "#d1d5db"
-                                    e.currentTarget.style.boxShadow = valor > 0 ? "0 0 0 1px rgba(34,197,94,0.25)" : "none"
+                                    e.currentTarget.style.borderColor = valorBase > 0 ? "#93c5fd" : "#d1d5db"
+                                    e.currentTarget.style.boxShadow = valorBase > 0 ? "0 0 0 1px rgba(34,197,94,0.25)" : "none"
                                   }}
                                 />
                               </td>
                             )
                           })}
 
-                          {/* Total */}
-                          <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, fontSize: "13px", color: "#059669", backgroundColor: totalProd > 0 ? "#ecfdf5" : "transparent" }}>
-                            {totalProd.toLocaleString()}
+                          {/* Total (siempre en unidades base con etiqueta legible) */}
+                          <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, fontSize: "13px", color: "#059669", backgroundColor: totalProdBase > 0 ? "#ecfdf5" : "transparent" }}>
+                            {totalProdBase > 0
+                              ? stockVisible(totalProdBase, prod.tipo_producto, prod.uds_por_caja)
+                              : "—"}
                           </td>
                         </tr>
                       )
@@ -1169,7 +1027,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               {/* Fila de totales */}
               {productosFiltrados.length > 0 && (
                 <tr style={{ backgroundColor: "#111827", fontWeight: 700 }}>
-                  <td colSpan={5} style={{ padding: "14px", textAlign: "right", color: "#f9fafb", fontSize: "13px" }}>TOTALES</td>
+                  <td colSpan={4} style={{ padding: "14px", textAlign: "right", color: "#f9fafb", fontSize: "13px" }}>TOTALES</td>
                   {mesesVisibles.map(i => (
                     <td key={i} style={{ padding: "14px", textAlign: "center", color: "#fbbf24", fontSize: "14px" }}>{totalesPorMes[i].toLocaleString()}</td>
                   ))}
@@ -1181,7 +1039,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
 
               {productosFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={8 + mesesVisibles.length} style={{ padding: "60px", textAlign: "center", color: "#6b7280", backgroundColor: "#fafafa" }}>
+                  <td colSpan={7 + mesesVisibles.length} style={{ padding: "60px", textAlign: "center", color: "#6b7280", backgroundColor: "#fafafa" }}>
                     <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "8px" }}>No se encontraron productos</div>
                     <div style={{ fontSize: "13px" }}>{searchTerm ? "Intenta con otro término de búsqueda" : "Agrega productos desde el menú Gestionar → Productos"}</div>
                   </td>
@@ -1210,118 +1068,41 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
         />
       )}
 
-{showSalidaModal && (
-  <ModalSalida
-    departamentoInicialId={departamentoId !== "" ? Number(departamentoId) : undefined}
-    onClose={() => setShowSalidaModal(false)}
-    onSaved={({ productoId, presentacionId, cantidad, mes, anio: anioGuardado }) => {
-      if (anioGuardado !== year) return
-      const clave = claveSalida(productoId, presentacionId, presentacionId != null ? String(presentacionId) : null)
-      setSalidasMap(prev => {
-        const nuevo = new Map(prev)
-        if (!nuevo.has(clave)) nuevo.set(clave, new Map())
-        const mesMap = nuevo.get(clave)!
-        if (cantidad === 0) mesMap.delete(mes)
-        else mesMap.set(mes, cantidad)
-        return nuevo
-      })
-    }}
-  />
-)}
+      {showSalidaModal && (
+        <ModalSalida
+          departamentoInicialId={departamentoId !== "" ? Number(departamentoId) : undefined}
+          onClose={() => setShowSalidaModal(false)}
+          onSaved={({ productoId, cantidad, cantidadAnterior, mes, anio: anioGuardado }) => {
+            // Actualizar mapa de salidas si el año coincide con el que se está viendo
+            if (anioGuardado === year) {
+              const clave = claveSalida(productoId)
+              setSalidasMap(prev => {
+                const nuevo = new Map(prev)
+                if (!nuevo.has(clave)) nuevo.set(clave, new Map())
+                const mesMap = nuevo.get(clave)!
+                if (cantidad === 0) mesMap.delete(mes)
+                else mesMap.set(mes, cantidad)
+                return nuevo
+              })
+            }
+            // Actualizar stock local con el delta (independiente del año visualizado)
+            const delta = cantidadAnterior - cantidad
+            if (delta !== 0) {
+              setStockMap(prev => {
+                const nuevo = new Map(prev)
+                const actual = nuevo.get(productoId) ?? 0
+                nuevo.set(productoId, Math.max(0, actual + delta))
+                return nuevo
+              })
+            }
+          }}
+        />
+      )}
 
-      {/* ── Modal: Añadir/editar presentación a producto ── */}
-      {showPresModal && presModalProductoId !== null && (() => {
-        const prod = productos.find(p => p.id === presModalProductoId)
-        const listaExistente = presentacionesPorProducto.get(presModalProductoId) ?? []
-        const unidadesDisponibles = unidadesPresentacion.filter(
-          u => !listaExistente.some(e => e.unidad_id === u.id)
-        )
-        return (
-          <div onClick={() => setShowPresModal(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <div onClick={e => e.stopPropagation()} style={{ backgroundColor: "#fff", borderRadius: "14px", width: "400px", maxWidth: "calc(100vw - 32px)", boxShadow: "0 20px 48px rgba(0,0,0,0.15)", overflow: "hidden" }}>
-              <div style={{ height: "4px", backgroundColor: "#6366f1" }} />
-              <div style={{ padding: "24px" }}>
-                <h2 style={{ fontSize: "15px", fontWeight: 700, margin: "0 0 6px" }}>Añadir presentación</h2>
-                <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 20px" }}>
-                  {prod?.referencia} — {prod?.nombre}
-                </p>
-
-                {/* Presentaciones existentes */}
-                {listaExistente.length > 0 && (
-                  <div style={{ marginBottom: "20px" }}>
-                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "8px" }}>
-                      Presentaciones configuradas
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                      {listaExistente.map(p => (
-                        <div key={p.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", backgroundColor: "#f8fafc", borderRadius: "6px", border: "1px solid #e2e8f0" }}>
-                          <span style={{ fontSize: "13px", fontWeight: 500 }}>{p.nombre}</span>
-                          <span style={{ fontSize: "13px", color: "#059669", fontWeight: 600 }}>
-                            {p.precio != null ? `${p.precio.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €` : "sin precio"}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Selector unidad */}
-                <div style={{ marginBottom: "14px" }}>
-                  <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Tipo de unidad</label>
-                  {unidadesDisponibles.length === 0 ? (
-                    <div style={{ fontSize: "13px", color: "#64748b", padding: "10px", backgroundColor: "#f1f5f9", borderRadius: "6px" }}>
-                      Todas las unidades ya están asignadas a este producto.{" "}
-                      <span
-                        onClick={() => { setShowPresModal(false); setGestionarTab("unidades"); setShowGestionarModal(true) }}
-                        style={{ color: "#6366f1", cursor: "pointer", fontWeight: 600 }}
-                      >Crear nueva unidad →</span>
-                    </div>
-                  ) : (
-                    <select
-                      value={presModalUnidadId}
-                      onChange={e => setPresModalUnidadId(Number(e.target.value))}
-                      style={{ width: "100%", padding: "10px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "14px" }}
-                    >
-                      <option value="">Seleccionar...</option>
-                      {unidadesDisponibles.map(u => <option key={u.id} value={u.id}>{u.nombre}</option>)}
-                    </select>
-                  )}
-                </div>
-
-                {/* Precio */}
-                <div style={{ marginBottom: "20px" }}>
-                  <label style={{ fontSize: "12px", fontWeight: 600, color: "#555", display: "block", marginBottom: "6px" }}>Precio (€) — opcional</label>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={presModalPrecio}
-                    onChange={e => setPresModalPrecio(e.target.value)}
-                    placeholder="Ej: 12,50"
-                    style={{ width: "100%", padding: "10px 14px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "14px", boxSizing: "border-box" }}
-                  />
-                </div>
-
-                <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-                  <button
-                    onClick={() => setShowPresModal(false)}
-                    style={{ padding: "8px 16px", borderRadius: "6px", border: "1px solid #d1d5db", backgroundColor: "#fff", color: "#666", cursor: "pointer" }}
-                  >Cancelar</button>
-                  <button
-                    onClick={handleGuardarPresentacion}
-                    disabled={presModalUnidadId === ""}
-                    style={{ padding: "8px 20px", borderRadius: "6px", border: "none", backgroundColor: presModalUnidadId === "" ? "#a5b4fc" : "#6366f1", color: "#fff", fontWeight: 600, cursor: presModalUnidadId === "" ? "not-allowed" : "pointer" }}
-                  >Guardar</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      })()}
-
-      {/* ── Modal: Gestionar departamentos y unidades ── */}
+      {/* ── Modal: Gestionar ── */}
       {showGestionarModal && (
         <div
-          onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingUnitId(null); setEditingCatId(null); setGestionarProductoSearch("") }}
+          onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingCatId(null); setGestionarProductoSearch("") }}
           style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.35)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}
         >
           <div
@@ -1332,17 +1113,17 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
             <div style={{ padding: "20px 24px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <h2 style={{ fontSize: "16px", fontWeight: 700, margin: 0, color: "#111827" }}>Gestionar</h2>
               <button
-                onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingUnitId(null); setEditingCatId(null); setGestionarProductoSearch("") }}
+                onClick={() => { setShowGestionarModal(false); setEditingDeptId(null); setEditingCatId(null); setGestionarProductoSearch("") }}
                 style={{ width: "28px", height: "28px", border: "none", backgroundColor: "#f1f5f9", borderRadius: "6px", cursor: "pointer", color: "#64748b", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}
               >✕</button>
             </div>
 
             {/* Tabs */}
             <div style={{ display: "flex", gap: "0", padding: "16px 24px 0", borderBottom: "1px solid #f1f5f9" }}>
-              {(["productos", "categorias", "departamentos", "unidades"] as const).map(tab => (
+              {(["productos", "categorias", "departamentos"] as const).map(tab => (
                 <button
                   key={tab}
-                  onClick={() => { setGestionarTab(tab); setEditingDeptId(null); setEditingUnitId(null); setEditingCatId(null) }}
+                  onClick={() => { setGestionarTab(tab); setEditingDeptId(null); setEditingCatId(null) }}
                   style={{
                     padding: "8px 14px", border: "none", backgroundColor: "transparent", cursor: "pointer",
                     fontSize: "13px", fontWeight: gestionarTab === tab ? 700 : 500,
@@ -1351,7 +1132,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                     marginBottom: "-1px", whiteSpace: "nowrap",
                   }}
                 >
-                  {tab === "productos" ? "Productos" : tab === "categorias" ? "Categorías" : tab === "departamentos" ? "Departamentos" : "Unidades"}
+                  {tab === "productos" ? "Productos" : tab === "categorias" ? "Categorías" : "Departamentos"}
                 </button>
               ))}
             </div>
@@ -1372,7 +1153,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                 }
                 return (
                   <>
-                    {/* Cabecera: buscador + botón nuevo */}
                     <div style={{ display: "flex", gap: "8px", marginBottom: "16px" }}>
                       <input
                         type="text"
@@ -1389,7 +1169,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                       </button>
                     </div>
 
-                    {/* Lista agrupada por categoría */}
                     <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                       {porCategoria.size === 0 ? (
                         <p style={{ fontSize: "13px", color: "#94a3b8", textAlign: "center", padding: "20px 0", margin: 0 }}>No se encontraron productos</p>
@@ -1402,9 +1181,13 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                             {porCategoria.get(cat.id)!.map(prod => (
                               <div key={prod.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", backgroundColor: prod.activo === 0 ? "#fafafa" : "#f8fafc", borderRadius: "8px", border: "1px solid #e2e8f0" }}>
                                 <span style={{ fontSize: "10px", fontWeight: 700, color: "#1d4ed8", backgroundColor: "#eff6ff", padding: "2px 6px", borderRadius: "4px", flexShrink: 0 }}>{prod.referencia}</span>
+                                <TipoBadge tipo={prod.tipo_producto} />
                                 <span style={{ flex: 1, fontSize: "13px", color: prod.activo === 0 ? "#9ca3af" : "#374151", fontWeight: 500 }}>
                                   {prod.nombre}
                                   {prod.activo === 0 && <span style={{ marginLeft: "6px", fontSize: "9px", padding: "1px 4px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#9ca3af", border: "1px solid #e5e7eb" }}>INACT.</span>}
+                                </span>
+                                <span style={{ fontSize: "11px", color: "#94a3b8", flexShrink: 0 }}>
+                                  {labelPrecio(prod.precio, prod.tipo_producto, prod.uds_por_caja)}
                                 </span>
                                 <button
                                   onClick={() => { setShowGestionarModal(false); setEditingProductId(prod.id) }}
@@ -1438,44 +1221,16 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                       <div key={cat.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", backgroundColor: "#f8fafc", borderRadius: "8px", border: `1px solid ${editingCatId === cat.id ? "#93c5fd" : "#e2e8f0"}` }}>
                         {editingCatId === cat.id ? (
                           <>
-                            <input
-                              autoFocus
-                              value={editingCatName}
-                              onChange={e => setEditingCatName(e.target.value)}
-                              onKeyDown={e => {
-                                if (e.key === "Enter") handleGuardarCategoria(cat.id)
-                                if (e.key === "Escape") setEditingCatId(null)
-                              }}
-                              style={{ flex: 1, height: "30px", padding: "0 10px", border: "1.5px solid #93c5fd", borderRadius: "6px", fontSize: "13px", outline: "none", backgroundColor: "#fff" }}
-                            />
-                            <button
-                              onClick={() => handleGuardarCategoria(cat.id)}
-                              disabled={!editingCatName.trim()}
-                              style={{ padding: "4px 10px", border: "none", borderRadius: "6px", backgroundColor: editingCatName.trim() ? "#3b82f6" : "#bfdbfe", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: editingCatName.trim() ? "pointer" : "not-allowed" }}
-                            >Guardar</button>
-                            <button
-                              onClick={() => setEditingCatId(null)}
-                              style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#64748b", fontSize: "12px", cursor: "pointer" }}
-                            >✕</button>
+                            <input autoFocus value={editingCatName} onChange={e => setEditingCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleGuardarCategoria(cat.id); if (e.key === "Escape") setEditingCatId(null) }}
+                              style={{ flex: 1, height: "30px", padding: "0 10px", border: "1.5px solid #93c5fd", borderRadius: "6px", fontSize: "13px", outline: "none", backgroundColor: "#fff" }} />
+                            <button onClick={() => handleGuardarCategoria(cat.id)} disabled={!editingCatName.trim()} style={{ padding: "4px 10px", border: "none", borderRadius: "6px", backgroundColor: editingCatName.trim() ? "#3b82f6" : "#bfdbfe", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: editingCatName.trim() ? "pointer" : "not-allowed" }}>Guardar</button>
+                            <button onClick={() => setEditingCatId(null)} style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#64748b", fontSize: "12px", cursor: "pointer" }}>✕</button>
                           </>
                         ) : (
                           <>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-                            </svg>
                             <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#374151" }}>{cat.nombre}</span>
-                            <button
-                              onClick={() => { setEditingCatId(cat.id); setEditingCatName(cat.nombre) }}
-                              style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#475569", fontSize: "12px", cursor: "pointer" }}
-                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1" }}
-                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff"; e.currentTarget.style.borderColor = "#e2e8f0" }}
-                            >Editar</button>
-                            <button
-                              onClick={() => handleEliminarCategoria(cat)}
-                              style={{ padding: "4px 8px", border: "1px solid #fca5a5", borderRadius: "6px", backgroundColor: "#fff", color: "#dc2626", fontSize: "12px", cursor: "pointer" }}
-                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#fef2f2" }}
-                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}
-                            >Eliminar</button>
+                            <button onClick={() => { setEditingCatId(cat.id); setEditingCatName(cat.nombre) }} style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#475569", fontSize: "12px", cursor: "pointer" }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc" }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}>Editar</button>
+                            <button onClick={() => handleEliminarCategoria(cat)} style={{ padding: "4px 8px", border: "1px solid #fca5a5", borderRadius: "6px", backgroundColor: "#fff", color: "#dc2626", fontSize: "12px", cursor: "pointer" }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#fef2f2" }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}>Eliminar</button>
                           </>
                         )}
                       </div>
@@ -1484,19 +1239,8 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                   <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "16px" }}>
                     <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "10px" }}>Nueva categoría</div>
                     <div style={{ display: "flex", gap: "8px" }}>
-                      <input
-                        type="text"
-                        placeholder="Nombre de la categoría..."
-                        value={newCatName}
-                        onChange={e => setNewCatName(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter") handleCrearCategoria() }}
-                        style={{ flex: 1, height: "38px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "13px", outline: "none" }}
-                      />
-                      <button
-                        onClick={handleCrearCategoria}
-                        disabled={!newCatName.trim()}
-                        style={{ height: "38px", padding: "0 16px", border: "none", borderRadius: "8px", backgroundColor: newCatName.trim() ? "#16a34a" : "#d1fae5", color: newCatName.trim() ? "#fff" : "#6ee7b7", fontSize: "13px", fontWeight: 600, cursor: newCatName.trim() ? "pointer" : "not-allowed" }}
-                      >Crear</button>
+                      <input type="text" placeholder="Nombre de la categoría..." value={newCatName} onChange={e => setNewCatName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleCrearCategoria() }} style={{ flex: 1, height: "38px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "13px", outline: "none" }} />
+                      <button onClick={handleCrearCategoria} disabled={!newCatName.trim()} style={{ height: "38px", padding: "0 16px", border: "none", borderRadius: "8px", backgroundColor: newCatName.trim() ? "#16a34a" : "#d1fae5", color: newCatName.trim() ? "#fff" : "#6ee7b7", fontSize: "13px", fontWeight: 600, cursor: newCatName.trim() ? "pointer" : "not-allowed" }}>Crear</button>
                     </div>
                   </div>
                 </>
@@ -1505,7 +1249,6 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
               {/* ── Tab Departamentos ── */}
               {gestionarTab === "departamentos" && (
                 <>
-                  {/* Lista */}
                   <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "20px" }}>
                     {departamentos.length === 0 ? (
                       <p style={{ fontSize: "13px", color: "#94a3b8", textAlign: "center", padding: "20px 0", margin: 0 }}>No hay departamentos creados</p>
@@ -1513,145 +1256,26 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
                       <div key={dept.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", backgroundColor: "#f8fafc", borderRadius: "8px", border: `1px solid ${editingDeptId === dept.id ? "#93c5fd" : "#e2e8f0"}` }}>
                         {editingDeptId === dept.id ? (
                           <>
-                            <input
-                              autoFocus
-                              value={editingDeptName}
-                              onChange={e => setEditingDeptName(e.target.value)}
-                              onKeyDown={e => {
-                                if (e.key === "Enter") handleGuardarDepartamento(dept.id)
-                                if (e.key === "Escape") setEditingDeptId(null)
-                              }}
-                              style={{ flex: 1, height: "30px", padding: "0 10px", border: "1.5px solid #93c5fd", borderRadius: "6px", fontSize: "13px", outline: "none", backgroundColor: "#fff" }}
-                            />
-                            <button
-                              onClick={() => handleGuardarDepartamento(dept.id)}
-                              disabled={!editingDeptName.trim()}
-                              style={{ padding: "4px 10px", border: "none", borderRadius: "6px", backgroundColor: editingDeptName.trim() ? "#3b82f6" : "#bfdbfe", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: editingDeptName.trim() ? "pointer" : "not-allowed" }}
-                            >Guardar</button>
-                            <button
-                              onClick={() => setEditingDeptId(null)}
-                              style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#64748b", fontSize: "12px", cursor: "pointer" }}
-                            >✕</button>
+                            <input autoFocus value={editingDeptName} onChange={e => setEditingDeptName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleGuardarDepartamento(dept.id); if (e.key === "Escape") setEditingDeptId(null) }}
+                              style={{ flex: 1, height: "30px", padding: "0 10px", border: "1.5px solid #93c5fd", borderRadius: "6px", fontSize: "13px", outline: "none", backgroundColor: "#fff" }} />
+                            <button onClick={() => handleGuardarDepartamento(dept.id)} disabled={!editingDeptName.trim()} style={{ padding: "4px 10px", border: "none", borderRadius: "6px", backgroundColor: editingDeptName.trim() ? "#3b82f6" : "#bfdbfe", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: editingDeptName.trim() ? "pointer" : "not-allowed" }}>Guardar</button>
+                            <button onClick={() => setEditingDeptId(null)} style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#64748b", fontSize: "12px", cursor: "pointer" }}>✕</button>
                           </>
                         ) : (
                           <>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                            </svg>
                             <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#374151" }}>{dept.nombre}</span>
-                            <button
-                              onClick={() => { setEditingDeptId(dept.id); setEditingDeptName(dept.nombre) }}
-                              style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#475569", fontSize: "12px", cursor: "pointer" }}
-                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1" }}
-                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff"; e.currentTarget.style.borderColor = "#e2e8f0" }}
-                            >Editar</button>
-                            <button
-                              onClick={() => handleEliminarDepartamento(dept)}
-                              style={{ padding: "4px 8px", border: "1px solid #fca5a5", borderRadius: "6px", backgroundColor: "#fff", color: "#dc2626", fontSize: "12px", cursor: "pointer" }}
-                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#fef2f2" }}
-                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}
-                            >Eliminar</button>
+                            <button onClick={() => { setEditingDeptId(dept.id); setEditingDeptName(dept.nombre) }} style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#475569", fontSize: "12px", cursor: "pointer" }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc" }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}>Editar</button>
+                            <button onClick={() => handleEliminarDepartamento(dept)} style={{ padding: "4px 8px", border: "1px solid #fca5a5", borderRadius: "6px", backgroundColor: "#fff", color: "#dc2626", fontSize: "12px", cursor: "pointer" }} onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#fef2f2" }} onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}>Eliminar</button>
                           </>
                         )}
                       </div>
                     ))}
                   </div>
-                  {/* Crear nuevo */}
                   <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "16px" }}>
                     <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "10px" }}>Nuevo departamento</div>
                     <div style={{ display: "flex", gap: "8px" }}>
-                      <input
-                        type="text"
-                        placeholder="Nombre del departamento..."
-                        value={newDeptName}
-                        onChange={e => setNewDeptName(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter") handleCrearDepartamento() }}
-                        style={{ flex: 1, height: "38px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "13px", outline: "none" }}
-                      />
-                      <button
-                        onClick={handleCrearDepartamento}
-                        disabled={!newDeptName.trim()}
-                        style={{ height: "38px", padding: "0 16px", border: "none", borderRadius: "8px", backgroundColor: newDeptName.trim() ? "#16a34a" : "#d1fae5", color: newDeptName.trim() ? "#fff" : "#6ee7b7", fontSize: "13px", fontWeight: 600, cursor: newDeptName.trim() ? "pointer" : "not-allowed" }}
-                      >Crear</button>
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* ── Tab Unidades ── */}
-              {gestionarTab === "unidades" && (
-                <>
-                  {/* Lista */}
-                  <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "20px" }}>
-                    {unidadesPresentacion.length === 0 ? (
-                      <p style={{ fontSize: "13px", color: "#94a3b8", textAlign: "center", padding: "20px 0", margin: 0 }}>No hay unidades creadas</p>
-                    ) : unidadesPresentacion.map(unidad => (
-                      <div key={unidad.id} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", backgroundColor: "#f8fafc", borderRadius: "8px", border: `1px solid ${editingUnitId === unidad.id ? "#93c5fd" : "#e2e8f0"}` }}>
-                        {editingUnitId === unidad.id ? (
-                          <>
-                            <input
-                              autoFocus
-                              value={editingUnitName}
-                              onChange={e => setEditingUnitName(e.target.value)}
-                              onKeyDown={e => {
-                                if (e.key === "Enter") handleGuardarUnidad(unidad.id)
-                                if (e.key === "Escape") setEditingUnitId(null)
-                              }}
-                              style={{ flex: 1, height: "30px", padding: "0 10px", border: "1.5px solid #93c5fd", borderRadius: "6px", fontSize: "13px", outline: "none", backgroundColor: "#fff" }}
-                            />
-                            <button
-                              onClick={() => handleGuardarUnidad(unidad.id)}
-                              disabled={!editingUnitName.trim()}
-                              style={{ padding: "4px 10px", border: "none", borderRadius: "6px", backgroundColor: editingUnitName.trim() ? "#3b82f6" : "#bfdbfe", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: editingUnitName.trim() ? "pointer" : "not-allowed" }}
-                            >Guardar</button>
-                            <button
-                              onClick={() => setEditingUnitId(null)}
-                              style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#64748b", fontSize: "12px", cursor: "pointer" }}
-                            >✕</button>
-                          </>
-                        ) : (
-                          <>
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                              <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
-                            </svg>
-                            <span style={{ flex: 1, fontSize: "13px", fontWeight: 500, color: "#374151" }}>{unidad.nombre}</span>
-                            <button
-                              onClick={() => { setEditingUnitId(unidad.id); setEditingUnitName(unidad.nombre) }}
-                              style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#475569", fontSize: "12px", cursor: "pointer" }}
-                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#f8fafc"; e.currentTarget.style.borderColor = "#cbd5e1" }}
-                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff"; e.currentTarget.style.borderColor = "#e2e8f0" }}
-                            >Editar</button>
-                            <button
-                              onClick={() => handleEliminarUnidad(unidad)}
-                              style={{ padding: "4px 8px", border: "1px solid #fca5a5", borderRadius: "6px", backgroundColor: "#fff", color: "#dc2626", fontSize: "12px", cursor: "pointer" }}
-                              onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#fef2f2" }}
-                              onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}
-                            >Eliminar</button>
-                          </>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  {/* Crear nueva */}
-                  <div style={{ borderTop: "1px solid #f1f5f9", paddingTop: "16px" }}>
-                    <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: "10px" }}>Nueva unidad</div>
-                    <p style={{ fontSize: "12px", color: "#64748b", margin: "0 0 10px" }}>
-                      Disponible para asignar a cualquier producto (ej. Litro, Garrafa 5L, Spray…)
-                    </p>
-                    <div style={{ display: "flex", gap: "8px" }}>
-                      <input
-                        type="text"
-                        placeholder="Ej: Garrafa 5L"
-                        value={newUnitNameGlobal}
-                        onChange={e => setNewUnitNameGlobal(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter") handleCrearUnidadGlobal() }}
-                        style={{ flex: 1, height: "38px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "13px", outline: "none" }}
-                      />
-                      <button
-                        onClick={handleCrearUnidadGlobal}
-                        disabled={!newUnitNameGlobal.trim()}
-                        style={{ height: "38px", padding: "0 16px", border: "none", borderRadius: "8px", backgroundColor: newUnitNameGlobal.trim() ? "#6366f1" : "#e0e7ff", color: newUnitNameGlobal.trim() ? "#fff" : "#a5b4fc", fontSize: "13px", fontWeight: 600, cursor: newUnitNameGlobal.trim() ? "pointer" : "not-allowed" }}
-                      >Crear</button>
+                      <input type="text" placeholder="Nombre del departamento..." value={newDeptName} onChange={e => setNewDeptName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") handleCrearDepartamento() }} style={{ flex: 1, height: "38px", padding: "0 12px", border: "1.5px solid #e2e8f0", borderRadius: "8px", fontSize: "13px", outline: "none" }} />
+                      <button onClick={handleCrearDepartamento} disabled={!newDeptName.trim()} style={{ height: "38px", padding: "0 16px", border: "none", borderRadius: "8px", backgroundColor: newDeptName.trim() ? "#16a34a" : "#d1fae5", color: newDeptName.trim() ? "#fff" : "#6ee7b7", fontSize: "13px", fontWeight: 600, cursor: newDeptName.trim() ? "pointer" : "not-allowed" }}>Crear</button>
                     </div>
                   </div>
                 </>
@@ -1664,7 +1288,7 @@ export default function VistaCatalogoMejorada({ onDepartamentoCreado }: { onDepa
   )
 }
 
-// ─── Estilos reutilizables ────────────────────────────────────────────────────
+// ─── Estilos ──────────────────────────────────────────────────────────────────
 
 const thStyle: React.CSSProperties = {
   padding: "12px 16px",

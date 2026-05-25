@@ -1,25 +1,14 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useRef } from "react"
 import { useToast } from "./Toast"
 import {
   actualizarProducto,
   crearProducto,
-  getUnidadesPresentacion,
-  crearUnidadPresentacion,
-  getPresentacionesDeProducto,
-  upsertPresentacion,
-  deletePresentacion,
+  desactivarProducto,
+  reactivarProducto,
+  type TipoProducto,
   type CategoriaProducto,
   type ProductoAlmacen,
 } from "./cleaningService"
-
-// ─── Tipos internos ───────────────────────────────────────────────────────────
-
-interface PresentacionDraft {
-  id: number          // 0 = nueva (aún sin guardar en BD)
-  unidad_id: number
-  nombre: string
-  precio: string      // string para el input, "" = sin precio
-}
 
 // ─── Estilos base ─────────────────────────────────────────────────────────────
 
@@ -43,6 +32,46 @@ const selectStyle: React.CSSProperties = {
   ...inputStyle, cursor: "pointer",
 }
 
+// ─── Config visual por tipo ───────────────────────────────────────────────────
+
+const TIPO_INFO: Record<TipoProducto, {
+  label: string
+  descripcion: string
+  precioLabel: string
+  stockLabel: string
+  icon: string
+  accentColor: string
+  bg: string
+}> = {
+  UNIDAD: {
+    label: "Unidad",
+    descripcion: "Solo se vende / consume por unidades individuales (ej. fregona, bolsa grande).",
+    precioLabel: "Precio por unidad (€)",
+    stockLabel: "Stock en unidades",
+    icon: "📦",
+    accentColor: "#2563eb",
+    bg: "#eff6ff",
+  },
+  CAJA: {
+    label: "Caja",
+    descripcion: "Viene en cajas con N unidades dentro. Se puede pedir por caja o por unidad.",
+    precioLabel: "Precio por caja (€)",
+    stockLabel: "Stock en unidades totales",
+    icon: "🗃️",
+    accentColor: "#16a34a",
+    bg: "#f0fdf4",
+  },
+  FARDO: {
+    label: "Fardo",
+    descripcion: "Producto indivisible que solo se consume en fardos completos (ej. papel higiénico).",
+    precioLabel: "Precio por fardo (€)",
+    stockLabel: "Stock en fardos",
+    icon: "📦",
+    accentColor: "#d97706",
+    bg: "#fef3c7",
+  },
+}
+
 // ─── Componente ───────────────────────────────────────────────────────────────
 
 export function ModalProducto({
@@ -59,88 +88,35 @@ export function ModalProducto({
   const toast = useToast()
   const firstInputRef = useRef<HTMLInputElement>(null)
 
-  // ── Campos básicos ──
+  // ── Campos ──
   const [referencia, setReferencia] = useState(producto?.referencia ?? "")
   const [nombre, setNombre] = useState(producto?.nombre ?? "")
   const [categoriaId, setCategoriaId] = useState<number>(
     producto?.categoria_id ?? categorias[0]?.id ?? 0
   )
+  const [tipoProd, setTipoProd] = useState<TipoProducto>(
+    producto?.tipo_producto ?? "UNIDAD"
+  )
+  const [udsPorCaja, setUdsPorCaja] = useState<string>(
+    producto?.uds_por_caja != null ? String(producto.uds_por_caja) : ""
+  )
+  const [precio, setPrecio] = useState<string>(
+    producto?.precio != null ? String(producto.precio) : ""
+  )
 
-  // ── Presentaciones ──
-  const [unidades, setUnidades] = useState<Array<{ id: number; nombre: string }>>([])
-  const [presentaciones, setPresentaciones] = useState<PresentacionDraft[]>([])
+  // ── Desactivar/reactivar (solo en edición) ──
+  const [confirmandoDesactivar, setConfirmandoDesactivar] = useState(false)
   const [saving, setSaving] = useState(false)
-
-  // Estado para nueva unidad inline en una presentación
-  const [creandoUnidadIdx, setCreandoUnidadIdx] = useState<number | null>(null)
-  const [nuevaUnidadNombre, setNuevaUnidadNombre] = useState("")
-
-  // ── Carga inicial ──
-  useEffect(() => {
-    firstInputRef.current?.focus()
-  }, [])
-
-  useEffect(() => {
-    getUnidadesPresentacion().then(setUnidades)
-  }, [])
-
-  useEffect(() => {
-    if (!producto) return
-    getPresentacionesDeProducto(producto.id).then(lista => {
-      setPresentaciones(lista.map(p => ({
-        id: p.id,
-        unidad_id: p.unidad_id,
-        nombre: p.nombre,
-        precio: p.precio !== null ? String(p.precio) : "",
-      })))
-    })
-  }, [producto])
 
   // ── Helpers ──
 
-  function addPresentacion() {
-    const primera = unidades.find(
-      u => !presentaciones.some(p => p.unidad_id === u.id)
-    )
-    if (!primera) return
-    setPresentaciones(prev => [...prev, {
-      id: 0, unidad_id: primera.id, nombre: primera.nombre, precio: "",
-    }])
-  }
-
-  async function crearNuevaUnidad(idx: number) {
-    if (!nuevaUnidadNombre.trim()) {
-      setCreandoUnidadIdx(null)
-      setNuevaUnidadNombre("")
-      return
+  function precioUnitarioPreview(): string | null {
+    const p = parseFloat(precio.replace(",", "."))
+    const u = parseInt(udsPorCaja)
+    if (tipoProd === "CAJA" && !isNaN(p) && !isNaN(u) && u > 1) {
+      return (p / u).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 4 })
     }
-    try {
-      const newId = await crearUnidadPresentacion(nuevaUnidadNombre.trim())
-      const nueva = { id: newId, nombre: nuevaUnidadNombre.trim() }
-      setUnidades(prev => [...prev, nueva])
-      setPresentaciones(prev => prev.map((p, i) =>
-        i === idx ? { ...p, unidad_id: newId, nombre: nueva.nombre } : p
-      ))
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    } finally {
-      setCreandoUnidadIdx(null)
-      setNuevaUnidadNombre("")
-    }
-  }
-
-  async function eliminarPresentacion(idx: number) {
-    const pres = presentaciones[idx]
-    if (pres.id === 0) {
-      setPresentaciones(prev => prev.filter((_, i) => i !== idx))
-      return
-    }
-    try {
-      await deletePresentacion(pres.id)
-      setPresentaciones(prev => prev.filter((_, i) => i !== idx))
-    } catch (e: any) {
-      toast.error("Error", e?.message ?? String(e))
-    }
+    return null
   }
 
   // ── Submit ──
@@ -150,61 +126,45 @@ export function ModalProducto({
       toast.error("Error", "Referencia y nombre son obligatorios")
       return
     }
-
-    for (const p of presentaciones) {
-      if (p.precio.trim() !== "" && isNaN(parseFloat(p.precio.replace(",", ".")))) {
-        toast.error("Error", `Precio inválido en "${p.nombre}"`)
-        return
-      }
+    if (tipoProd === "CAJA" && (!udsPorCaja || parseInt(udsPorCaja) < 1)) {
+      toast.error("Error", "Las cajas necesitan indicar cuántas unidades contienen")
+      return
     }
+
+    const precioNum = precio.trim() !== "" ? parseFloat(precio.replace(",", ".")) : null
+    if (precioNum !== null && isNaN(precioNum)) {
+      toast.error("Error", "El precio no es válido")
+      return
+    }
+    const udsCajaNum = tipoProd === "CAJA" ? (parseInt(udsPorCaja) || null) : null
+    // unidad_medida: label descriptivo para estadísticas
+    const unidadMedida = tipoProd === "CAJA" ? "UNIDAD" : tipoProd === "FARDO" ? "FARDO" : "UNIDAD"
 
     setSaving(true)
     try {
-      const precioRef = (() => {
-        const p = presentaciones[0]
-        if (!p || p.precio.trim() === "") return null
-        return parseFloat(p.precio.replace(",", "."))
-      })()
-
-      let productoId: number
-
       if (producto) {
         await actualizarProducto(producto.id, {
           referencia: referencia.trim(),
           nombre: nombre.trim(),
           categoria_id: categoriaId,
-          unidad_medida: presentaciones[0]?.nombre ?? producto.unidad_medida,
-          precio: precioRef,
+          unidad_medida: unidadMedida,
+          precio: precioNum,
+          tipo_producto: tipoProd,
+          uds_por_caja: udsCajaNum,
         })
-        productoId = producto.id
         toast.success("Producto actualizado")
       } else {
-        productoId = await crearProducto(
-          referencia.trim(), nombre.trim(), categoriaId,
-          presentaciones[0]?.nombre ?? "UNIDAD",
-          precioRef,
+        await crearProducto(
+          referencia.trim(),
+          nombre.trim(),
+          categoriaId,
+          unidadMedida,
+          tipoProd,
+          udsCajaNum,
+          precioNum,
         )
         toast.success("Producto creado")
       }
-
-      // Sincronizar presentaciones
-      const existentes = await getPresentacionesDeProducto(productoId)
-
-      for (const pres of presentaciones) {
-        const precio = pres.precio.trim() !== ""
-          ? parseFloat(pres.precio.replace(",", "."))
-          : null
-        await upsertPresentacion(productoId, pres.unidad_id, precio)
-      }
-
-      // Eliminar las que se quitaron del formulario
-      const unidadesEnForm = new Set(presentaciones.map(p => p.unidad_id))
-      for (const ex of existentes) {
-        if (!unidadesEnForm.has(ex.unidad_id)) {
-          try { await deletePresentacion(ex.id) } catch { /* tiene salidas, se deja */ }
-        }
-      }
-
       onSaved()
       onClose()
     } catch (e: any) {
@@ -214,29 +174,34 @@ export function ModalProducto({
     }
   }
 
-  // ── Unidades disponibles para una fila (excluye las ya usadas en otras filas) ──
-  function unidadesDisponibles(excluirIdx: number) {
-    const usadas = new Set(
-      presentaciones.filter((_, i) => i !== excluirIdx).map(p => p.unidad_id)
-    )
-    return unidades.filter(u => !usadas.has(u.id))
+  async function handleToggleActivo() {
+    if (!producto) return
+    try {
+      if (producto.activo === 1) {
+        await desactivarProducto(producto.id)
+        toast.success("Producto desactivado")
+      } else {
+        await reactivarProducto(producto.id)
+        toast.success("Producto reactivado")
+      }
+      onSaved()
+      onClose()
+    } catch (e: any) {
+      toast.error("Error", e?.message ?? String(e))
+    }
   }
 
-  const hayUnidadesLibres = unidades.some(
-    u => !presentaciones.some(p => p.unidad_id === u.id)
-  )
+  const tipoCfg = TIPO_INFO[tipoProd]
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <>
-      {/* Backdrop */}
       <div
         onClick={onClose}
         style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", zIndex: 400 }}
       />
 
-      {/* Modal */}
       <div
         onClick={e => e.stopPropagation()}
         style={{
@@ -248,8 +213,8 @@ export function ModalProducto({
           boxShadow: "0 24px 64px rgba(0,0,0,0.18)", zIndex: 401, overflow: "hidden",
         }}
       >
-        {/* Franja verde */}
-        <div style={{ height: "4px", backgroundColor: "#16a34a", flexShrink: 0 }} />
+        {/* Franja de color según tipo */}
+        <div style={{ height: "4px", backgroundColor: tipoCfg.accentColor, flexShrink: 0, transition: "background-color 0.2s" }} />
 
         {/* Header */}
         <div style={{
@@ -263,24 +228,22 @@ export function ModalProducto({
             {producto && (
               <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#94a3b8" }}>
                 {producto.referencia}
+                {producto.activo === 0 && (
+                  <span style={{ marginLeft: "8px", fontSize: "10px", padding: "1px 5px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>INACTIVO</span>
+                )}
               </p>
             )}
           </div>
           <button
             onClick={onClose}
-            style={{
-              width: "28px", height: "28px", border: "none",
-              backgroundColor: "#f1f5f9", borderRadius: "6px",
-              cursor: "pointer", color: "#64748b", fontSize: "14px",
-              display: "flex", alignItems: "center", justifyContent: "center",
-            }}
+            style={{ width: "28px", height: "28px", border: "none", backgroundColor: "#f1f5f9", borderRadius: "6px", cursor: "pointer", color: "#64748b", fontSize: "14px", display: "flex", alignItems: "center", justifyContent: "center" }}
           >✕</button>
         </div>
 
         {/* Cuerpo scrollable */}
-        <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "16px" }}>
+        <div style={{ padding: "20px 24px", overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "20px" }}>
 
-          {/* ── Sección: identificación ── */}
+          {/* ── Identificación ── */}
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em" }}>
               Identificación
@@ -291,6 +254,7 @@ export function ModalProducto({
                 <label style={labelStyle}>Referencia</label>
                 <input
                   ref={firstInputRef}
+                  autoFocus
                   type="text"
                   value={referencia}
                   onChange={e => setReferencia(e.target.value)}
@@ -312,193 +276,145 @@ export function ModalProducto({
 
             <div style={field}>
               <label style={labelStyle}>Categoría</label>
-              <select
-                value={categoriaId}
-                onChange={e => setCategoriaId(Number(e.target.value))}
-                style={selectStyle}
-              >
-                {categorias.map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.nombre}</option>
-                ))}
+              <select value={categoriaId} onChange={e => setCategoriaId(Number(e.target.value))} style={selectStyle}>
+                {categorias.map(cat => <option key={cat.id} value={cat.id}>{cat.nombre}</option>)}
               </select>
             </div>
           </div>
 
-          {/* ── Divider ── */}
           <div style={{ height: "1px", backgroundColor: "#f1f5f9" }} />
 
-          {/* ── Sección: presentaciones ── */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em" }}>
-                Presentaciones
-              </div>
-              <span style={{ fontSize: "11px", color: "#cbd5e1" }}>
-                Unidad · Precio por unidad
-              </span>
+          {/* ── Tipo de producto ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+              Tipo de producto
             </div>
 
-            {presentaciones.length === 0 && (
-              <div style={{
-                padding: "16px", borderRadius: "10px", border: "1.5px dashed #e2e8f0",
-                textAlign: "center", color: "#94a3b8", fontSize: "13px",
-              }}>
-                Sin presentaciones — añade al menos una para registrar consumos
-              </div>
-            )}
-
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              {presentaciones.map((pres, idx) => {
-                const disponibles = unidadesDisponibles(idx)
+            {/* Selector de tipo: 3 botones */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+              {(["UNIDAD", "CAJA", "FARDO"] as TipoProducto[]).map(tipo => {
+                const cfg = TIPO_INFO[tipo]
+                const activo = tipoProd === tipo
                 return (
-                  <div
-                    key={idx}
+                  <button
+                    key={tipo}
+                    type="button"
+                    onClick={() => { setTipoProd(tipo); if (tipo !== "CAJA") setUdsPorCaja("") }}
                     style={{
-                      display: "flex", alignItems: "flex-end", gap: "8px",
-                      padding: "12px", borderRadius: "10px",
-                      backgroundColor: "#f8fafc", border: "1px solid #e2e8f0",
+                      padding: "12px 8px", borderRadius: "10px", cursor: "pointer",
+                      border: `2px solid ${activo ? cfg.accentColor : "#e2e8f0"}`,
+                      backgroundColor: activo ? cfg.bg : "#fff",
+                      display: "flex", flexDirection: "column", alignItems: "center", gap: "4px",
+                      transition: "all 0.15s",
                     }}
                   >
-                    {/* Selector unidad */}
-                    <div style={{ ...field, flex: 1 }}>
-                      <label style={labelStyle}>Unidad</label>
-                      {creandoUnidadIdx === idx ? (
-                        <div style={{ display: "flex", gap: "6px" }}>
-                          <input
-                            autoFocus
-                            type="text"
-                            value={nuevaUnidadNombre}
-                            onChange={e => setNuevaUnidadNombre(e.target.value)}
-                            onKeyDown={e => {
-                              if (e.key === "Enter") crearNuevaUnidad(idx)
-                              if (e.key === "Escape") { setCreandoUnidadIdx(null); setNuevaUnidadNombre("") }
-                            }}
-                            placeholder="Ej: Garrafa 5L"
-                            style={{ ...inputStyle, flex: 1 }}
-                          />
-                          <button
-                            onClick={() => crearNuevaUnidad(idx)}
-                            style={{ height: "38px", padding: "0 12px", border: "none", borderRadius: "8px", backgroundColor: "#6366f1", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
-                          >OK</button>
-                          <button
-                            onClick={() => { setCreandoUnidadIdx(null); setNuevaUnidadNombre("") }}
-                            style={{ height: "38px", padding: "0 10px", border: "1.5px solid #e2e8f0", borderRadius: "8px", backgroundColor: "#fff", color: "#64748b", fontSize: "12px", cursor: "pointer" }}
-                          >✕</button>
-                        </div>
-                      ) : (
-                        <select
-                          value={pres.unidad_id}
-                          onChange={e => {
-                            const val = Number(e.target.value)
-                            if (val === -1) {
-                              setCreandoUnidadIdx(idx)
-                              return
-                            }
-                            setPresentaciones(prev => prev.map((p, i) => i === idx ? {
-                              ...p,
-                              unidad_id: val,
-                              nombre: unidades.find(u => u.id === val)?.nombre ?? "",
-                            } : p))
-                          }}
-                          style={selectStyle}
-                        >
-                          {disponibles.map(u => (
-                            <option key={u.id} value={u.id}>{u.nombre}</option>
-                          ))}
-                          <option disabled style={{ color: "#d1d5db" }}>──────────</option>
-                          <option value={-1}>+ Crear nueva unidad…</option>
-                        </select>
-                      )}
-                    </div>
-
-                    {/* Precio */}
-                    <div style={{ ...field, flex: "0 0 110px" }}>
-                      <label style={labelStyle}>Precio (€)</label>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={pres.precio}
-                        onChange={e => setPresentaciones(prev => prev.map((p, i) =>
-                          i === idx ? { ...p, precio: e.target.value } : p
-                        ))}
-                        placeholder="—"
-                        style={inputStyle}
-                      />
-                    </div>
-
-                    {/* Eliminar */}
-                    <button
-                      onClick={() => eliminarPresentacion(idx)}
-                      title="Quitar presentación"
-                      style={{
-                        flexShrink: 0, width: "38px", height: "38px",
-                        border: "1.5px solid #fca5a5", borderRadius: "8px",
-                        backgroundColor: "#fff", color: "#dc2626",
-                        fontSize: "14px", cursor: "pointer",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                      }}
-                      onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#fef2f2" }}
-                      onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}
-                    >✕</button>
-                  </div>
+                    <span style={{ fontSize: "18px" }}>{cfg.icon}</span>
+                    <span style={{ fontSize: "12px", fontWeight: 700, color: activo ? cfg.accentColor : "#374151" }}>{cfg.label}</span>
+                  </button>
                 )
               })}
             </div>
 
-            {/* Botón añadir presentación */}
-            {unidades.length === 0 ? (
-              <p style={{ fontSize: "12px", color: "#f97316", margin: 0 }}>
-                No hay unidades disponibles — créalas desde <strong>Gestionar → Unidades</strong>
-              </p>
-            ) : hayUnidadesLibres ? (
-              <button
-                onClick={addPresentacion}
-                style={{
-                  height: "36px", border: "1.5px dashed #c7d2fe", borderRadius: "8px",
-                  backgroundColor: "#fff", color: "#6366f1",
-                  fontSize: "13px", fontWeight: 600, cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
-                }}
-                onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eef2ff" }}
-                onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}
-              >
-                <span style={{ fontSize: "16px", lineHeight: 1 }}>+</span> Añadir presentación
-              </button>
-            ) : (
-              <p style={{ fontSize: "12px", color: "#94a3b8", textAlign: "center", margin: 0 }}>
-                Todas las unidades están asignadas
-              </p>
+            {/* Descripción del tipo seleccionado */}
+            <p style={{ fontSize: "12px", color: "#64748b", margin: 0, padding: "10px 12px", backgroundColor: tipoCfg.bg, borderRadius: "8px", lineHeight: 1.5 }}>
+              {tipoCfg.descripcion}
+            </p>
+
+            {/* Campo uds_por_caja — solo visible para CAJA */}
+            {tipoProd === "CAJA" && (
+              <div style={field}>
+                <label style={labelStyle}>Unidades por caja</label>
+                <input
+                  type="number"
+                  min="2"
+                  value={udsPorCaja}
+                  onChange={e => setUdsPorCaja(e.target.value)}
+                  placeholder="Ej: 20"
+                  style={inputStyle}
+                />
+                <span style={{ fontSize: "11px", color: "#94a3b8" }}>
+                  Cuántas unidades trae una caja (mínimo 2).
+                </span>
+              </div>
             )}
+          </div>
+
+          <div style={{ height: "1px", backgroundColor: "#f1f5f9" }} />
+
+          {/* ── Precio ── */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em" }}>
+              Precio
+            </div>
+
+            <div style={field}>
+              <label style={labelStyle}>{tipoCfg.precioLabel}</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={precio}
+                onChange={e => setPrecio(e.target.value)}
+                placeholder="Ej: 12,50"
+                style={inputStyle}
+              />
+              {/* Preview precio por unidad para tipo CAJA */}
+              {tipoProd === "CAJA" && precioUnitarioPreview() && (
+                <span style={{ fontSize: "11px", color: "#16a34a", fontWeight: 600 }}>
+                  → {precioUnitarioPreview()} €/unidad
+                </span>
+              )}
+              {tipoProd !== "CAJA" && (
+                <span style={{ fontSize: "11px", color: "#94a3b8" }}>Opcional. Se usa para calcular el gasto en estadísticas.</span>
+              )}
+            </div>
           </div>
         </div>
 
         {/* Footer */}
-        <div style={{
-          padding: "16px 24px", borderTop: "1px solid #f1f5f9",
-          display: "flex", gap: "8px", justifyContent: "flex-end", flexShrink: 0,
-        }}>
-          <button
-            onClick={onClose}
-            style={{
-              height: "38px", padding: "0 18px", border: "1.5px solid #e2e8f0",
-              borderRadius: "8px", backgroundColor: "#fff", color: "#64748b",
-              fontSize: "13px", fontWeight: 600, cursor: "pointer",
-            }}
-          >Cancelar</button>
-          <button
-            onClick={handleSubmit}
-            disabled={saving}
-            style={{
-              height: "38px", padding: "0 22px", border: "none",
-              borderRadius: "8px",
-              backgroundColor: saving ? "#d1fae5" : "#16a34a",
-              color: saving ? "#6ee7b7" : "#fff",
-              fontSize: "13px", fontWeight: 600,
-              cursor: saving ? "not-allowed" : "pointer",
-            }}
-          >
-            {saving ? "Guardando…" : producto ? "Guardar cambios" : "Crear producto"}
-          </button>
+        <div style={{ padding: "16px 24px", borderTop: "1px solid #f1f5f9", display: "flex", gap: "8px", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+          {/* Botón desactivar/reactivar — solo en edición */}
+          {producto && (
+            <div>
+              {confirmandoDesactivar ? (
+                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                  <span style={{ fontSize: "12px", color: producto.activo === 1 ? "#dc2626" : "#64748b" }}>
+                    {producto.activo === 1 ? "¿Desactivar?" : "¿Reactivar?"}
+                  </span>
+                  <button
+                    onClick={handleToggleActivo}
+                    style={{ padding: "4px 10px", border: "none", borderRadius: "6px", backgroundColor: producto.activo === 1 ? "#dc2626" : "#16a34a", color: "#fff", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}
+                  >Sí</button>
+                  <button
+                    onClick={() => setConfirmandoDesactivar(false)}
+                    style={{ padding: "4px 8px", border: "1px solid #e2e8f0", borderRadius: "6px", backgroundColor: "#fff", color: "#64748b", fontSize: "12px", cursor: "pointer" }}
+                  >No</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmandoDesactivar(true)}
+                  style={{ padding: "6px 12px", border: `1px solid ${producto.activo === 1 ? "#fca5a5" : "#d1fae5"}`, borderRadius: "8px", backgroundColor: "#fff", color: producto.activo === 1 ? "#dc2626" : "#16a34a", fontSize: "12px", cursor: "pointer", fontWeight: 500 }}
+                  onMouseEnter={e => { e.currentTarget.style.backgroundColor = producto.activo === 1 ? "#fef2f2" : "#f0fdf4" }}
+                  onMouseLeave={e => { e.currentTarget.style.backgroundColor = "#fff" }}
+                >
+                  {producto.activo === 1 ? "Desactivar" : "Reactivar"}
+                </button>
+              )}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: "8px", marginLeft: "auto" }}>
+            <button
+              onClick={onClose}
+              style={{ height: "38px", padding: "0 18px", border: "1.5px solid #e2e8f0", borderRadius: "8px", backgroundColor: "#fff", color: "#64748b", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+            >Cancelar</button>
+            <button
+              onClick={handleSubmit}
+              disabled={saving}
+              style={{ height: "38px", padding: "0 22px", border: "none", borderRadius: "8px", backgroundColor: saving ? "#d1fae5" : "#16a34a", color: saving ? "#6ee7b7" : "#fff", fontSize: "13px", fontWeight: 600, cursor: saving ? "not-allowed" : "pointer" }}
+            >
+              {saving ? "Guardando…" : producto ? "Guardar cambios" : "Crear producto"}
+            </button>
+          </div>
         </div>
       </div>
     </>

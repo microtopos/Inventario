@@ -405,6 +405,71 @@ Migration {
     ",
     kind: MigrationKind::Up,
 },
+                        Migration {
+                            version: 9,
+                            description: "tipo_producto, uds_por_caja, precio migrado y stock simplificado",
+                            sql: "
+                                -- 1. Añadir columnas nuevas a productos_almacen
+                                ALTER TABLE productos_almacen ADD COLUMN tipo_producto TEXT NOT NULL DEFAULT 'UNIDAD';
+                                ALTER TABLE productos_almacen ADD COLUMN uds_por_caja  INTEGER DEFAULT NULL;
+
+                                -- 2. Clasificar FARDO
+                                UPDATE productos_almacen
+                                SET tipo_producto = 'FARDO'
+                                WHERE id IN (
+                                    SELECT DISTINCT pp.producto_id
+                                    FROM producto_presentaciones pp
+                                    JOIN unidades_presentacion up ON up.id = pp.unidad_id
+                                    WHERE upper(up.nombre) = 'FARDO'
+                                );
+
+                                -- 3. Clasificar CAJA — uds_por_caja queda NULL:
+                                --    el usuario debe rellenarlo en el modal de producto.
+                                UPDATE productos_almacen
+                                SET tipo_producto = 'CAJA',
+                                    uds_por_caja  = NULL
+                                WHERE (tipo_producto IS NULL OR tipo_producto = 'UNIDAD')
+                                  AND id IN (
+                                    SELECT DISTINCT pp.producto_id
+                                    FROM producto_presentaciones pp
+                                    JOIN unidades_presentacion up ON up.id = pp.unidad_id
+                                    WHERE upper(up.nombre) = 'CAJA'
+                                );
+
+                                -- 4. Migrar precio desde producto_presentaciones a productos_almacen
+                                UPDATE productos_almacen
+                                SET precio = (
+                                    SELECT pp.precio
+                                    FROM producto_presentaciones pp
+                                    WHERE pp.producto_id = productos_almacen.id
+                                      AND pp.precio IS NOT NULL
+                                    ORDER BY pp.id ASC
+                                    LIMIT 1
+                                )
+                                WHERE precio IS NULL;
+
+                                -- 5. Reconstruir stock_productos como tabla simple producto_id -> cantidad
+                                --    Antes del DROP, sumamos el stock de todas las presentaciones por producto
+                                --    para no perder los datos al cambiar el esquema.
+                                CREATE TABLE stock_productos_simple (
+                                    producto_id    INTEGER NOT NULL PRIMARY KEY
+                                                   REFERENCES productos_almacen(id) ON DELETE CASCADE,
+                                    cantidad       INTEGER NOT NULL DEFAULT 0 CHECK (cantidad >= 0),
+                                    actualizado_el TEXT    NOT NULL DEFAULT (datetime('now'))
+                                );
+
+                                INSERT OR IGNORE INTO stock_productos_simple (producto_id, cantidad, actualizado_el)
+                                SELECT producto_id,
+                                       CAST(ROUND(SUM(cantidad)) AS INTEGER),
+                                       MAX(actualizado_el)
+                                FROM stock_productos
+                                GROUP BY producto_id;
+
+                                DROP TABLE IF EXISTS stock_productos;
+                                ALTER TABLE stock_productos_simple RENAME TO stock_productos;
+                            ",
+                            kind: MigrationKind::Up,
+                        },
                     ],
                 )
                 .build(),

@@ -2,6 +2,8 @@ import Database from "@tauri-apps/plugin-sql";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
+export type TipoProducto = "UNIDAD" | "CAJA" | "FARDO"
+
 export interface CategoriaProducto {
   id: number;
   nombre: string;
@@ -12,70 +14,136 @@ export interface ProductoAlmacen {
   referencia: string;
   nombre: string;
   categoria_id: number;
-  categoria_nombre?: string; // viene del JOIN
-  unidad_medida: string;
-  activo: number; // 1 | 0
-  precio?: number | null;
-  stock?: number | null; // cantidad actual en almacén (global, independiente de dpto.)
+  categoria_nombre?: string;
+  unidad_medida: string;         // legacy: label para mostrar en estadísticas
+  activo: number;                // 1 | 0
+  precio?: number | null;        // UNIDAD: €/ud · CAJA: €/caja · FARDO: €/fardo
+  tipo_producto: TipoProducto;
+  uds_por_caja?: number | null;  // solo relevante cuando tipo_producto = 'CAJA'
 }
 
-// ─── Stock ────────────────────────────────────────────────────────────────────
-
-export interface StockProducto {
-  producto_id: number;
-  presentacion_id: number;
-  cantidad: number;
-  actualizado_el: string; // ISO timestamp
-}
-
-// ─── Utilidades ───────────────────────────────────────────────────────────────
+// ─── Helpers de presentación ──────────────────────────────────────────────────
 
 /**
- * Retry logic para manejar "database is locked"
- * Reintenta la operación hasta 3 veces con espera progresiva
+ * Convierte stock en unidades base a una cadena legible.
+ * UNIDAD/FARDO → "N uds" / "N fardos"
+ * CAJA        → "X cajas + Y uds" | "X cajas" | "Y uds"
  */
+export function stockVisible(
+  cantidad: number,
+  tipo: TipoProducto,
+  udsPorCaja?: number | null
+): string {
+  if (tipo === "FARDO") return `${cantidad} fardo${cantidad !== 1 ? "s" : ""}`
+  if (tipo === "CAJA" && udsPorCaja && udsPorCaja > 1) {
+    const cajas = Math.floor(cantidad / udsPorCaja)
+    const resto = cantidad % udsPorCaja
+    if (cajas > 0 && resto > 0) return `${cajas} caja${cajas !== 1 ? "s" : ""} + ${resto} uds`
+    if (cajas > 0) return `${cajas} caja${cajas !== 1 ? "s" : ""}`
+    return `${resto} uds`
+  }
+  return `${cantidad} uds`
+}
+
+/**
+ * Precio por unidad base según el tipo de producto.
+ * UNIDAD/FARDO → precio directamente
+ * CAJA        → precio / uds_por_caja
+ */
+export function precioUnitario(
+  precio: number | null | undefined,
+  tipo: TipoProducto,
+  udsPorCaja?: number | null
+): number | null {
+  if (precio == null) return null
+  if (tipo === "CAJA" && udsPorCaja && udsPorCaja > 1) return precio / udsPorCaja
+  return precio
+}
+
+/**
+ * Label de precio para mostrar en el catálogo.
+ * UNIDAD → "X,XX €/ud"  CAJA → "X,XX €/caja"  FARDO → "X,XX €/fardo"
+ */
+export function labelPrecio(
+  precio: number | null | undefined,
+  tipo: TipoProducto,
+  udsPorCaja?: number | null
+): string {
+  if (precio == null) return "—"
+  const fmt = precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  if (tipo === "CAJA") {
+    const puLabel = udsPorCaja && udsPorCaja > 1
+      ? ` (${(precio / udsPorCaja).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/ud)`
+      : ""
+    return `${fmt} €/caja${puLabel}`
+  }
+  if (tipo === "FARDO") return `${fmt} €/fardo`
+  return `${fmt} €/ud`
+}
+
+/**
+ * Clave localStorage para la preferencia de presentación de un producto en un departamento.
+ * Solo relevante para tipo CAJA.
+ * Valor: "caja" | "unidad"
+ */
+export function clavePreferenciaPres(productoId: number, departamentoId: number): string {
+  return `pref_pres_${productoId}_${departamentoId}`
+}
+
+export function getPreferenciaPres(
+  productoId: number,
+  departamentoId: number
+): "caja" | "unidad" {
+  return (localStorage.getItem(clavePreferenciaPres(productoId, departamentoId)) as "caja" | "unidad") ?? "caja"
+}
+
+export function setPreferenciaPres(
+  productoId: number,
+  departamentoId: number,
+  valor: "caja" | "unidad"
+): void {
+  localStorage.setItem(clavePreferenciaPres(productoId, departamentoId), valor)
+}
+
+// ─── Utilidades BD ────────────────────────────────────────────────────────────
+
 async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
-  let lastError: Error | null = null;
+  let lastError: Error | null = null
 
   for (let i = 0; i < maxRetries; i++) {
     try {
-      return await fn();
+      return await fn()
     } catch (error: any) {
-      lastError = error;
-
-      const errorMsg = error?.message || String(error);
+      lastError = error
+      const errorMsg = error?.message || String(error)
       const isLockError =
         errorMsg.includes("database is locked") ||
         errorMsg.includes("SQLITE_BUSY") ||
         errorMsg.includes("SQLITE_LOCKED") ||
-        error?.code === 5;
-
-      if (!isLockError || i === maxRetries - 1) {
-        throw error;
-      }
-
-      const delay = 200 * Math.pow(2, i);
-      await new Promise(resolve => setTimeout(resolve, delay));
+        error?.code === 5
+      if (!isLockError || i === maxRetries - 1) throw error
+      const delay = 200 * Math.pow(2, i)
+      await new Promise(resolve => setTimeout(resolve, delay))
     }
   }
 
-  throw lastError;
+  throw lastError
 }
 
 async function getDb(): Promise<Database> {
-  const db = await Database.load("sqlite:inventario.db");
+  const db = await Database.load("sqlite:inventario.db")
   try {
-    await db.execute("PRAGMA busy_timeout = 10000");
-    await db.execute("PRAGMA journal_mode = WAL");
-  } catch (e) {
-    // Ignorar errores al configurar pragmas
-  }
-  return db;
+    await db.execute("PRAGMA busy_timeout = 10000")
+    await db.execute("PRAGMA journal_mode = WAL")
+  } catch (_) { /* ignorar */ }
+  return db
 }
 
 export async function getDbWithRetry(): Promise<Database> {
-  return withRetry(getDb);
+  return withRetry(getDb)
 }
+
+// ─── Tipos de apoyo ───────────────────────────────────────────────────────────
 
 export interface DepartamentoProd {
   id: number;
@@ -86,10 +154,10 @@ export interface SalidaProducto {
   id: number;
   producto_id: number;
   departamento_id: number;
+  /** Siempre en unidades base */
   cantidad: number;
-  mes: number;   // 1–12
+  mes: number;
   anio: number;
-  presentacion_id?: number | null;
   // join helpers
   producto_nombre?: string;
   producto_referencia?: string;
@@ -101,11 +169,10 @@ export interface SalidaProducto {
 export interface NuevaSalida {
   producto_id: number;
   departamento_id: number;
+  /** Siempre en unidades base */
   cantidad: number;
   mes: number;
   anio: number;
-  presentacion_id?: number | null;
-  tipo_unidad?: number | null;
 }
 
 export interface FiltrosSalida {
@@ -121,81 +188,53 @@ export interface FiltrosSalida {
 // ─── Categorías ───────────────────────────────────────────────────────────────
 
 export async function getCategorias(): Promise<CategoriaProducto[]> {
-  const db = await getDbWithRetry();
+  const db = await getDbWithRetry()
   return db.select<CategoriaProducto[]>(
     "SELECT * FROM categorias_producto ORDER BY nombre ASC"
-  );
+  )
 }
 
 export async function crearCategoria(nombre: string): Promise<number> {
-  const db = await getDbWithRetry();
+  const db = await getDbWithRetry()
   const result = await db.execute(
     "INSERT INTO categorias_producto (nombre) VALUES (?)",
     [nombre.trim()]
-  );
-  if (result.lastInsertId === undefined) {
-    throw new Error("No se pudo crear la categoría");
-  }
-  return result.lastInsertId;
+  )
+  if (result.lastInsertId === undefined) throw new Error("No se pudo crear la categoría")
+  return result.lastInsertId
 }
 
-export async function actualizarCategoria(
-  id: number,
-  nombre: string
-): Promise<void> {
-  const db = await getDbWithRetry();
-  await db.execute(
-    "UPDATE categorias_producto SET nombre = ? WHERE id = ?",
-    [nombre.trim(), id]
-  );
+export async function actualizarCategoria(id: number, nombre: string): Promise<void> {
+  const db = await getDbWithRetry()
+  await db.execute("UPDATE categorias_producto SET nombre = ? WHERE id = ?", [nombre.trim(), id])
 }
 
 export async function eliminarCategoria(id: number): Promise<void> {
-  const db = await getDbWithRetry();
+  const db = await getDbWithRetry()
   const rows = await db.select<{ total: number }[]>(
     "SELECT COUNT(*) AS total FROM productos_almacen WHERE categoria_id = ? AND activo = 1",
     [id]
-  );
-  if (rows[0].total > 0) {
-    throw new Error("No se puede eliminar una categoría con productos activos.");
-  }
-  await db.execute("DELETE FROM categorias_producto WHERE id = ?", [id]);
+  )
+  if (rows[0].total > 0) throw new Error("No se puede eliminar una categoría con productos activos.")
+  await db.execute("DELETE FROM categorias_producto WHERE id = ?", [id])
 }
 
 // ─── Productos ────────────────────────────────────────────────────────────────
 
 export async function getProductos(soloActivos = true): Promise<ProductoAlmacen[]> {
-  const db = await getDbWithRetry();
-  const where = soloActivos ? "WHERE p.activo = 1" : "";
-  return db.select<ProductoAlmacen[]>(
-  `SELECT
-     p.id, p.referencia, p.nombre, p.categoria_id,
-     c.nombre AS categoria_nombre,
-     p.unidad_medida, p.activo, p.precio
-   FROM productos_almacen p
-   JOIN categorias_producto c ON c.id = p.categoria_id
-   ${where}
-   ORDER BY c.nombre ASC, p.referencia ASC`
-  );
-}
-
-export async function getProductosPorCategoria(
-  categoria_id: number,
-  soloActivos = true
-): Promise<ProductoAlmacen[]> {
-  const db = await getDbWithRetry();
-  const condActivo = soloActivos ? "AND p.activo = 1" : "";
+  const db = await getDbWithRetry()
+  const where = soloActivos ? "WHERE p.activo = 1" : ""
   return db.select<ProductoAlmacen[]>(
     `SELECT
        p.id, p.referencia, p.nombre, p.categoria_id,
        c.nombre AS categoria_nombre,
-       p.unidad_medida, p.activo, p.precio
+       p.unidad_medida, p.activo, p.precio,
+       p.tipo_producto, p.uds_por_caja
      FROM productos_almacen p
      JOIN categorias_producto c ON c.id = p.categoria_id
-     WHERE p.categoria_id = ? ${condActivo}
-     ORDER BY p.referencia ASC`,
-    [categoria_id]
-  );
+     ${where}
+     ORDER BY c.nombre ASC, p.referencia ASC`
+  )
 }
 
 export async function crearProducto(
@@ -203,121 +242,172 @@ export async function crearProducto(
   nombre: string,
   categoria_id: number,
   unidad_medida: string,
+  tipo_producto: TipoProducto,
+  uds_por_caja: number | null,
   precio?: number | null
 ): Promise<number> {
-  const db = await getDbWithRetry();
+  const db = await getDbWithRetry()
   const result = await db.execute(
-    "INSERT INTO productos_almacen (referencia, nombre, categoria_id, unidad_medida, precio) VALUES (?, ?, ?, ?, ?)",
-    [referencia.trim(), nombre.trim(), categoria_id, unidad_medida.trim(), precio]
-  );
-  if (result.lastInsertId === undefined) {
-    throw new Error("No se pudo crear el producto");
-  }
-  return result.lastInsertId;
+    `INSERT INTO productos_almacen
+       (referencia, nombre, categoria_id, unidad_medida, tipo_producto, uds_por_caja, precio)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [referencia.trim(), nombre.trim(), categoria_id, unidad_medida.trim(), tipo_producto, uds_por_caja, precio ?? null]
+  )
+  if (result.lastInsertId === undefined) throw new Error("No se pudo crear el producto")
+  return result.lastInsertId
 }
 
 export async function actualizarProducto(
   id: number,
-  datos: Partial<Pick<ProductoAlmacen, "referencia" | "nombre" | "categoria_id" | "unidad_medida" | "precio">>
+  datos: Partial<Pick<ProductoAlmacen, "referencia" | "nombre" | "categoria_id" | "unidad_medida" | "precio" | "tipo_producto" | "uds_por_caja">>
 ): Promise<void> {
-  const db = await getDbWithRetry();
+  const db = await getDbWithRetry()
+  const campos: string[] = []
+  const params: (string | number | null)[] = []
 
-  const campos: string[] = [];
-  const params: (string | number | null)[] = [];
+  if (datos.referencia    !== undefined) { campos.push("referencia = ?");     params.push(datos.referencia.trim()) }
+  if (datos.nombre        !== undefined) { campos.push("nombre = ?");         params.push(datos.nombre.trim()) }
+  if (datos.categoria_id  !== undefined) { campos.push("categoria_id = ?");   params.push(datos.categoria_id) }
+  if (datos.unidad_medida !== undefined) { campos.push("unidad_medida = ?");  params.push(datos.unidad_medida.trim()) }
+  if (datos.precio        !== undefined) { campos.push("precio = ?");         params.push(datos.precio ?? null) }
+  if (datos.tipo_producto !== undefined) { campos.push("tipo_producto = ?");  params.push(datos.tipo_producto) }
+  if (datos.uds_por_caja  !== undefined) { campos.push("uds_por_caja = ?");   params.push(datos.uds_por_caja ?? null) }
 
-  if (datos.referencia !== undefined)   { campos.push("referencia = ?");   params.push(datos.referencia.trim()); }
-  if (datos.nombre !== undefined)        { campos.push("nombre = ?");        params.push(datos.nombre.trim()); }
-  if (datos.categoria_id !== undefined)  { campos.push("categoria_id = ?");  params.push(datos.categoria_id); }
-  if (datos.unidad_medida !== undefined) { campos.push("unidad_medida = ?"); params.push(datos.unidad_medida.trim()); }
-  if (datos.precio !== undefined)        { campos.push("precio = ?");        params.push(datos.precio); }
-
-  if (campos.length === 0) return;
-
-  params.push(id);
-  await db.execute(
-    `UPDATE productos_almacen SET ${campos.join(", ")} WHERE id = ?`,
-    params
-  );
+  if (campos.length === 0) return
+  params.push(id)
+  await db.execute(`UPDATE productos_almacen SET ${campos.join(", ")} WHERE id = ?`, params)
 }
 
 export async function desactivarProducto(id: number): Promise<void> {
-  const db = await getDbWithRetry();
-  await db.execute("UPDATE productos_almacen SET activo = 0 WHERE id = ?", [id]);
+  const db = await getDbWithRetry()
+  await db.execute("UPDATE productos_almacen SET activo = 0 WHERE id = ?", [id])
 }
 
 export async function reactivarProducto(id: number): Promise<void> {
-  const db = await getDbWithRetry();
-  await db.execute("UPDATE productos_almacen SET activo = 1 WHERE id = ?", [id]);
+  const db = await getDbWithRetry()
+  await db.execute("UPDATE productos_almacen SET activo = 1 WHERE id = ?", [id])
+}
+
+export async function deleteProduct(productId: number): Promise<void> {
+  const db = await getDbWithRetry()
+  await db.execute("DELETE FROM salidas_productos WHERE producto_id = ?", [productId])
+  await db.execute("DELETE FROM producto_presentaciones WHERE producto_id = ?", [productId])
+  await db.execute("DELETE FROM stock_productos WHERE producto_id = ?", [productId])
+  await db.execute("DELETE FROM productos_almacen WHERE id = ?", [productId])
 }
 
 // ─── Departamentos ────────────────────────────────────────────────────────────
 
 export async function getDepartamentosProd(): Promise<DepartamentoProd[]> {
-  const db = await getDbWithRetry();
-  return db.select<DepartamentoProd[]>(
-    "SELECT * FROM departamentos_prod ORDER BY nombre ASC"
-  );
+  const db = await getDbWithRetry()
+  return db.select<DepartamentoProd[]>("SELECT * FROM departamentos_prod ORDER BY nombre ASC")
 }
 
 export async function crearDepartamentoProd(nombre: string): Promise<number> {
-  const db = await getDbWithRetry();
+  const db = await getDbWithRetry()
   const result = await db.execute(
     "INSERT INTO departamentos_prod (nombre) VALUES (?)",
     [nombre.trim()]
-  );
-  if (result.lastInsertId === undefined) {
-    throw new Error("No se pudo crear el departamento");
-  }
-  return result.lastInsertId;
+  )
+  if (result.lastInsertId === undefined) throw new Error("No se pudo crear el departamento")
+  return result.lastInsertId
 }
 
-export async function actualizarDepartamentoProd(
-  id: number,
-  nombre: string
-): Promise<void> {
-  const db = await getDbWithRetry();
-  await db.execute(
-    "UPDATE departamentos_prod SET nombre = ? WHERE id = ?",
-    [nombre.trim(), id]
-  );
+export async function actualizarDepartamentoProd(id: number, nombre: string): Promise<void> {
+  const db = await getDbWithRetry()
+  await db.execute("UPDATE departamentos_prod SET nombre = ? WHERE id = ?", [nombre.trim(), id])
 }
 
 export async function eliminarDepartamentoProd(id: number): Promise<void> {
-  const db = await getDbWithRetry();
+  const db = await getDbWithRetry()
   const rows = await db.select<{ total: number }[]>(
     "SELECT COUNT(*) AS total FROM salidas_productos WHERE departamento_id = ?",
     [id]
-  );
-  if (rows[0].total > 0) {
-    throw new Error("No se puede eliminar un departamento con salidas registradas.");
+  )
+  if (rows[0].total > 0) throw new Error("No se puede eliminar un departamento con salidas registradas.")
+  await db.execute("DELETE FROM departamentos_prod WHERE id = ?", [id])
+}
+
+// ─── Stock ────────────────────────────────────────────────────────────────────
+
+/**
+ * Devuelve el stock actual de todos los productos.
+ * Clave: producto_id → cantidad en unidades base.
+ */
+export async function getStockProductos(): Promise<Map<number, number>> {
+  const db = await getDbWithRetry()
+  const rows = await db.select<{ producto_id: number; cantidad: number }[]>(
+    "SELECT producto_id, cantidad FROM stock_productos"
+  )
+  const mapa = new Map<number, number>()
+  for (const row of rows) mapa.set(row.producto_id, row.cantidad)
+  return mapa
+}
+
+/**
+ * Establece el stock de un producto directamente (corrección manual).
+ * Si cantidad = null, elimina el registro (stock desconocido).
+ */
+export async function upsertStock(
+  productoId: number,
+  cantidad: number | null
+): Promise<void> {
+  const db = await getDbWithRetry()
+  if (cantidad === null) {
+    await db.execute("DELETE FROM stock_productos WHERE producto_id = ?", [productoId])
+    return
   }
-  await db.execute("DELETE FROM departamentos_prod WHERE id = ?", [id]);
+  await db.execute(
+    `INSERT INTO stock_productos (producto_id, cantidad, actualizado_el)
+     VALUES (?, ?, datetime('now'))
+     ON CONFLICT(producto_id)
+     DO UPDATE SET cantidad = excluded.cantidad, actualizado_el = excluded.actualizado_el`,
+    [productoId, cantidad]
+  )
+}
+
+/**
+ * Ajusta el stock de un producto sumando `delta` (puede ser negativo).
+ * Si no existe registro previo, lo crea en 0 y aplica el delta.
+ * El stock nunca baja de 0.
+ */
+export async function ajustarStock(
+  productoId: number,
+  delta: number
+): Promise<void> {
+  if (delta === 0) return
+  const db = await getDbWithRetry()
+  await db.execute(
+    `INSERT INTO stock_productos (producto_id, cantidad, actualizado_el)
+     VALUES (?, MAX(0, ?), datetime('now'))
+     ON CONFLICT(producto_id)
+     DO UPDATE SET
+       cantidad       = MAX(0, cantidad + excluded.cantidad - ?),
+       actualizado_el = datetime('now')`,
+    [productoId, delta, delta]
+  )
 }
 
 // ─── Salidas ──────────────────────────────────────────────────────────────────
 
-export async function getSalidas(
-  filtros: FiltrosSalida = {}
-): Promise<SalidaProducto[]> {
-  const db = await getDbWithRetry();
+export async function getSalidas(filtros: FiltrosSalida = {}): Promise<SalidaProducto[]> {
+  const db = await getDbWithRetry()
+  const condiciones: string[] = []
+  const params: (string | number)[] = []
 
-  const condiciones: string[] = [];
-  const params: (string | number)[] = [];
+  if (filtros.departamento_id) { condiciones.push("s.departamento_id = ?"); params.push(filtros.departamento_id) }
+  if (filtros.producto_id)     { condiciones.push("s.producto_id = ?");     params.push(filtros.producto_id) }
+  if (filtros.categoria_id)    { condiciones.push("p.categoria_id = ?");    params.push(filtros.categoria_id) }
+  if (filtros.mes)             { condiciones.push("s.mes = ?");             params.push(filtros.mes) }
+  if (filtros.anio)            { condiciones.push("s.anio = ?");            params.push(filtros.anio) }
+  if (filtros.anio_desde)      { condiciones.push("s.anio >= ?");           params.push(filtros.anio_desde) }
+  if (filtros.anio_hasta)      { condiciones.push("s.anio <= ?");           params.push(filtros.anio_hasta) }
 
-  if (filtros.departamento_id) { condiciones.push("s.departamento_id = ?"); params.push(filtros.departamento_id); }
-  if (filtros.producto_id)     { condiciones.push("s.producto_id = ?");     params.push(filtros.producto_id); }
-  if (filtros.categoria_id)    { condiciones.push("p.categoria_id = ?");    params.push(filtros.categoria_id); }
-  if (filtros.mes)             { condiciones.push("s.mes = ?");             params.push(filtros.mes); }
-  if (filtros.anio)            { condiciones.push("s.anio = ?");            params.push(filtros.anio); }
-  if (filtros.anio_desde)      { condiciones.push("s.anio >= ?");           params.push(filtros.anio_desde); }
-  if (filtros.anio_hasta)      { condiciones.push("s.anio <= ?");           params.push(filtros.anio_hasta); }
-
-  const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : "";
+  const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : ""
 
   return db.select<SalidaProducto[]>(
     `SELECT
        s.id, s.producto_id, s.departamento_id, s.cantidad, s.mes, s.anio,
-       s.presentacion_id, s.tipo_unidad,
        p.nombre AS producto_nombre,
        p.referencia AS producto_referencia,
        p.unidad_medida,
@@ -330,83 +420,140 @@ export async function getSalidas(
      ${where}
      ORDER BY s.anio DESC, s.mes DESC, p.referencia ASC`,
     params
-  );
+  )
 }
 
 /**
- * Inserta o actualiza una salida (upsert).
- *
- * La unicidad depende de si se proporciona presentacion_id:
- *   - CON presentacion_id: unicidad por (producto_id, departamento_id, presentacion_id, mes, anio)
- *   - SIN presentacion_id: unicidad por (producto_id, departamento_id, mes, anio)
- *
+ * Upsert de salida. La cantidad siempre es en unidades base.
  * Si cantidad = 0, elimina el registro.
+ * Unicidad: (producto_id, departamento_id, mes, anio).
+ *
+ * Devuelve la cantidad anterior que había guardada (0 si no existía),
+ * para que el llamador pueda calcular el delta y ajustar el stock.
  */
-export async function upsertSalida(datos: NuevaSalida): Promise<void> {
-  const db = await getDbWithRetry();
+export async function upsertSalida(datos: NuevaSalida): Promise<number> {
+  const db = await getDbWithRetry()
+
+  // Leer el valor anterior antes de modificar
+  const anterior = await db.select<{ cantidad: number }[]>(
+    `SELECT cantidad FROM salidas_productos
+     WHERE producto_id = ? AND departamento_id = ? AND mes = ? AND anio = ?`,
+    [datos.producto_id, datos.departamento_id, datos.mes, datos.anio]
+  )
+  const cantidadAnterior = anterior[0]?.cantidad ?? 0
 
   if (datos.cantidad === 0) {
-    if (datos.presentacion_id != null) {
-      await db.execute(
-        `DELETE FROM salidas_productos
-         WHERE producto_id = ? AND departamento_id = ? AND presentacion_id = ? AND mes = ? AND anio = ?`,
-        [datos.producto_id, datos.departamento_id, datos.presentacion_id, datos.mes, datos.anio]
-      );
-    } else {
-      await db.execute(
-        `DELETE FROM salidas_productos
-         WHERE producto_id = ? AND departamento_id = ? AND presentacion_id IS NULL AND tipo_unidad IS NULL AND mes = ? AND anio = ?`,
-        [datos.producto_id, datos.departamento_id, datos.mes, datos.anio]
-      );
-    }
-    return;
-  }
-
-  if (datos.presentacion_id != null) {
     await db.execute(
-      `INSERT INTO salidas_productos (producto_id, departamento_id, presentacion_id, cantidad, mes, anio, tipo_unidad)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(producto_id, departamento_id, presentacion_id, mes, anio)
-       DO UPDATE SET cantidad = excluded.cantidad`,
-      [datos.producto_id, datos.departamento_id, datos.presentacion_id, datos.cantidad, datos.mes, datos.anio, datos.tipo_unidad ?? null]
-    );
+      `DELETE FROM salidas_productos
+       WHERE producto_id = ? AND departamento_id = ? AND mes = ? AND anio = ?`,
+      [datos.producto_id, datos.departamento_id, datos.mes, datos.anio]
+    )
   } else {
     await db.execute(
-      `INSERT INTO salidas_productos (producto_id, departamento_id, cantidad, mes, anio, tipo_unidad)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(producto_id, departamento_id, tipo_unidad, mes, anio)
+      `INSERT INTO salidas_productos (producto_id, departamento_id, cantidad, mes, anio, presentacion_id, tipo_unidad)
+       VALUES (?, ?, ?, ?, ?, NULL, NULL)
+       ON CONFLICT(producto_id, departamento_id, presentacion_id, mes, anio)
        DO UPDATE SET cantidad = excluded.cantidad`,
-      [datos.producto_id, datos.departamento_id, datos.cantidad, datos.mes, datos.anio, datos.tipo_unidad ?? null]
-    );
+      [datos.producto_id, datos.departamento_id, datos.cantidad, datos.mes, datos.anio]
+    )
   }
+
+  return cantidadAnterior
 }
 
 export async function eliminarSalida(id: number): Promise<void> {
-  const db = await getDbWithRetry();
-  await db.execute("DELETE FROM salidas_productos WHERE id = ?", [id]);
+  const db = await getDbWithRetry()
+  await db.execute("DELETE FROM salidas_productos WHERE id = ?", [id])
 }
 
-/**
- * Elimina todos los movimientos de salida de un departamento.
- * Si se proporciona anio, solo elimina los de ese año.
- * Si se proporciona anio = undefined, elimina TODOS los años.
- */
 export async function eliminarSalidasDepartamento(
   departamentoId: number,
   anio?: number
 ): Promise<number> {
-  const db = await getDbWithRetry();
+  const db = await getDbWithRetry()
+
+  // Calcular el total de unidades que se van a eliminar por producto,
+  // para revertir el efecto en el stock.
+  const condAnio = anio !== undefined ? "AND anio = ?" : ""
+  const paramsAnio = anio !== undefined ? [departamentoId, anio] : [departamentoId]
+
+  const totales = await db.select<{ producto_id: number; total: number }[]>(
+    `SELECT producto_id, SUM(cantidad) AS total
+     FROM salidas_productos
+     WHERE departamento_id = ? ${condAnio}
+     GROUP BY producto_id`,
+    paramsAnio
+  )
 
   const sql = anio !== undefined
     ? "DELETE FROM salidas_productos WHERE departamento_id = ? AND anio = ?"
-    : "DELETE FROM salidas_productos WHERE departamento_id = ?";
+    : "DELETE FROM salidas_productos WHERE departamento_id = ?"
+  const params = anio !== undefined ? [departamentoId, anio] : [departamentoId]
+  const result = await db.execute(sql, params)
 
-  const params = anio !== undefined
-    ? [departamentoId, anio]
-    : [departamentoId];
+  // Revertir el stock: devolver todas las unidades eliminadas
+  for (const { producto_id, total } of totales) {
+    await ajustarStock(producto_id, total) // positivo: devuelve unidades al stock
+  }
 
-  const result = await db.execute(sql, params);
-  return result.rowsAffected ?? 0;
+  return result.rowsAffected ?? 0
+}
+
+// ─── Clave de mapa de salidas ─────────────────────────────────────────────────
+
+export function claveSalida(productoId: number): string {
+  return String(productoId)
+}
+
+/**
+ * Carga todas las salidas de un año (y opcionalmente departamento)
+ * y las devuelve como mapa: productoId → mes → cantidad (unidades base).
+ */
+export async function getSalidasByYear(
+  year: number,
+  departamentoId?: number
+): Promise<Map<string, Map<number, number>>> {
+  const db = await getDbWithRetry()
+  const condiciones: string[] = ["s.anio = ?"]
+  const params: (number | null)[] = [year]
+
+  if (departamentoId !== undefined) {
+    condiciones.push("s.departamento_id = ?")
+    params.push(departamentoId)
+  }
+
+  const rows = await db.select<{
+    producto_id: number;
+    mes: number;
+    cantidad: number;
+  }[]>(
+    `SELECT s.producto_id, s.mes, SUM(s.cantidad) AS cantidad
+     FROM salidas_productos s
+     WHERE ${condiciones.join(" AND ")}
+     GROUP BY s.producto_id, s.mes
+     ORDER BY s.producto_id, s.mes`,
+    params
+  )
+
+  const resultado = new Map<string, Map<number, number>>()
+  for (const row of rows) {
+    const clave = claveSalida(row.producto_id)
+    if (!resultado.has(clave)) resultado.set(clave, new Map())
+    resultado.get(clave)!.set(row.mes, row.cantidad)
+  }
+  return resultado
+}
+
+export async function getAniosDisponibles(): Promise<number[]> {
+  const db = await getDbWithRetry()
+  const rows = await db.select<{ anio: number }[]>(
+    "SELECT DISTINCT anio FROM salidas_productos ORDER BY anio DESC LIMIT 5"
+  )
+  const anios = rows.map(r => r.anio)
+  // Asegurar que el año actual siempre está disponible
+  const anioActual = new Date().getFullYear()
+  if (!anios.includes(anioActual)) anios.unshift(anioActual)
+  return anios
 }
 
 // ─── Estadísticas ─────────────────────────────────────────────────────────────
@@ -422,139 +569,78 @@ export interface ConsumoMensualDepartamento {
 export async function getConsumoMensualPorDepartamento(
   filtros: FiltrosSalida = {}
 ): Promise<ConsumoMensualDepartamento[]> {
-  const db = await getDbWithRetry();
+  const db = await getDbWithRetry()
+  const condiciones: string[] = []
+  const params: (string | number)[] = []
 
-  const condiciones: string[] = [];
-  const params: (string | number)[] = [];
+  if (filtros.departamento_id) { condiciones.push("s.departamento_id = ?"); params.push(filtros.departamento_id) }
+  if (filtros.categoria_id)    { condiciones.push("p.categoria_id = ?");    params.push(filtros.categoria_id) }
+  if (filtros.anio_desde)      { condiciones.push("s.anio >= ?");           params.push(filtros.anio_desde) }
+  if (filtros.anio_hasta)      { condiciones.push("s.anio <= ?");           params.push(filtros.anio_hasta) }
 
-  if (filtros.departamento_id) { condiciones.push("s.departamento_id = ?"); params.push(filtros.departamento_id); }
-  if (filtros.categoria_id)    { condiciones.push("p.categoria_id = ?");    params.push(filtros.categoria_id); }
-  if (filtros.anio_desde)      { condiciones.push("s.anio >= ?");           params.push(filtros.anio_desde); }
-  if (filtros.anio_hasta)      { condiciones.push("s.anio <= ?");           params.push(filtros.anio_hasta); }
-
-  const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : "";
+  const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : ""
 
   return db.select<ConsumoMensualDepartamento[]>(
     `SELECT
        s.anio, s.mes,
-       s.departamento_id,
+       d.id   AS departamento_id,
        d.nombre AS departamento_nombre,
        SUM(s.cantidad) AS total_cantidad
      FROM salidas_productos s
-     JOIN departamentos_prod d ON d.id = s.departamento_id
      JOIN productos_almacen p ON p.id = s.producto_id
+     JOIN departamentos_prod d ON d.id = s.departamento_id
      ${where}
-     GROUP BY s.anio, s.mes, s.departamento_id
+     GROUP BY s.anio, s.mes, d.id, d.nombre
      ORDER BY s.anio ASC, s.mes ASC`,
     params
-  );
+  )
 }
 
-export interface MatrizConsumo {
+export interface CostePorProducto {
   producto_id: number;
   producto_referencia: string;
   producto_nombre: string;
-  unidad_medida: string;
   categoria_nombre: string;
-  [key: string]: number | string;
+  coste_total: number;
 }
 
-export async function getMatrizConsumo(
-  anio: number,
-  mes: number,
-  categoria_id?: number
-): Promise<{ matriz: MatrizConsumo[]; departamentos: DepartamentoProd[] }> {
-  const db = await getDbWithRetry();
+export async function getCostePorProducto(
+  filtros: FiltrosSalida = {}
+): Promise<CostePorProducto[]> {
+  const db = await getDbWithRetry()
+  const condiciones: string[] = []
+  const params: (string | number)[] = []
 
-  const departamentos = await getDepartamentosProd();
+  if (filtros.departamento_id) { condiciones.push("s.departamento_id = ?"); params.push(filtros.departamento_id) }
+  if (filtros.categoria_id)    { condiciones.push("p.categoria_id = ?");    params.push(filtros.categoria_id) }
+  if (filtros.anio)            { condiciones.push("s.anio = ?");            params.push(filtros.anio) }
+  if (filtros.anio_desde)      { condiciones.push("s.anio >= ?");           params.push(filtros.anio_desde) }
+  if (filtros.anio_hasta)      { condiciones.push("s.anio <= ?");           params.push(filtros.anio_hasta) }
 
-  const condCat = categoria_id ? "AND p.categoria_id = ?" : "";
-  const params: (string | number)[] = [anio, mes];
-  if (categoria_id) params.push(categoria_id);
+  const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : ""
 
-  const salidas = await db.select<{
-    producto_id: number;
-    referencia: string;
-    nombre: string;
-    unidad_medida: string;
-    categoria_nombre: string;
-    departamento_id: number;
-    cantidad: number;
-    tipo_unidad: number | null;
-  }[]>(
+  return db.select<CostePorProducto[]>(
     `SELECT
-       p.id AS producto_id,
-       p.referencia,
-       p.nombre,
-       p.unidad_medida,
+       p.id   AS producto_id,
+       p.referencia AS producto_referencia,
+       p.nombre AS producto_nombre,
        c.nombre AS categoria_nombre,
-       s.departamento_id,
-       s.cantidad,
-       s.tipo_unidad
+       ROUND(SUM(
+         s.cantidad * CASE
+           WHEN p.tipo_producto = 'CAJA' AND p.uds_por_caja > 1
+             THEN COALESCE(p.precio, 0) / p.uds_por_caja
+           ELSE
+             COALESCE(p.precio, 0)
+         END
+       ), 2) AS coste_total
      FROM salidas_productos s
      JOIN productos_almacen p ON p.id = s.producto_id
      JOIN categorias_producto c ON c.id = p.categoria_id
-     WHERE s.anio = ? AND s.mes = ? ${condCat} AND p.activo = 1
-     ORDER BY c.nombre ASC, p.referencia ASC`,
-    params
-  );
-
-  const mapa = new Map<number, MatrizConsumo>();
-
-  for (const fila of salidas) {
-    if (!mapa.has(fila.producto_id)) {
-      mapa.set(fila.producto_id, {
-        producto_id: fila.producto_id,
-        producto_referencia: fila.referencia,
-        producto_nombre: fila.nombre,
-        unidad_medida: fila.unidad_medida,
-        categoria_nombre: fila.categoria_nombre,
-      });
-    }
-    mapa.get(fila.producto_id)![`dep_${fila.departamento_id}`] = fila.cantidad;
-  }
-
-  return { matriz: Array.from(mapa.values()), departamentos };
-}
-
-export interface ResumenDepartamento {
-  departamento_id: number;
-  departamento_nombre: string;
-  total_salidas: number;
-  total_cantidad: number;
-  productos_distintos: number;
-}
-
-export async function getResumenPorDepartamento(
-  filtros: FiltrosSalida = {}
-): Promise<ResumenDepartamento[]> {
-  const db = await getDbWithRetry();
-
-  const condiciones: string[] = [];
-  const params: (string | number)[] = [];
-
-  if (filtros.anio)        { condiciones.push("s.anio = ?");          params.push(filtros.anio); }
-  if (filtros.anio_desde)  { condiciones.push("s.anio >= ?");         params.push(filtros.anio_desde); }
-  if (filtros.anio_hasta)  { condiciones.push("s.anio <= ?");         params.push(filtros.anio_hasta); }
-  if (filtros.categoria_id){ condiciones.push("p.categoria_id = ?");  params.push(filtros.categoria_id); }
-
-  const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : "";
-
-  return db.select<ResumenDepartamento[]>(
-    `SELECT
-       d.id AS departamento_id,
-       d.nombre AS departamento_nombre,
-       COUNT(s.id) AS total_salidas,
-       SUM(s.cantidad) AS total_cantidad,
-       COUNT(DISTINCT s.producto_id) AS productos_distintos
-     FROM departamentos_prod d
-     LEFT JOIN salidas_productos s ON s.departamento_id = d.id
-     LEFT JOIN productos_almacen p ON p.id = s.producto_id
      ${where}
-     GROUP BY d.id
-     ORDER BY total_cantidad DESC NULLS LAST`,
+     GROUP BY p.id, p.referencia, p.nombre, c.nombre
+     ORDER BY coste_total DESC`,
     params
-  );
+  )
 }
 
 export interface CostePorDepartamento {
@@ -566,459 +652,106 @@ export interface CostePorDepartamento {
 export async function getCostePorDepartamento(
   filtros: FiltrosSalida = {}
 ): Promise<CostePorDepartamento[]> {
-  const db = await getDbWithRetry();
+  const db = await getDbWithRetry()
+  const condiciones: string[] = []
+  const params: (string | number)[] = []
 
-  const condiciones: string[] = [];
-  const params: (string | number)[] = [];
+  if (filtros.departamento_id) { condiciones.push("s.departamento_id = ?"); params.push(filtros.departamento_id) }
+  if (filtros.categoria_id)    { condiciones.push("p.categoria_id = ?");    params.push(filtros.categoria_id) }
+  if (filtros.anio)            { condiciones.push("s.anio = ?");            params.push(filtros.anio) }
+  if (filtros.anio_desde)      { condiciones.push("s.anio >= ?");           params.push(filtros.anio_desde) }
+  if (filtros.anio_hasta)      { condiciones.push("s.anio <= ?");           params.push(filtros.anio_hasta) }
 
-  if (filtros.categoria_id) { condiciones.push("p.categoria_id = ?"); params.push(filtros.categoria_id); }
-  if (filtros.anio)         { condiciones.push("s.anio = ?");         params.push(filtros.anio); }
-  if (filtros.anio_desde)   { condiciones.push("s.anio >= ?");        params.push(filtros.anio_desde); }
-  if (filtros.anio_hasta)   { condiciones.push("s.anio <= ?");        params.push(filtros.anio_hasta); }
-
-  const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : "";
+  const where = condiciones.length > 0 ? `WHERE ${condiciones.join(" AND ")}` : ""
 
   return db.select<CostePorDepartamento[]>(
     `SELECT
        d.id AS departamento_id,
        d.nombre AS departamento_nombre,
-       ROUND(SUM(s.cantidad * COALESCE(pp.precio, p.precio, 0)), 2) AS coste_total
+       ROUND(SUM(
+         s.cantidad * CASE
+           WHEN p.tipo_producto = 'CAJA' AND p.uds_por_caja > 1
+             THEN COALESCE(p.precio, 0) / p.uds_por_caja
+           ELSE
+             COALESCE(p.precio, 0)
+         END
+       ), 2) AS coste_total
      FROM salidas_productos s
      JOIN productos_almacen p ON p.id = s.producto_id
      JOIN departamentos_prod d ON d.id = s.departamento_id
-     LEFT JOIN producto_presentaciones pp ON pp.id = s.presentacion_id
      ${where}
      GROUP BY d.id, d.nombre
      ORDER BY coste_total DESC`,
     params
-  );
+  )
 }
 
-// ─── Funciones adicionales ────────────────────────────────────────────────────
+// ─── Export / Import JSON (v3) ────────────────────────────────────────────────
 
-export async function deleteProduct(productId: number): Promise<void> {
-  const db = await getDbWithRetry();
-  await db.execute("DELETE FROM salidas_productos WHERE producto_id = ?", [productId]);
-  await db.execute("DELETE FROM producto_presentaciones WHERE producto_id = ?", [productId]);
-  await db.execute("DELETE FROM stock_productos WHERE producto_id = ?", [productId]);
-  await db.execute("DELETE FROM productos_almacen WHERE id = ?", [productId]);
-}
-
-/**
- * Obtiene todas las salidas de un año/departamento, desglosadas por presentación.
- *
- * Devuelve un mapa con clave compuesta "productoId_presentacionId"
- * (o "productoId_null" si no tiene presentación) → mes → cantidad.
- *
- * Ejemplo de clave: "12_3" = producto 12, presentación 3
- *                   "12_null" = producto 12 sin presentación
- */
-export async function getSalidasByYear(
-  year: number,
-  departamentoId?: number
-): Promise<Map<string, Map<number, number>>> {
-  const db = await getDbWithRetry();
-
-  const condiciones: string[] = ["s.anio = ?"];
-  const params: (number | null)[] = [year];
-
-  if (departamentoId !== undefined) {
-    condiciones.push("s.departamento_id = ?");
-    params.push(departamentoId);
-  }
-
-  const where = `WHERE ${condiciones.join(" AND ")}`;
-
-  const rows = await db.select<{
-    producto_id: number;
-    presentacion_id: number | null;
-    mes: number;
-    cantidad: number;
-    tipo_unidad: number | null;
-  }[]>(
-    `SELECT
-       s.producto_id,
-       s.presentacion_id,
-       s.mes,
-       s.cantidad,
-       s.tipo_unidad
-     FROM salidas_productos s
-     ${where}
-     ORDER BY s.producto_id, s.presentacion_id, s.mes`,
-    params
-  );
-
-  const resultado = new Map<string, Map<number, number>>();
-
-  for (const row of rows) {
-    const clave = claveSalida(
-      row.producto_id,
-      row.presentacion_id,
-      row.tipo_unidad != null ? String(row.tipo_unidad) : null
-    );
-    if (!resultado.has(clave)) {
-      resultado.set(clave, new Map());
-    }
-    resultado.get(clave)!.set(row.mes, row.cantidad);
-  }
-
-  return resultado;
-}
-
-/** Construye la clave del mapa de salidas para un producto + presentación + tipo_unidad */
-export function claveSalida(productoId: number, presentacionId: number | null | undefined, tipoUnidad?: string | null): string {
-  return `${productoId}_${presentacionId ?? "null"}_${tipoUnidad ?? "null"}`;
-}
-
-export async function getAniosDisponibles(): Promise<number[]> {
-  const db = await getDbWithRetry();
-  const rows = await db.select<{ anio: number }[]>(
-    `SELECT DISTINCT anio FROM salidas_productos ORDER BY anio DESC LIMIT 5`
-  );
-  return rows.map(r => r.anio);
-}
-
-export async function ensureProduct(
-  referencia: string,
-  nombre: string,
-  categoriaId: number,
-  unidadMedida: string,
-  precio?: number | null
-): Promise<number> {
-  const db = await getDbWithRetry();
-
-  const existente = await db.select<{ id: number; precio?: number | null }[]>(
-    "SELECT id, precio FROM productos_almacen WHERE referencia = ?",
-    [referencia.trim()]
-  );
-
-  if (existente.length > 0) {
-    const producto = existente[0];
-    await actualizarProducto(producto.id, {
-      nombre: nombre.trim(),
-      categoria_id: categoriaId,
-      unidad_medida: unidadMedida.trim(),
-      ...(precio !== undefined && precio !== null && { precio }),
-    });
-    return producto.id;
-  } else {
-    return await crearProducto(referencia.trim(), nombre.trim(), categoriaId, unidadMedida.trim(), precio);
-  }
-}
-
-// ─── Stock ────────────────────────────────────────────────────────────────────
-
-/**
- * Obtiene el stock de todos los productos/presentaciones en un único SELECT.
- * Devuelve un mapa con clave "productoId_presentacionId" → cantidad | null.
- */
-export async function getStockPorPresentacion(): Promise<Map<string, number | null>> {
-  const db = await getDbWithRetry();
-  const rows = await db.select<{ producto_id: number; presentacion_id: number; cantidad: number }[]>(
-    "SELECT producto_id, presentacion_id, cantidad FROM stock_productos"
-  );
-  const mapa = new Map<string, number | null>();
-  for (const row of rows) {
-    mapa.set(`${row.producto_id}_${row.presentacion_id}`, row.cantidad);
-  }
-  return mapa;
-}
-
-/**
- * Inserta o actualiza el stock de un producto + presentación.
- * Si cantidad = null, elimina el registro (stock desconocido).
- */
-export async function upsertStock(
-  productoId: number,
-  cantidad: number | null,
-  presentacionId: number | null
-): Promise<void> {
-  const db = await getDbWithRetry();
-  if (cantidad === null || presentacionId === null) {
-    if (presentacionId !== null) {
-      await db.execute(
-        "DELETE FROM stock_productos WHERE producto_id = ? AND presentacion_id = ?",
-        [productoId, presentacionId]
-      );
-    }
-    return;
-  }
-  await db.execute(
-    `INSERT INTO stock_productos (producto_id, presentacion_id, cantidad, actualizado_el)
-     VALUES (?, ?, ?, datetime('now'))
-     ON CONFLICT(producto_id, presentacion_id)
-     DO UPDATE SET cantidad = excluded.cantidad, actualizado_el = excluded.actualizado_el`,
-    [productoId, presentacionId, cantidad]
-  );
-}
-
-// ─── Unidades de presentación ─────────────────────────────────────────────────
-
-export interface UnidadPresentacion {
-  id: number;
-  nombre: string;
-}
-
-export interface ProductoPresentacion {
-  id: number;         // id en producto_presentaciones
-  producto_id: number;
-  unidad_id: number;
-  nombre: string;     // nombre de la unidad (join)
-  precio: number | null;
-}
-
-export async function getUnidadesPresentacion(): Promise<UnidadPresentacion[]> {
-  const db = await getDbWithRetry();
-  return db.select<UnidadPresentacion[]>(
-    "SELECT * FROM unidades_presentacion ORDER BY nombre"
-  );
-}
-
-export async function crearUnidadPresentacion(nombre: string): Promise<number> {
-  const db = await getDbWithRetry();
-  const result = await db.execute(
-    "INSERT INTO unidades_presentacion (nombre) VALUES (?)",
-    [nombre.trim()]
-  );
-  if (result.lastInsertId === undefined) {
-    throw new Error("No se pudo crear la unidad de presentación");
-  }
-  return result.lastInsertId;
-}
-
-/**
- * Obtiene las presentaciones configuradas para un producto específico,
- * incluyendo el nombre de la unidad y su precio.
- */
-export async function getPresentacionesDeProducto(productoId: number): Promise<ProductoPresentacion[]> {
-  const db = await getDbWithRetry();
-  return db.select<ProductoPresentacion[]>(
-    `SELECT
-       pp.id,
-       pp.producto_id,
-       pp.unidad_id,
-       up.nombre,
-       pp.precio
-     FROM producto_presentaciones pp
-     JOIN unidades_presentacion up ON up.id = pp.unidad_id
-     WHERE pp.producto_id = ?
-     ORDER BY up.nombre`,
-    [productoId]
-  );
-}
-
-/**
- * Obtiene las presentaciones de TODOS los productos en una sola query.
- * Más eficiente que llamar getPresentacionesDeProducto por cada producto.
- * Devuelve un mapa: producto_id → ProductoPresentacion[]
- */
-export async function getAllPresentaciones(): Promise<Map<number, ProductoPresentacion[]>> {
-  const db = await getDbWithRetry();
-  const rows = await db.select<ProductoPresentacion[]>(
-    `SELECT
-       pp.id,
-       pp.producto_id,
-       pp.unidad_id,
-       up.nombre,
-       pp.precio
-     FROM producto_presentaciones pp
-     JOIN unidades_presentacion up ON up.id = pp.unidad_id
-     ORDER BY pp.producto_id, up.nombre`
-  );
-
-  const mapa = new Map<number, ProductoPresentacion[]>();
-  for (const row of rows) {
-    if (!mapa.has(row.producto_id)) {
-      mapa.set(row.producto_id, []);
-    }
-    mapa.get(row.producto_id)!.push(row);
-  }
-  return mapa;
-}
-
-/**
- * Inserta o actualiza una presentación de producto (precio por unidad).
- * Si ya existe (producto_id + unidad_id), actualiza el precio.
- */
-export async function upsertPresentacion(
-  productoId: number,
-  unidadId: number,
-  precio: number | null
-): Promise<number> {
-  const db = await getDbWithRetry();
-  await db.execute(
-    `INSERT INTO producto_presentaciones (producto_id, unidad_id, precio)
-     VALUES (?, ?, ?)
-     ON CONFLICT(producto_id, unidad_id)
-     DO UPDATE SET precio = excluded.precio`,
-    [productoId, unidadId, precio]
-  );
-
-  // lastInsertId no es fiable en SQLite cuando el ON CONFLICT dispara un UPDATE
-  // (puede devolver 0 en lugar de undefined). Siempre hacemos SELECT para obtener el ID real.
-  const rows = await db.select<{ id: number }[]>(
-    "SELECT id FROM producto_presentaciones WHERE producto_id = ? AND unidad_id = ?",
-    [productoId, unidadId]
-  );
-  if (rows.length === 0) throw new Error("No se pudo obtener el ID de la presentación");
-  return rows[0].id;
-}
-
-/**
- * Elimina una presentación de producto.
- * Lanza error si tiene salidas asociadas.
- */
-export async function deletePresentacion(presentacionId: number): Promise<void> {
-  const db = await getDbWithRetry();
-
-  const rows = await db.select<{ count: number }[]>(
-    "SELECT COUNT(*) AS count FROM salidas_productos WHERE presentacion_id = ?",
-    [presentacionId]
-  );
-
-  if (rows[0].count > 0) {
-    throw new Error("No se puede eliminar una presentación que tiene salidas registradas");
-  }
-
-  await db.execute("DELETE FROM producto_presentaciones WHERE id = ?", [presentacionId]);
-}
-
-export async function actualizarUnidadPresentacion(id: number, nombre: string): Promise<void> {
-  const db = await getDbWithRetry();
-  await db.execute(
-    "UPDATE unidades_presentacion SET nombre = ? WHERE id = ?",
-    [nombre.trim(), id]
-  );
-}
-
-/**
- * Elimina una unidad de presentación global.
- * Lanza error si algún producto la tiene asignada.
- */
-export async function eliminarUnidadPresentacion(unidadId: number): Promise<void> {
-  const db = await getDbWithRetry();
-
-  const rows = await db.select<{ total: number }[]>(
-    "SELECT COUNT(*) AS total FROM producto_presentaciones WHERE unidad_id = ?",
-    [unidadId]
-  );
-
-  if (rows[0].total > 0) {
-    throw new Error("No se puede eliminar una unidad que está asignada a productos.");
-  }
-
-  await db.execute("DELETE FROM unidades_presentacion WHERE id = ?", [unidadId]);
-}
-
-// ─── Importación / Exportación JSON ──────────────────────────────────────────
-
-export interface SalidaExportada {
-  departamento: string;
-  producto_referencia: string;
-  presentacion_unidad: string | null; // nombre de la unidad, null = sin presentación
-  cantidad: number;
-  mes: number;
-  anio: number;
-}
-
-export interface ProductoExportado {
+export interface ProductoExportadoV3 {
   referencia: string;
   nombre: string;
   categoria_nombre: string;
   unidad_medida: string;
   activo: number;
   precio: number | null;
-  presentaciones: { unidad: string; precio: number | null }[];
+  tipo_producto: TipoProducto;
+  uds_por_caja: number | null;
 }
 
-export interface ExportacionProductos {
-  version: 2;
+export interface SalidaExportadaV3 {
+  departamento: string;
+  producto_referencia: string;
+  /** Siempre en unidades base */
+  cantidad: number;
+  mes: number;
+  anio: number;
+}
+
+export interface ExportacionProductosV3 {
+  version: 3;
   exportado_el: string;
   departamentos: string[];
-  productos: ProductoExportado[];
-  salidas: SalidaExportada[];
+  productos: ProductoExportadoV3[];
+  salidas: SalidaExportadaV3[];
 }
 
-/**
- * Exporta productos, departamentos y todos los movimientos de salida.
- */
-export async function exportarProductosJSON(): Promise<ExportacionProductos> {
-  const db = await getDbWithRetry();
+// Mantener compatibilidad de tipos con código legado que importa ExportacionProductos
+export type ExportacionProductos = ExportacionProductosV3
 
-  // Productos
-  const productos = await db.select<{
-    referencia: string;
-    nombre: string;
-    categoria_nombre: string;
-    unidad_medida: string;
-    activo: number;
-    precio: number | null;
-  }[]>(
+export async function exportarProductosJSON(): Promise<ExportacionProductosV3> {
+  const db = await getDbWithRetry()
+
+  const productos = await db.select<ProductoExportadoV3[]>(
     `SELECT p.referencia, p.nombre, c.nombre AS categoria_nombre,
-            p.unidad_medida, p.activo, p.precio
+            p.unidad_medida, p.activo, p.precio, p.tipo_producto, p.uds_por_caja
      FROM productos_almacen p
      JOIN categorias_producto c ON c.id = p.categoria_id
      ORDER BY c.nombre ASC, p.referencia ASC`
-  );
+  )
 
-  // Presentaciones
-  const presentaciones = await db.select<{
-    producto_referencia: string;
-    unidad_nombre: string;
-    precio: number | null;
-  }[]>(
-    `SELECT p.referencia AS producto_referencia,
-            up.nombre    AS unidad_nombre,
-            pp.precio
-     FROM producto_presentaciones pp
-     JOIN productos_almacen p      ON p.id  = pp.producto_id
-     JOIN unidades_presentacion up ON up.id = pp.unidad_id
-     ORDER BY p.referencia, up.nombre`
-  );
-
-  const presPorRef = new Map<string, { unidad: string; precio: number | null }[]>();
-  for (const row of presentaciones) {
-    if (!presPorRef.has(row.producto_referencia)) presPorRef.set(row.producto_referencia, []);
-    presPorRef.get(row.producto_referencia)!.push({ unidad: row.unidad_nombre, precio: row.precio });
-  }
-
-  // Departamentos
   const depts = await db.select<{ nombre: string }[]>(
-    `SELECT nombre FROM departamentos_prod ORDER BY nombre ASC`
-  );
+    "SELECT nombre FROM departamentos_prod ORDER BY nombre ASC"
+  )
 
-  // Salidas (movimientos)
-  const salidas = await db.select<{
-    departamento: string;
-    producto_referencia: string;
-    presentacion_unidad: string | null;
-    cantidad: number;
-    mes: number;
-    anio: number;
-  }[]>(
+  const salidas = await db.select<SalidaExportadaV3[]>(
     `SELECT
-       d.nombre          AS departamento,
-       p.referencia      AS producto_referencia,
-       up.nombre         AS presentacion_unidad,
+       d.nombre    AS departamento,
+       p.referencia AS producto_referencia,
        s.cantidad, s.mes, s.anio
      FROM salidas_productos s
-     JOIN departamentos_prod    d  ON d.id  = s.departamento_id
-     JOIN productos_almacen     p  ON p.id  = s.producto_id
-     LEFT JOIN producto_presentaciones pp ON pp.id = s.presentacion_id
-     LEFT JOIN unidades_presentacion   up ON up.id = pp.unidad_id
+     JOIN departamentos_prod d ON d.id = s.departamento_id
+     JOIN productos_almacen  p ON p.id = s.producto_id
      ORDER BY s.anio, s.mes, d.nombre, p.referencia`
-  );
+  )
 
   return {
-    version: 2,
+    version: 3,
     exportado_el: new Date().toISOString(),
     departamentos: depts.map(d => d.nombre),
-    productos: productos.map(p => ({
-      ...p,
-      presentaciones: presPorRef.get(p.referencia) ?? [],
-    })),
+    productos,
     salidas,
-  };
+  }
 }
 
 export interface ResultadoImportacionJSON {
@@ -1031,13 +764,18 @@ export interface ResultadoImportacionJSON {
 
 /**
  * Importa productos, departamentos y salidas desde un JSON exportado.
- * Compatible con versión 1 (sin salidas/departamentos) y versión 2 (completo).
+ * Compatible con formato v2 (legado) y v3 (nuevo).
+ *
+ * Reglas de precio:
+ *  - v3: usa prod.precio si está presente en el JSON (puede ser null explícito).
+ *        Si el campo no existe en el objeto, NO sobreescribe el precio existente.
+ *  - v2: intenta extraer el precio de presentaciones[].precio como fallback.
  */
 export async function importarProductosJSON(
-  datos: ExportacionProductos | (Omit<ExportacionProductos, "version"> & { version: 1 })
+  datos: any
 ): Promise<ResultadoImportacionJSON> {
-  if (!Array.isArray((datos as any).productos)) {
-    throw new Error("Formato de archivo JSON no reconocido.");
+  if (!Array.isArray(datos.productos)) {
+    throw new Error("Formato de archivo JSON no reconocido.")
   }
 
   const resultado: ResultadoImportacionJSON = {
@@ -1046,128 +784,244 @@ export async function importarProductosJSON(
     salidasImportadas: 0,
     departamentosImportados: 0,
     errores: [],
-  };
+  }
 
-  // ── 1. Departamentos ──────────────────────────────────────────────────────
-  const deptosExistentes = await getDepartamentosProd();
+  // ── Departamentos ────────────────────────────────────────────────────────
+  const deptosExistentes = await getDepartamentosProd()
   const deptNombreAId = new Map<string, number>(
     deptosExistentes.map(d => [d.nombre.toUpperCase(), d.id])
-  );
+  )
 
-  if (Array.isArray((datos as any).departamentos)) {
-    for (const nombre of (datos as ExportacionProductos).departamentos) {
-      if (!nombre?.trim()) continue;
-      const key = nombre.trim().toUpperCase();
+  if (Array.isArray(datos.departamentos)) {
+    for (const nombre of datos.departamentos as string[]) {
+      if (!nombre?.trim()) continue
+      const key = nombre.trim().toUpperCase()
       if (!deptNombreAId.has(key)) {
         try {
-          const id = await crearDepartamentoProd(nombre.trim());
-          deptNombreAId.set(key, id);
-          resultado.departamentosImportados++;
+          const id = await crearDepartamentoProd(nombre.trim())
+          deptNombreAId.set(key, id)
+          resultado.departamentosImportados++
         } catch (e: any) {
-          resultado.errores.push(`Depto "${nombre}": ${e?.message ?? String(e)}`);
+          resultado.errores.push(`Depto "${nombre}": ${e?.message ?? String(e)}`)
         }
       }
     }
   }
 
-  // ── 2. Productos ──────────────────────────────────────────────────────────
-  // Mapa referencia → producto_id para usarlo en las salidas
-  const refAId = new Map<string, number>();
+  // ── Productos ────────────────────────────────────────────────────────────
+  const refAId = new Map<string, number>()
 
-  // Cache de unidades para no releer en cada producto
-  let unidades = await getUnidadesPresentacion();
-
-  for (const prod of (datos as any).productos) {
+  for (const prod of datos.productos) {
     try {
       if (!prod.referencia?.trim() || !prod.nombre?.trim()) {
-        resultado.omitidos++;
-        continue;
+        resultado.omitidos++
+        continue
       }
 
-      // Categoría
-      const cats = await getCategorias();
-      let catId: number;
-      const catExistente = cats.find(
-        c => c.nombre.toUpperCase() === (prod.categoria_nombre || "SIN CATEGORÍA").toUpperCase()
-      );
-      catId = catExistente
-        ? catExistente.id
-        : await crearCategoria(prod.categoria_nombre || "SIN CATEGORÍA");
+      // Inferir tipo_producto y uds_por_caja para v2 (no tiene estos campos)
+      let tipoProd: TipoProducto = prod.tipo_producto ?? "UNIDAD"
+      let udsCaja: number | null = prod.uds_por_caja ?? null
 
-      // Producto
-      const productoId = await ensureProduct(
-        prod.referencia.trim(),
-        prod.nombre.trim(),
-        catId,
-        prod.unidad_medida?.trim() || "UNIDAD",
-        prod.precio ?? null
-      );
-      refAId.set(prod.referencia.trim(), productoId);
+      if (!prod.tipo_producto && Array.isArray(prod.presentaciones)) {
+        type PresV2 = { unidad: string; precio?: number | null }
+        const pres = prod.presentaciones as PresV2[]
+        const nombres = pres.map(p => p.unidad?.toUpperCase())
 
-      // Presentaciones
-      if (Array.isArray(prod.presentaciones)) {
-        for (const pres of prod.presentaciones) {
-          if (!pres.unidad?.trim()) continue;
-          let unidad = unidades.find(u => u.nombre.toUpperCase() === pres.unidad.toUpperCase());
-          if (!unidad) {
-            const nuevoId = await crearUnidadPresentacion(pres.unidad.trim());
-            unidad = { id: nuevoId, nombre: pres.unidad.trim() };
-            unidades = [...unidades, unidad];
+        if (nombres.includes("FARDO")) {
+          tipoProd = "FARDO"
+        } else if (nombres.includes("CAJA")) {
+          tipoProd = "CAJA"
+          // Intentar inferir uds_por_caja desde el ratio precio_caja / precio_unidad
+          const pCaja = pres.find(p => p.unidad?.toUpperCase() === "CAJA")?.precio ?? null
+          const pUd   = pres.find(p => p.unidad?.toUpperCase() === "UNIDAD")?.precio ?? null
+          if (pCaja && pUd && pUd > 0) {
+            const ratio = pCaja / pUd
+            const rounded = Math.round(ratio)
+            // Solo usar si el ratio es un entero limpio (tolerancia 2%)
+            if (Math.abs(ratio - rounded) / rounded < 0.02) {
+              udsCaja = rounded
+            }
           }
-          await upsertPresentacion(productoId, unidad.id, pres.precio ?? null);
+          // Si no se pudo inferir, queda NULL — el usuario lo rellena manualmente
         }
       }
 
-      resultado.importados++;
+      // Extraer precio:
+      // - v3: el campo "precio" existe explícitamente en el objeto
+      // - v2: intentar desde presentaciones[].precio como fallback
+      let precioImport: number | null | undefined = undefined // undefined = no tocar
+      if ("precio" in prod) {
+        // Campo presente en el JSON → usar aunque sea null
+        precioImport = prod.precio ?? null
+      } else if (Array.isArray(prod.presentaciones)) {
+        // Formato v2: buscar precio en las presentaciones
+        const conPrecio = (prod.presentaciones as { precio?: number | null }[])
+          .find(p => p.precio != null)
+        if (conPrecio) precioImport = conPrecio.precio ?? null
+      }
+
+      const cats = await getCategorias()
+      let catId: number
+      const catExistente = cats.find(
+        c => c.nombre.toUpperCase() === (prod.categoria_nombre || "SIN CATEGORÍA").toUpperCase()
+      )
+      catId = catExistente
+        ? catExistente.id
+        : await crearCategoria(prod.categoria_nombre || "SIN CATEGORÍA")
+
+      const db2 = await getDbWithRetry()
+      const existente = await db2.select<{ id: number }[]>(
+        "SELECT id FROM productos_almacen WHERE referencia = ?",
+        [prod.referencia.trim()]
+      )
+
+      let productoId: number
+      if (existente.length > 0) {
+        productoId = existente[0].id
+        // Solo incluir precio en el update si el JSON lo trae explícitamente
+        await actualizarProducto(productoId, {
+          nombre: prod.nombre.trim(),
+          categoria_id: catId,
+          unidad_medida: prod.unidad_medida?.trim() || "UNIDAD",
+          tipo_producto: tipoProd,
+          uds_por_caja: udsCaja,
+          ...(precioImport !== undefined ? { precio: precioImport } : {}),
+        })
+      } else {
+        productoId = await crearProducto(
+          prod.referencia.trim(),
+          prod.nombre.trim(),
+          catId,
+          prod.unidad_medida?.trim() || "UNIDAD",
+          tipoProd,
+          udsCaja,
+          precioImport !== undefined ? precioImport : null,
+        )
+      }
+
+      refAId.set(prod.referencia.trim(), productoId)
+      resultado.importados++
     } catch (e: any) {
-      resultado.errores.push(`${prod.referencia}: ${e?.message ?? String(e)}`);
+      resultado.errores.push(`${prod.referencia}: ${e?.message ?? String(e)}`)
     }
   }
 
-  // ── 3. Salidas ────────────────────────────────────────────────────────────
-  if (Array.isArray((datos as any).salidas)) {
-    // Refrescar presentaciones para poder resolver unidad → presentacion_id y unidad_id
-    const db = await getDbWithRetry();
-    const presRows = await db.select<{
-      id: number; producto_id: number; unidad_id: number; unidad_nombre: string;
-    }[]>(
-      `SELECT pp.id, pp.producto_id, pp.unidad_id, up.nombre AS unidad_nombre
-       FROM producto_presentaciones pp
-       JOIN unidades_presentacion up ON up.id = pp.unidad_id`
-    );
+  // ── Salidas ──────────────────────────────────────────────────────────────
+  if (Array.isArray(datos.salidas)) {
+    // Leer uds_por_caja y tipo_producto de todos los productos importados de una vez
+    const prodInfo = new Map<number, { uds_por_caja: number | null; tipo_producto: string }>()
+    if (refAId.size > 0) {
+      const db2 = await getDbWithRetry()
+      const ids = Array.from(refAId.values())
+      const placeholders = ids.map(() => "?").join(", ")
+      const rows = await db2.select<{ id: number; uds_por_caja: number | null; tipo_producto: string }[]>(
+        `SELECT id, uds_por_caja, tipo_producto FROM productos_almacen WHERE id IN (${placeholders})`,
+        ids
+      )
+      for (const row of rows) prodInfo.set(row.id, { uds_por_caja: row.uds_por_caja, tipo_producto: row.tipo_producto })
+    }
 
-    // Mapa "productoId|unidadNombre" → { presentacion_id, unidad_id }
-    const presKey = (pId: number, uNombre: string) => `${pId}|${uNombre.toUpperCase()}`;
-    const presIdMap = new Map<string, { presId: number; unidadId: number }>(
-      presRows.map(r => [presKey(r.producto_id, r.unidad_nombre), { presId: r.id, unidadId: r.unidad_id }])
-    );
-
-    for (const salida of (datos as ExportacionProductos).salidas) {
+    for (const salida of datos.salidas) {
       try {
-        const deptId = deptNombreAId.get(salida.departamento?.toUpperCase?.() ?? "");
-        const prodId = refAId.get(salida.producto_referencia?.trim?.() ?? "");
-        if (!deptId || !prodId) continue;
+        const deptId = deptNombreAId.get(salida.departamento?.toUpperCase?.() ?? "")
+        const prodId = refAId.get(salida.producto_referencia?.trim?.() ?? "")
+        if (!deptId || !prodId) continue
 
-        const presEntry = salida.presentacion_unidad
-          ? (presIdMap.get(presKey(prodId, salida.presentacion_unidad)) ?? null)
-          : null;
+        const info = prodInfo.get(prodId)
+        const presentacionUnidad = salida.presentacion_unidad?.toUpperCase?.() ?? null
 
-        await upsertSalida({
+        // Conversión v2 → unidades base:
+        // - CAJA: multiplicar por uds_por_caja (si se pudo inferir; si no, 1 como fallback)
+        // - FARDO: la unidad base de FARDO es el fardo mismo — sin conversión
+        // - UNIDAD / null: sin conversión
+        let cantidad: number = salida.cantidad
+        if (presentacionUnidad === "CAJA") {
+          const upc = info?.uds_por_caja ?? null
+          if (upc && upc > 1) {
+            cantidad = Math.round(salida.cantidad * upc)
+          }
+          // Si upc es null (no se pudo inferir), guardamos la cantidad tal cual
+          // y anotamos un warning no bloqueante
+          if (!upc) {
+            resultado.errores.push(
+              `⚠ ${salida.producto_referencia} mes ${salida.mes}/${salida.anio}: salida en CAJA importada sin convertir (uds/caja desconocidas)`
+            )
+          }
+        }
+        // FARDO y UNIDAD: cantidad ya está en unidades base
+
+        const cantidadAnterior = await upsertSalida({
           producto_id: prodId,
           departamento_id: deptId,
-          cantidad: salida.cantidad,
+          cantidad,
           mes: salida.mes,
           anio: salida.anio,
-          presentacion_id: presEntry?.presId ?? null,
-          // tipo_unidad es FK a unidades_presentacion, no a producto_presentaciones
-          tipo_unidad: presEntry?.unidadId ?? null,
-        });
-        resultado.salidasImportadas++;
+        })
+
+        const delta = cantidadAnterior - cantidad
+        await ajustarStock(prodId, delta)
+
+        resultado.salidasImportadas++
       } catch (e: any) {
-        resultado.errores.push(`Salida ${salida.producto_referencia} mes ${salida.mes}/${salida.anio}: ${e?.message ?? String(e)}`);
+        resultado.errores.push(
+          `Salida ${salida.producto_referencia} mes ${salida.mes}/${salida.anio}: ${e?.message ?? String(e)}`
+        )
       }
     }
   }
 
-  return resultado;
+  return resultado
+}
+
+// ─── Resumen por departamento ─────────────────────────────────────────────────
+
+export interface ResumenDepartamento {
+  departamento_id: number;
+  departamento_nombre: string;
+  /** Total de unidades base consumidas */
+  total_cantidad: number;
+  /** Número de registros de salida */
+  total_salidas: number;
+}
+
+/**
+ * Resumen agregado por departamento: total de unidades consumidas y número de salidas.
+ * Siempre devuelve todos los departamentos (LEFT JOIN), con 0 si no tienen salidas.
+ * Los filtros de año/categoría se aplican como condiciones del JOIN para no excluir
+ * departamentos sin salidas en ese período.
+ */
+export async function getResumenPorDepartamento(
+  filtros: Pick<FiltrosSalida, "anio" | "anio_desde" | "anio_hasta" | "categoria_id"> = {}
+): Promise<ResumenDepartamento[]> {
+  const db = await getDbWithRetry()
+
+  // Construir condiciones para el LEFT JOIN (no para WHERE, para mantener todos los depts)
+  const joinSalida: string[] = []
+  const joinProd: string[] = []
+  const params: (string | number)[] = []
+
+  if (filtros.anio)       { joinSalida.push("s.anio = ?");   params.push(filtros.anio) }
+  if (filtros.anio_desde) { joinSalida.push("s.anio >= ?");  params.push(filtros.anio_desde) }
+  if (filtros.anio_hasta) { joinSalida.push("s.anio <= ?");  params.push(filtros.anio_hasta) }
+  if (filtros.categoria_id) { joinProd.push("p.categoria_id = ?"); params.push(filtros.categoria_id) }
+
+  const salidaCond = joinSalida.length > 0 ? ` AND ${joinSalida.join(" AND ")}` : ""
+  const usaProd = joinProd.length > 0
+  const prodJoin = usaProd
+    ? `LEFT JOIN productos_almacen p ON p.id = s.producto_id AND ${joinProd.join(" AND ")}`
+    : ""
+
+  return db.select<ResumenDepartamento[]>(
+    `SELECT
+       d.id     AS departamento_id,
+       d.nombre AS departamento_nombre,
+       COALESCE(SUM(s.cantidad), 0) AS total_cantidad,
+       COUNT(s.id)                  AS total_salidas
+     FROM departamentos_prod d
+     LEFT JOIN salidas_productos s ON s.departamento_id = d.id${salidaCond}
+     ${prodJoin}
+     GROUP BY d.id, d.nombre
+     ORDER BY total_cantidad DESC`,
+    params
+  )
 }
