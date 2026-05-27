@@ -201,79 +201,126 @@ function KpiCard({ label, value, sub, color = "#3b82f6", icon }: {
   )
 }
 
-// ─── Barra de progreso de departamento ────────────────────────────────────────
+// ─── Tabla compacta de ranking de departamentos ───────────────────────────────
 
-function DeptProgressBar({ nombre, cantidad, coste, maxCantidad, maxCoste, color, rank }: {
-  nombre: string; cantidad: number; coste: number | null
-  maxCantidad: number; maxCoste: number; color: string; rank: number
+const DEPT_INITIAL_LIMIT = 5
+
+function DeptRankingTable({ data, maxCantidad, hayCoste }: {
+  data: (ResumenDepartamento & { coste_total: number | null })[]
+  maxCantidad: number
+  hayCoste: boolean
 }) {
-  const pctCantidad = maxCantidad > 0 ? (cantidad / maxCantidad) * 100 : 0
-  const pctCoste = maxCoste > 0 && coste ? (coste / maxCoste) * 100 : 0
+  const [expanded, setExpanded] = useState(false)
+  const totalCoste = data.reduce((s, d) => s + (d.coste_total ?? 0), 0)
+  const visible = expanded ? data : data.slice(0, DEPT_INITIAL_LIMIT)
+  const hidden = data.length - DEPT_INITIAL_LIMIT
 
   return (
-    <div style={{
-      padding: "16px 18px",
-      borderRadius: "12px",
-      border: "1px solid #f1f5f9",
-      backgroundColor: "#fafbfc",
-      transition: "border-color 0.15s",
-    }}
-      onMouseEnter={e => (e.currentTarget.style.borderColor = color)}
-      onMouseLeave={e => (e.currentTarget.style.borderColor = "#f1f5f9")}
-    >
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div style={{
-            width: "24px", height: "24px", borderRadius: "50%",
-            backgroundColor: color, color: "#fff",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: "11px", fontWeight: 800, flexShrink: 0,
-          }}>{rank}</div>
-          <span style={{ fontWeight: 700, fontSize: "14px", color: "#0f172a" }}>{nombre}</span>
-        </div>
-        <div style={{ display: "flex", gap: "16px" }}>
-          {coste != null && coste > 0 && (
-            <span style={{ fontSize: "13px", fontWeight: 700, color: "#0f172a" }}>
-              {coste.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €
-            </span>
-          )}
-          <span style={{ fontSize: "13px", color: "#64748b" }}>
-            {cantidad.toLocaleString()} uds.
-          </span>
-        </div>
-      </div>
+    <div style={{ ...css.card, padding: 0, overflow: "hidden" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th style={{ ...css.th, width: "36px", textAlign: "center" }}>#</th>
+            <th style={css.th}>Departamento</th>
+            <th style={{ ...css.th, minWidth: "120px" }}>Consumo relativo</th>
+            <th style={{ ...css.th, textAlign: "right" }}>Uds.</th>
+            <th style={{ ...css.th, textAlign: "right" }}>Salidas</th>
+            {hayCoste && <th style={{ ...css.th, textAlign: "right" }}>Gasto</th>}
+            {hayCoste && <th style={{ ...css.th, textAlign: "right", paddingRight: "20px" }}>%</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {visible.map((d, i) => {
+            const color = PALETTE[i % PALETTE.length]
+            const pct = maxCantidad > 0 ? ((d.total_cantidad ?? 0) / maxCantidad) * 100 : 0
+            const pctCoste = totalCoste > 0 && d.coste_total ? (d.coste_total / totalCoste) * 100 : 0
+            return (
+              <tr key={d.departamento_id}
+                style={{ transition: "background 0.1s" }}
+                onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#f8fafc")}
+                onMouseLeave={e => (e.currentTarget.style.backgroundColor = "")}
+              >
+                {/* Rank */}
+                <td style={{ ...css.td, textAlign: "center", paddingLeft: "14px" }}>
+                  <div style={{
+                    width: "22px", height: "22px", borderRadius: "50%",
+                    backgroundColor: color, color: "#fff",
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    fontSize: "10px", fontWeight: 800,
+                  }}>{i + 1}</div>
+                </td>
+                {/* Nombre */}
+                <td style={{ ...css.td, fontWeight: 600, color: "#0f172a" }}>
+                  {d.departamento_nombre}
+                </td>
+                {/* Barra inline */}
+                <td style={{ ...css.td, paddingRight: "24px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <div style={{ flex: 1, height: "6px", backgroundColor: "#e8edf3", borderRadius: "99px", overflow: "hidden" }}>
+                      <div style={{
+                        height: "100%", width: `${pct}%`,
+                        background: `linear-gradient(90deg, ${color}bb, ${color})`,
+                        borderRadius: "99px",
+                      }} />
+                    </div>
+                    <span style={{ fontSize: "10px", color: "#94a3b8", minWidth: "28px", textAlign: "right" }}>
+                      {pct.toFixed(0)}%
+                    </span>
+                  </div>
+                </td>
+                {/* Uds */}
+                <td style={{ ...css.td, textAlign: "right", fontWeight: 700, color: color, fontVariantNumeric: "tabular-nums" }}>
+                  {(d.total_cantidad ?? 0).toLocaleString()}
+                </td>
+                {/* Salidas */}
+                <td style={{ ...css.td, textAlign: "right", color: "#64748b", fontSize: "12px" }}>
+                  {(d.total_salidas ?? 0).toLocaleString()}
+                </td>
+                {/* Gasto */}
+                {hayCoste && (
+                  <td style={{ ...css.td, textAlign: "right", fontWeight: 600, color: "#0f172a" }}>
+                    {d.coste_total ? `${d.coste_total.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €` : "—"}
+                  </td>
+                )}
+                {/* % del total */}
+                {hayCoste && (
+                  <td style={{ ...css.td, textAlign: "right", color: "#64748b", fontSize: "12px", paddingRight: "20px" }}>
+                    {pctCoste > 0 ? `${pctCoste.toFixed(1)}%` : "—"}
+                  </td>
+                )}
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
 
-      {/* Barra cantidad */}
-      <div style={{ marginBottom: "6px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-          <span style={{ fontSize: "10px", color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Productos consumidos</span>
-          <span style={{ fontSize: "10px", color: "#94a3b8" }}>{pctCantidad.toFixed(0)}%</span>
-        </div>
-        <div style={{ height: "6px", backgroundColor: "#e8edf3", borderRadius: "99px", overflow: "hidden" }}>
-          <div style={{
-            height: "100%", width: `${pctCantidad}%`, backgroundColor: color,
-            borderRadius: "99px", transition: "width 0.5s ease",
-          }} />
-        </div>
-      </div>
+      {/* Pie: totales + botón mostrar más */}
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        padding: "11px 16px",
+        borderTop: "1px solid #f1f5f9",
+        backgroundColor: "#f8fafc",
+      }}>
+        <span style={{ fontSize: "12px", color: "#94a3b8" }}>
+          {data.length} departamentos en total
+        </span>
 
-      {/* Barra coste */}
-      {coste != null && maxCoste > 0 && (
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-            <span style={{ fontSize: "10px", color: "#94a3b8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Gasto económico</span>
-            <span style={{ fontSize: "10px", color: "#94a3b8" }}>{pctCoste.toFixed(0)}%</span>
-          </div>
-          <div style={{ height: "6px", backgroundColor: "#e8edf3", borderRadius: "99px", overflow: "hidden" }}>
-            <div style={{
-              height: "100%", width: `${pctCoste}%`,
-              background: `linear-gradient(90deg, ${color}aa, ${color})`,
-              borderRadius: "99px", transition: "width 0.5s ease",
-            }} />
-          </div>
-        </div>
-      )}
+        {hidden > 0 && (
+          <button
+            style={{
+              ...css.btnGhost,
+              padding: "6px 14px",
+              fontSize: "12px",
+              display: "flex", alignItems: "center", gap: "5px",
+            }}
+            onClick={() => setExpanded(e => !e)}
+          >
+            {expanded
+              ? <>▲ Mostrar menos</>
+              : <>▼ Mostrar {hidden} más</>}
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -356,7 +403,6 @@ function VistaEstadisticas() {
   }, [resumen, costeDepts])
 
   const maxCantidad = useMemo(() => Math.max(...deptData.map(d => d.total_cantidad ?? 0), 1), [deptData])
-  const maxCoste = useMemo(() => Math.max(...deptData.map(d => d.coste_total ?? 0), 1), [deptData])
 
   const totalCantidad = useMemo(() => deptData.reduce((s, d) => s + (d.total_cantidad ?? 0), 0), [deptData])
   const totalCoste = useMemo(() => deptData.reduce((s, d) => s + (d.coste_total ?? 0), 0), [deptData])
@@ -668,65 +714,15 @@ function VistaEstadisticas() {
             </div>
           )}
 
-          {/* ── SECCIÓN 2: Gasto por departamento ──────────────────────────── */}
+          {/* ── SECCIÓN 2: Ranking de departamentos ────────────────────────── */}
           {deptData.length > 0 && (
             <div>
               <div style={css.sectionTitle}>Gasto por departamento</div>
-              <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", alignItems: "flex-start" }}>
-
-                {/* Barras de progreso */}
-                <div style={{ flex: "2 1 360px", display: "flex", flexDirection: "column", gap: "10px" }}>
-                  {deptData.map((d, i) => (
-                    <DeptProgressBar
-                      key={d.departamento_id}
-                      nombre={d.departamento_nombre}
-                      cantidad={d.total_cantidad ?? 0}
-                      coste={d.coste_total}
-                      maxCantidad={maxCantidad}
-                      maxCoste={maxCoste}
-                      color={PALETTE[i % PALETTE.length]}
-                      rank={i + 1}
-                    />
-                  ))}
-                </div>
-
-                {/* Tabla resumen lateral */}
-                <div style={{ ...css.card, flex: "1 1 240px", padding: "0", overflow: "hidden" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead>
-                      <tr>
-                        <th style={css.th}>Departamento</th>
-                        <th style={{ ...css.th, textAlign: "right" }}>Uds.</th>
-                        {hayCoste && <th style={{ ...css.th, textAlign: "right" }}>Coste</th>}
-                        <th style={{ ...css.th, textAlign: "right" }}>Productos</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {deptData.map((d, i) => (
-                        <tr key={d.departamento_id}>
-                          <td style={css.td}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                              <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: PALETTE[i % PALETTE.length], flexShrink: 0 }} />
-                              <span style={{ fontWeight: 500 }}>{d.departamento_nombre}</span>
-                            </div>
-                          </td>
-                          <td style={{ ...css.td, textAlign: "right", fontWeight: 700, color: PALETTE[i % PALETTE.length] }}>
-                            {(d.total_cantidad ?? 0).toLocaleString()}
-                          </td>
-                          {hayCoste && (
-                            <td style={{ ...css.td, textAlign: "right", color: "#0f172a", fontWeight: 600 }}>
-                              {d.coste_total ? `${d.coste_total.toLocaleString("es-ES", { minimumFractionDigits: 2 })} €` : "—"}
-                            </td>
-                          )}
-                          <td style={{ ...css.td, textAlign: "right", color: "#64748b" }}>
-                            {d.productos_distintos ?? 0}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <DeptRankingTable
+                data={deptData}
+                maxCantidad={maxCantidad}
+                hayCoste={hayCoste}
+              />
             </div>
           )}
 

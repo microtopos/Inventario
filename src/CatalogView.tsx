@@ -1003,10 +1003,6 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
                             const isSaving = savingCell?.productoId === prod.id && savingCell?.mes === mes
                             const bgColor = getConsumoColor(valorBase, maxConsumo)
                             const textColor = getConsumoTextColor(valorBase)
-                            const pref = prefMap.get(prod.id) ?? "unidad"
-                            // El toggle solo tiene efecto real si uds_por_caja está relleno
-                            const udsPorCaja = prod.uds_por_caja && prod.uds_por_caja > 1 ? prod.uds_por_caja : null
-                            const usaCajas = prod.tipo_producto === "CAJA" && pref === "caja" && udsPorCaja !== null
 
                             return (
                               <td key={mes} style={{ padding: "4px", textAlign: "center", backgroundColor: bgColor }}>
