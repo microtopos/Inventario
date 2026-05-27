@@ -382,7 +382,7 @@ export async function ajustarStock(
      VALUES (?, MAX(0, ?), datetime('now'))
      ON CONFLICT(producto_id)
      DO UPDATE SET
-       cantidad       = MAX(0, cantidad + excluded.cantidad - ?),
+       cantidad       = MAX(0, cantidad + ?),
        actualizado_el = datetime('now')`,
     [productoId, delta, delta]
   )
@@ -434,9 +434,10 @@ export async function getSalidas(filtros: FiltrosSalida = {}): Promise<SalidaPro
 export async function upsertSalida(datos: NuevaSalida): Promise<number> {
   const db = await getDbWithRetry()
 
-  // Leer el valor anterior antes de modificar
+  // Sumar todas las filas del mismo (producto, departamento, mes, año) por si
+  // quedaron duplicados legacy del schema antiguo (presentacion_id/tipo_unidad no nulos).
   const anterior = await db.select<{ cantidad: number }[]>(
-    `SELECT cantidad FROM salidas_productos
+    `SELECT COALESCE(SUM(cantidad), 0) AS cantidad FROM salidas_productos
      WHERE producto_id = ? AND departamento_id = ? AND mes = ? AND anio = ?`,
     [datos.producto_id, datos.departamento_id, datos.mes, datos.anio]
   )
@@ -449,11 +450,16 @@ export async function upsertSalida(datos: NuevaSalida): Promise<number> {
       [datos.producto_id, datos.departamento_id, datos.mes, datos.anio]
     )
   } else {
+    // Eliminar todas las filas existentes (incluidas legacy con presentacion_id/tipo_unidad),
+    // luego insertar la fila canónica limpia con el nuevo schema.
     await db.execute(
-      `INSERT INTO salidas_productos (producto_id, departamento_id, cantidad, mes, anio, presentacion_id, tipo_unidad)
-       VALUES (?, ?, ?, ?, ?, NULL, NULL)
-       ON CONFLICT(producto_id, departamento_id, presentacion_id, mes, anio)
-       DO UPDATE SET cantidad = excluded.cantidad`,
+      `DELETE FROM salidas_productos
+       WHERE producto_id = ? AND departamento_id = ? AND mes = ? AND anio = ?`,
+      [datos.producto_id, datos.departamento_id, datos.mes, datos.anio]
+    )
+    await db.execute(
+      `INSERT INTO salidas_productos (producto_id, departamento_id, cantidad, mes, anio)
+       VALUES (?, ?, ?, ?, ?)`,
       [datos.producto_id, datos.departamento_id, datos.cantidad, datos.mes, datos.anio]
     )
   }

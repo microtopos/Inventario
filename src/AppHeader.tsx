@@ -21,7 +21,7 @@ interface AppHeaderProps {
 
 // orderHistory ya no aparece como ítem independiente en la nav.
 // Se accede desde dentro de OrderPage.
-const NAV_ITEMS: { key: Page; label: string; group: "ropa" | "gasolina" | "productos" }[] = [
+const NAV_ITEMS: { key: Page; label: string; group: "ropa" | "gasolina" | "productos" | "almacen" }[] = [
   { key: "inventory", label: "📦 Inventario",   group: "ropa" },
   { key: "orders",    label: "🛒 Pedidos",      group: "ropa" },
   { key: "gasolina",  label: "🚗 Coches",       group: "gasolina" },

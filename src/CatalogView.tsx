@@ -125,7 +125,11 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
   const [departamentos, setDepartamentos] = useState<DepartamentoProd[]>([])
 
   // ── Filtros ──
-  const [departamentoId, setDepartamentoId] = useState<number | "">("")
+  const LS_DEPT_KEY = "inventario_dpto_seleccionado"
+  const [departamentoId, setDepartamentoId] = useState<number | "">(() => {
+    const saved = localStorage.getItem("inventario_dpto_seleccionado")
+    return saved ? Number(saved) : ""
+  })
   const [year, setYear] = useState(new Date().getFullYear())
   const [searchTerm, setSearchTerm] = useState("")
   const [expandedCategories, setExpandedCategories] = useState<Set<number>>(new Set())
@@ -166,6 +170,8 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
   const fileInputRef = useRef<HTMLInputElement>(null)
   const toastRef = useRef(toast)
   useEffect(() => { toastRef.current = toast })
+  const stockMapRef = useRef(stockMap)
+  useEffect(() => { stockMapRef.current = stockMap }, [stockMap])
 
   // Cerrar dropdown al hacer click fuera
   useEffect(() => {
@@ -226,15 +232,20 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
     setPrefMap(nuevoPrefMap)
   }, [departamentoId, productos])
 
+  // Persistir departamento seleccionado
+  useEffect(() => {
+    if (departamentoId !== "") localStorage.setItem(LS_DEPT_KEY, String(departamentoId))
+  }, [departamentoId])
+
   useEffect(() => { loadInitialData() }, [loadInitialData])
   useEffect(() => { cargarSalidas() }, [departamentoId, year, cargarSalidas])
 
-  // Auto-seleccionar primer departamento
+  // Auto-seleccionar primer departamento solo si el guardado ya no existe en la lista
   useEffect(() => {
-    if (departamentoId === "" && departamentos.length > 0) {
-      setDepartamentoId(departamentos[0].id)
-    }
-  }, [departamentos, departamentoId])
+    if (departamentos.length === 0) return
+    if (departamentoId !== "" && departamentos.some(d => d.id === departamentoId)) return
+    setDepartamentoId(departamentos[0].id)
+  }, [departamentos])
 
   // ─── Helpers de consumo ───────────────────────────────────────────────────
 
@@ -272,6 +283,26 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
     const pref = prefMap.get(prod.id) ?? "unidad"
     if (prod.tipo_producto === "CAJA" && pref === "caja" && prod.uds_por_caja && prod.uds_por_caja > 1) {
       valorBase = Math.round(valorInput * prod.uds_por_caja)
+    }
+
+    // Validar stock solo si es un incremento respecto al valor anterior
+    // (reducciones y reversiones nunca necesitan validación)
+    const cantidadAnteriorLocal = salidasMap.get(claveSalida(prod.id))?.get(mes) ?? 0
+    if (valorBase > cantidadAnteriorLocal) {
+      const incremento = valorBase - cantidadAnteriorLocal
+      if (!stockMapRef.current.has(prod.id)) {
+        const ok = await confirm(
+          "Stock no configurado",
+          { detail: `No hay stock registrado para "${prod.nombre}". ¿Registrar la salida igualmente?`, confirmLabel: "Registrar", danger: false }
+        )
+        if (!ok) return
+      } else if (incremento > stockMapRef.current.get(prod.id)!) {
+        toastRef.current.error(
+          "Stock insuficiente",
+          `Solo hay ${stockVisible(stockMapRef.current.get(prod.id)!, prod.tipo_producto, prod.uds_por_caja)} disponibles y estás sacando ${stockVisible(incremento, prod.tipo_producto, prod.uds_por_caja)} adicionales.`
+        )
+        return
+      }
     }
 
     setSavingCell({ productoId: prod.id, mes })
@@ -809,7 +840,6 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
                 <th style={{ ...thStyle, padding: 0, position: "sticky", left: wideNombre ? "320px" : "240px", zIndex: 3, width: "200px", minWidth: "200px", boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)", transition: "left 0.2s" }}>
                   <div style={{ padding: "12px 16px" }}>Tipo / Precio</div>
                 </th>
-                <th style={{ ...thStyle, minWidth: "120px" }}>Categoría</th>
                 <th style={{ ...thStyle, minWidth: "100px", textAlign: "center" }}>Stock</th>
                 {mesesVisibles.map(i => (
                   <th key={i} style={{ ...thStyle, minWidth: "70px", textAlign: "center" }}>{MESES[i]}</th>
@@ -832,7 +862,7 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
                       onMouseEnter={e => { e.currentTarget.style.backgroundColor = "#eff6ff" }}
                       onMouseLeave={e => { e.currentTarget.style.backgroundColor = isExpanded ? "#eff6ff" : "#f8fafc" }}
                     >
-                      <td colSpan={7 + mesesVisibles.length} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", position: "sticky", left: 0, backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", zIndex: 1 }}>
+                      <td colSpan={6 + mesesVisibles.length} style={{ padding: "10px 16px", fontWeight: 700, color: "#1e40af", position: "sticky", left: 0, backgroundColor: isExpanded ? "#eff6ff" : "#f8fafc", zIndex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <span style={{ fontSize: "12px", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", color: "#3b82f6" }}>▶</span>
                           <span style={{ fontSize: "13px" }}>{cat.nombre}</span>
@@ -879,19 +909,25 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
                             {(() => {
                               const pref2 = prefMap.get(prod.id) ?? "caja"
                               const upc = prod.uds_por_caja && prod.uds_por_caja > 1 ? prod.uds_por_caja : null
-                              // Precio a mostrar: si modo unidad y upc disponible → precio/upc
+                              // El toggle ya indica el tipo cuando upc está configurado → ocultar badge
+                              const mostrarBadge = prod.tipo_producto !== "CAJA" || upc === null
+                              // Precio según modo activo, sin parentético
                               const precioLabel = (() => {
-                                if (prod.tipo_producto === "CAJA" && pref2 === "unidad" && upc && prod.precio != null) {
-                                  const pu = prod.precio / upc
-                                  return `${pu.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/ud`
+                                if (prod.tipo_producto === "CAJA" && upc) {
+                                  if (prod.precio == null) return "—"
+                                  if (pref2 === "unidad") {
+                                    const pu = prod.precio / upc
+                                    return `${pu.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/ud`
+                                  }
+                                  return `${prod.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/caja`
                                 }
                                 return labelPrecio(prod.precio, prod.tipo_producto, prod.uds_por_caja)
                               })()
                               return (
                                 <div style={{ padding: "6px 12px", display: "flex", flexDirection: "column", gap: "4px" }}>
-                                  {/* Línea 1: badge tipo + precio */}
+                                  {/* Línea 1: badge tipo (solo si no hay toggle) + precio */}
                                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                    <TipoBadge tipo={prod.tipo_producto} />
+                                    {mostrarBadge && <TipoBadge tipo={prod.tipo_producto} />}
                                     <span style={{ fontSize: "12px", fontWeight: 600, color: prod.precio != null ? "#059669" : "#9ca3af" }}>
                                       {precioLabel}
                                     </span>
@@ -904,7 +940,7 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
                                           value={pref2}
                                           onChange={v => {
                                             setPrefMap(prev => { const n = new Map(prev); n.set(prod.id, v); return n })
-                                            if (departamentoId !== "") setPreferenciaPres(prod.id, Number(departamentoId), v)
+                                            setPreferenciaPres(prod.id, Number(departamentoId), v)
                                           }}
                                         />
                                       ) : (
@@ -917,9 +953,6 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
                               )
                             })()}
                           </td>
-
-                          {/* Categoría */}
-                          <td style={{ ...tdStyle }}>{prod.categoria_nombre || "—"}</td>
 
                           {/* Stock — en unidades base, se muestra formateado */}
                           <td style={{ ...tdStyle, padding: "4px 8px", textAlign: "center" }}>
@@ -980,7 +1013,7 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
                                 <input
                                   type="number"
                                   min="0"
-                                  step={usaCajas ? "0.5" : "1"}
+                                  step="1"
                                   value={valorDisplay > 0 ? valorDisplay : ""}
                                   placeholder="0"
                                   onChange={e => handleCellChange(prod, mes, e.target.value)}
@@ -1027,7 +1060,7 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
               {/* Fila de totales */}
               {productosFiltrados.length > 0 && (
                 <tr style={{ backgroundColor: "#111827", fontWeight: 700 }}>
-                  <td colSpan={4} style={{ padding: "14px", textAlign: "right", color: "#f9fafb", fontSize: "13px" }}>TOTALES</td>
+                  <td colSpan={3} style={{ padding: "14px", textAlign: "right", color: "#f9fafb", fontSize: "13px" }}>TOTALES</td>
                   {mesesVisibles.map(i => (
                     <td key={i} style={{ padding: "14px", textAlign: "center", color: "#fbbf24", fontSize: "14px" }}>{totalesPorMes[i].toLocaleString()}</td>
                   ))}
@@ -1039,7 +1072,7 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
 
               {productosFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={7 + mesesVisibles.length} style={{ padding: "60px", textAlign: "center", color: "#6b7280", backgroundColor: "#fafafa" }}>
+                  <td colSpan={6 + mesesVisibles.length} style={{ padding: "60px", textAlign: "center", color: "#6b7280", backgroundColor: "#fafafa" }}>
                     <div style={{ fontSize: "16px", fontWeight: 600, marginBottom: "8px" }}>No se encontraron productos</div>
                     <div style={{ fontSize: "13px" }}>{searchTerm ? "Intenta con otro término de búsqueda" : "Agrega productos desde el menú Gestionar → Productos"}</div>
                   </td>
@@ -1071,6 +1104,7 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
       {showSalidaModal && (
         <ModalSalida
           departamentoInicialId={departamentoId !== "" ? Number(departamentoId) : undefined}
+          stockMap={stockMap}
           onClose={() => setShowSalidaModal(false)}
           onSaved={({ productoId, cantidad, cantidadAnterior, mes, anio: anioGuardado }) => {
             // Actualizar mapa de salidas si el año coincide con el que se está viendo

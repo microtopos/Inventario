@@ -451,14 +451,14 @@ Migration {
                                 -- 5. Reconstruir stock_productos como tabla simple producto_id -> cantidad
                                 --    Antes del DROP, sumamos el stock de todas las presentaciones por producto
                                 --    para no perder los datos al cambiar el esquema.
-                                CREATE TABLE stock_productos_simple (
+                                CREATE TABLE stock_productos_v9 (
                                     producto_id    INTEGER NOT NULL PRIMARY KEY
                                                    REFERENCES productos_almacen(id) ON DELETE CASCADE,
                                     cantidad       INTEGER NOT NULL DEFAULT 0 CHECK (cantidad >= 0),
                                     actualizado_el TEXT    NOT NULL DEFAULT (datetime('now'))
                                 );
 
-                                INSERT OR IGNORE INTO stock_productos_simple (producto_id, cantidad, actualizado_el)
+                                INSERT OR IGNORE INTO stock_productos_v9 (producto_id, cantidad, actualizado_el)
                                 SELECT producto_id,
                                        CAST(ROUND(SUM(cantidad)) AS INTEGER),
                                        MAX(actualizado_el)
@@ -466,7 +466,34 @@ Migration {
                                 GROUP BY producto_id;
 
                                 DROP TABLE IF EXISTS stock_productos;
-                                ALTER TABLE stock_productos_simple RENAME TO stock_productos;
+                                ALTER TABLE stock_productos_v9 RENAME TO stock_productos;
+
+                                -- 6. Consolidar filas duplicadas en salidas_productos.
+                                --    El schema antiguo tenía dos índices únicos con columnas nullable
+                                --    (presentacion_id, tipo_unidad), lo que permitía filas duplicadas
+                                --    por el mismo (producto, departamento, mes, año). Se reconstruye
+                                --    la tabla sumando duplicados y con un índice único limpio.
+                                CREATE TABLE salidas_productos_v9 (
+                                    id              INTEGER PRIMARY KEY,
+                                    producto_id     INTEGER NOT NULL REFERENCES productos_almacen(id) ON DELETE CASCADE,
+                                    departamento_id INTEGER NOT NULL REFERENCES departamentos_prod(id) ON DELETE CASCADE,
+                                    cantidad        INTEGER NOT NULL DEFAULT 0,
+                                    mes             INTEGER NOT NULL CHECK(mes BETWEEN 1 AND 12),
+                                    anio            INTEGER NOT NULL,
+                                    UNIQUE(producto_id, departamento_id, mes, anio)
+                                );
+
+                                INSERT INTO salidas_productos_v9 (producto_id, departamento_id, cantidad, mes, anio)
+                                SELECT producto_id,
+                                       departamento_id,
+                                       SUM(cantidad),
+                                       mes,
+                                       anio
+                                FROM salidas_productos
+                                GROUP BY producto_id, departamento_id, mes, anio;
+
+                                DROP TABLE salidas_productos;
+                                ALTER TABLE salidas_productos_v9 RENAME TO salidas_productos;
                             ",
                             kind: MigrationKind::Up,
                         },

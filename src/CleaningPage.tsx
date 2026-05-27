@@ -351,7 +351,7 @@ function VistaEstadisticas() {
   const deptData = useMemo(() => {
     return resumen.map(r => {
       const costeRow = costeDepts.find(c => c.departamento_id === r.departamento_id)
-      return { ...r, coste_total: costeRow?.coste_total ?? null }
+      return { ...r, coste_total: costeRow?.coste_total ?? null } as ResumenDepartamento & { coste_total: number | null; productos_distintos?: number }
     }).sort((a, b) => (b.total_cantidad ?? 0) - (a.total_cantidad ?? 0))
   }, [resumen, costeDepts])
 
@@ -817,7 +817,6 @@ function VistaEstadisticas() {
                       <thead>
                         <tr>
                           <th style={css.th}>Producto</th>
-                          <th style={css.th}>Categoría</th>
                           <th style={css.th}>Departamento</th>
                           <th style={{ ...css.th, textAlign: "center" }}>Mes / Año</th>
                           <th style={{ ...css.th, textAlign: "right" }}>Cantidad</th>
@@ -847,7 +846,6 @@ function VistaEstadisticas() {
                                 }}>{s.producto_referencia}</span>
                                 <div style={{ fontSize: "12px", color: "#475569" }}>{s.producto_nombre}</div>
                               </td>
-                              <td style={{ ...css.td, color: "#64748b", fontSize: "12px" }}>{s.categoria_nombre ?? "—"}</td>
                               <td style={css.td}>
                                 <span style={{
                                   display: "inline-flex", alignItems: "center", gap: "6px",

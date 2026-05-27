@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react"
+import { useConfirm } from "./ConfirmDialog"
 import { useToast } from "./Toast"
 import {
   getProductos,
@@ -45,9 +46,11 @@ export function ModalSalida({
   onClose,
   onSaved,
   departamentoInicialId,
+  stockMap,
 }: {
   onClose: () => void
   departamentoInicialId?: number
+  stockMap?: Map<number, number>
   onSaved?: (params: {
     productoId: number
     cantidad: number
@@ -57,6 +60,7 @@ export function ModalSalida({
   }) => void
 }) {
   const toast = useToast()
+  const { confirm, dialog } = useConfirm()
 
   const [productos, setProductos] = useState<ProductoAlmacen[]>([])
   const [departamentos, setDepartamentos] = useState<DepartamentoProd[]>([])
@@ -122,6 +126,24 @@ export function ModalSalida({
     let cantidadBase = valorInput
     if (esCaja && modoCaja === "caja" && prodActivo?.uds_por_caja) {
       cantidadBase = Math.round(valorInput * prodActivo.uds_por_caja)
+    }
+
+    // Validar stock antes de guardar
+    if (!stockMap?.has(productoId)) {
+      const ok = await confirm(
+        "Stock no configurado",
+        { detail: `No hay stock registrado para este producto. ¿Registrar la salida igualmente?`, confirmLabel: "Registrar", danger: false }
+      )
+      if (!ok) return
+    } else {
+      const stockActual = stockMap.get(productoId)!
+      if (cantidadBase > stockActual) {
+        toast.error(
+          "Stock insuficiente",
+          `Solo hay ${stockVisible(stockActual, prodActivo!.tipo_producto, prodActivo!.uds_por_caja)} disponibles y estás registrando ${stockVisible(cantidadBase, prodActivo!.tipo_producto, prodActivo!.uds_por_caja)}.`
+        )
+        return
+      }
     }
 
     setSaving(true)
@@ -276,7 +298,7 @@ export function ModalSalida({
                   <input
                     type="number"
                     min="0"
-                    step={esCaja && modoCaja === "caja" ? "0.5" : "1"}
+                    step="1"
                     value={cantidad}
                     onChange={e => setCantidad(e.target.value)}
                     style={{ ...inputStyle, width: "100%", boxSizing: "border-box" }}
@@ -346,6 +368,7 @@ export function ModalSalida({
           )}
         </div>
       </div>
+      {dialog}
     </>
   )
 }

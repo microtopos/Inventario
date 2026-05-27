@@ -391,8 +391,7 @@ export default function StockPage({ onNavigate }: { onNavigate: (page: Page) => 
 
   const [modalArticulo, setModalArticulo] = useState<ArticuloStock | null | "nuevo">(null)
 
-  const { confirm, dialog } = useConfirm()
-  const toast = useToast()
+  const { dialog } = useConfirm()
 
   // ── Carga de datos ──────────────────────────────────────────────────────────
 
@@ -471,7 +470,6 @@ export default function StockPage({ onNavigate }: { onNavigate: (page: Page) => 
               articulosFiltrados.map((a, i) => {
                 const selected = selectedId === a.id
                 const { bg: sBg, color: sCol } = stockColor(a)
-                const alerta = a.stock_actual === 0 || (a.stock_minimo !== null && a.stock_actual <= a.stock_minimo)
                 return (
                   <button key={a.id} onClick={() => setSelectedId(a.id)}
                     style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "11px 14px", border: "none", backgroundColor: selected ? ACENTO + "0e" : "#fff", borderLeft: `3px solid ${selected ? ACENTO : "transparent"}`, cursor: "pointer", textAlign: "left", borderBottom: i < articulosFiltrados.length - 1 ? "1px solid #f9f9f9" : "none", transition: "background-color 0.1s" }}
