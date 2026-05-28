@@ -1,4 +1,4 @@
-import Database from "@tauri-apps/plugin-sql";
+import { getDB } from "./db";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -130,8 +130,8 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   throw lastError
 }
 
-async function getDb(): Promise<Database> {
-  const db = await Database.load("sqlite:inventario.db")
+async function getDb() {
+  const db = await getDB()
   try {
     await db.execute("PRAGMA busy_timeout = 10000")
     await db.execute("PRAGMA journal_mode = WAL")
@@ -139,7 +139,7 @@ async function getDb(): Promise<Database> {
   return db
 }
 
-export async function getDbWithRetry(): Promise<Database> {
+export async function getDbWithRetry() {
   return withRetry(getDb)
 }
 

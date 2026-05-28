@@ -24,6 +24,8 @@ import {
   setStockThresholds,
   type StockThresholds,
 } from "./settingsService"
+import { resetDBInstance } from "./db"
+import { invoke } from "@tauri-apps/api/core"
 import { backupDB, changeBackupDir } from "./backupService"
 import { useToast } from "./Toast"
 import { useSortableTable } from "./useSortableTable"
@@ -87,6 +89,8 @@ function App() {
   const [exportDir, setExportDirState] = useState<string | null>(null)
   const [backupDir, setBackupDirState] = useState<string | null>(null)
   const [backingUp, setBackingUp] = useState(false)
+  const [dbPath, setDbPathState] = useState<string>("")
+  const [dbPathInput, setDbPathInput] = useState("")
   const [stockThresholds, setStockThresholdsState] = useState<StockThresholds>({ red: 2, orange: 5 })
   const [thresholdInputs, setThresholdInputs] = useState({ red: "2", orange: "5" })
   const exportRef = useRef<HTMLDivElement>(null)
@@ -159,6 +163,10 @@ function App() {
     getStockThresholds().then(t => {
       setStockThresholdsState(t)
       setThresholdInputs({ red: String(t.red), orange: String(t.orange) })
+    })
+    invoke<string>("get_db_path").then(p => {
+      setDbPathState(p)
+      setDbPathInput(p)
     })
     importInventory()
   }, [])
@@ -647,6 +655,43 @@ function App() {
               {/* Separador */}
               <div style={{ borderTop: "1px solid #e0e0e0" }} />
 
+              {/* Base de datos */}
+              <div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "4px" }}>Ruta de la base de datos</div>
+                <div style={{ fontSize: "12px", color: "#888", marginBottom: "10px" }}>
+                  Déjalo vacío para usar la BD local. Para compartir entre equipos apunta a la unidad de red (ej. <code style={{ fontFamily: "monospace", fontSize: "11px" }}>Z:\inventario.db</code>). El cambio se aplica al reiniciar la app.
+                </div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <input
+                    type="text"
+                    placeholder="Por defecto: BD local en %APPDATA%\Inventario"
+                    value={dbPathInput}
+                    onChange={e => setDbPathInput(e.target.value)}
+                    style={{ flex: 1, padding: "8px 12px", borderRadius: "8px", border: "1px solid #e0e0e0", fontSize: "12px", color: "#333", fontFamily: "monospace" }}
+                  />
+                  {dbPathInput && (
+                    <button
+                      onClick={() => setDbPathInput("")}
+                      title="Volver a BD local"
+                      style={{ padding: "8px 10px", borderRadius: "8px", border: "1px solid #fca5a5", backgroundColor: "#fff", fontSize: "13px", cursor: "pointer", color: "#dc2626" }}
+                    >✕</button>
+                  )}
+                </div>
+                {dbPath && dbPath !== dbPathInput && (
+                  <div style={{ fontSize: "11px", color: "#f59e0b", marginTop: "6px" }}>
+                    ⚠ Activa: <code style={{ fontFamily: "monospace" }}>{dbPath}</code> — guarda y reinicia para aplicar
+                  </div>
+                )}
+                {dbPath && dbPath === dbPathInput && (
+                  <div style={{ fontSize: "11px", color: "#888", marginTop: "6px" }}>
+                    Activa: <code style={{ fontFamily: "monospace" }}>{dbPath}</code>
+                  </div>
+                )}
+              </div>
+
+              {/* Separador */}
+              <div style={{ borderTop: "1px solid #e0e0e0" }} />
+
               {/* Umbrales de stock */}
               <div>
                 <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "4px" }}>Umbrales de stock por talla</div>
@@ -684,6 +729,20 @@ function App() {
                   await setStockThresholds(t)
                   setStockThresholdsState(t)
                   setThresholdInputs({ red: String(red), orange: String(orange) })
+
+                  const trimmed = dbPathInput.trim()
+                  if (trimmed !== dbPath) {
+                    await invoke("set_db_path", { path: trimmed })
+                    setDbPathState(trimmed)
+                    resetDBInstance()
+                    toast.success(
+                      "Ruta guardada",
+                      trimmed
+                        ? `Reinicia la app para conectar a ${trimmed}`
+                        : "Reinicia la app para volver a la BD local"
+                    )
+                  }
+
                   setShowSettings(false)
                 }}
                 style={{ padding: "8px 18px", borderRadius: "8px", border: "none", backgroundColor: "#111", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}

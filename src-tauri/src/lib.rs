@@ -130,13 +130,39 @@ fn backup_database(app: tauri::AppHandle, dest_path: String) -> Result<String, S
     Ok(dest_file.to_string_lossy().to_string())
 }
 
+
+#[tauri::command]
+fn get_db_path(app: tauri::AppHandle) -> String {
+    let app_dir = app.path().app_data_dir().unwrap();
+    std::fs::read_to_string(app_dir.join("db-path.txt"))
+        .unwrap_or_default()
+        .trim()
+        .to_string()
+}
+
+#[tauri::command]
+fn set_db_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    std::fs::write(app_dir.join("db-path.txt"), path.trim()).map_err(|e| e.to_string())
+}
+
 pub fn run() {
+    // identifier = "Inventario" → AppData es %APPDATA%\Inventario
+    let db_url = std::env::var("APPDATA")
+        .ok()
+        .map(|a| PathBuf::from(a).join("Inventario").join("db-path.txt"))
+        .and_then(|p| fs::read_to_string(&p).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(|p| format!("sqlite:{}", p))
+        .unwrap_or_else(|| "sqlite:inventario.db".to_string());
+
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![save_product_image, save_product_image_from_path, read_product_image, delete_product_image, backup_database])
+        .invoke_handler(tauri::generate_handler![save_product_image, save_product_image_from_path, read_product_image, delete_product_image, backup_database, get_db_path, set_db_path])
         .plugin(
             Builder::default()
                 .add_migrations(
-                    "sqlite:inventario.db",
+                    &db_url,
                     vec![
                         Migration {
                             version: 1,

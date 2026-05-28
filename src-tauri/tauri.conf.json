@@ -34,9 +34,5 @@
       "icons/icon.ico"
     ]
   },
-  "plugins": {
-    "sql": {
-      "preloadConnections": ["sqlite:inventario.db"]
-    }
-  }
+  "plugins": {}
 }

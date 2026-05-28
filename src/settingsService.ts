@@ -71,3 +71,11 @@ export async function getStockThresholds(): Promise<StockThresholds> {
 export async function setStockThresholds(t: StockThresholds): Promise<void> {
   return setSetting("stockThresholds", JSON.stringify(t))
 }
+
+export async function getDBPath(): Promise<string | null> {
+  return getSetting("dbPath")
+}
+
+export async function setDBPath(path: string): Promise<void> {
+  return setSetting("dbPath", path)
+}
