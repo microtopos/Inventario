@@ -204,7 +204,7 @@ Seguir estos patrones al añadir funcionalidad o arreglar bugs:
 - **Modales:** Patrón de `ConfirmDialog` para confirmaciones y `CleaningProductModal`/`ConsumptionModal` para edición. El hook `useConfirm()` devuelve `{ confirm, alert, dialog }` — hay que renderizar `{dialog}` en el JSX del componente que lo use.
 - **Toast:** Usar `useToast()` para notificaciones.
 - **Borrador de pedido:** El `DraftContext` sincroniza automáticamente a BD con debounce de 600ms. No hace falta guardar manualmente.
-- **Imágenes:** Se guardan como .jpg en disco (carpeta `AppData/images/`) redimensionadas a 600×600. Se leen vía comando Rust y se cachean en `imageService.ts`.
+- **Imágenes:** Se guardan como .jpg en disco (`AppData/images/`) redimensionadas a 600×600. Se leen vía comando Rust y se cachean en `getImageUrl.ts`. En cada push a red se copian también a `{red}/images/`; al restaurar desde red se copian de vuelta automáticamente.
 
 ---
 

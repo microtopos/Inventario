@@ -24,9 +24,9 @@ Referencia para que un técnico informático pueda instalar, reinstalar, diagnos
 | Ventana nativa | Tauri v2 (Rust) | Compila a .exe, no necesita navegador externo |
 | Frontend | React 19 + TypeScript (Vite) | Se ejecuta dentro del WebView de Tauri |
 | Base de datos | SQLite (archivo .db) | Un único fichero; puede estar en local o en red |
-| Imágenes de productos | JPEG en disco local | Siempre en el AppData local, nunca en red |
+| Imágenes de productos | JPEG en disco local | AppData local; se sincronizan a `{red}/images/` junto con cada push de BD |
 
-La aplicación **no tiene servidor**. Es completamente local/escritorio. El único recurso externo es el fichero `.db`, que puede apuntar a una ruta de red (cuando la VPN está activa).
+La aplicación **no tiene servidor**. Es completamente local/escritorio. El único recurso externo es el fichero `.db` y la carpeta `images/` adyacente, ambos en la ruta de red configurada en `db-path.txt`.
 
 ---
 
@@ -56,14 +56,15 @@ La app **siempre trabaja sobre la BD local** (`%APPDATA%\Inventario\inventario.d
 
 **Al arrancar (pull automático):**
 1. En un hilo paralelo con timeout de 5 s, la app compara la BD local con la de red.
-2. Si la de red fue modificada por alguien más (no por un push propio) → copia red → local antes de abrir la app.
+2. Si la de red fue modificada por alguien más (no por un push propio) → copia red → local antes de abrir la app. En ese mismo arranque, también copia las imágenes de `{red}/images/` que no existan en local.
 3. Si la local está al día, o la red no responde en 5 s → arranca directamente con la local.
 4. El timeout de 5 s garantiza que una VPN caída o lenta **no congele el arranque**.
 
 **Durante el uso (push automático):**
-- A los 5 segundos del arranque, y luego cada 60 segundos, la app copia local → red.
+- A los 5 segundos del arranque, y luego cada 60 segundos, la app copia local → red (BD + imágenes).
 - Al cerrar la ventana se lanza un último push.
-- Cada push es **atómico**: primero escribe `inventario.tmp` en la unidad de red y luego hace rename instantáneo. Si el PC se apaga a mitad de copia, la BD de red permanece intacta.
+- El push de la BD es **atómico**: primero escribe `inventario.tmp` en la unidad de red y luego hace rename instantáneo. Si el PC se apaga a mitad de copia, la BD de red permanece intacta.
+- El push de imágenes copia cada `.jpg` de `%APPDATA%\Inventario\images\` a `{red}/images/`. Si falla una imagen individual, la BD ya está guardada y el error se ignora silenciosamente.
 
 **El usuario ve el estado en todo momento** mediante un chip en la cabecera de la app:
 
@@ -277,9 +278,14 @@ Síntomas: errores SQL aleatorios, datos que desaparecen, app que no carga.
 
 ### Las imágenes de productos no aparecen
 
-Las imágenes se guardan **siempre en local** (`%APPDATA%\Inventario\images\`), no en la red. Si se cambia de equipo o se reinstala Windows, las imágenes se pierden aunque la BD esté en red.
+Las imágenes se guardan en local (`%APPDATA%\Inventario\images\`) y se sincronizan automáticamente a `{red}/images/` en cada push.
 
-Recuperación: copiar la carpeta `images\` desde el equipo original a `%APPDATA%\Inventario\images\` en el nuevo equipo.
+**Equipo nuevo o reinstalación de Windows:** al arrancar la app con `db-path.txt` configurado, si detecta que debe tirar de la BD de red (máquina sin datos locales), también copia automáticamente las imágenes de `{red}/images/` a local. No es necesaria ninguna acción manual.
+
+**Si las imágenes no aparecen tras la restauración automática:**
+1. Verificar que `db-path.txt` está configurado y la VPN activa.
+2. Comprobar que existe la carpeta `{red}/images/` en la ruta de red (se crea en el primer push).
+3. Como último recurso, copiar manualmente la carpeta `{red}/images/` a `%APPDATA%\Inventario\images\`.
 
 ### Cambiar de BD local a BD en red (o viceversa)
 
@@ -333,7 +339,8 @@ Si la BD está en red, copiar el fichero `.db` de la ruta de red al directorio d
 Instalador en red:     \\192.168.5.61\instalador\Gestión de Ropa_x64-setup.exe
 Repo fuente:           https://github.com/DanVPZ/gestion_almacen
 BD en red:             \\192.168.5.61\inventario.db
+Imágenes en red:       \\192.168.5.61\inventario\images\
 Configurar ruta BD:    %APPDATA%\Inventario\db-path.txt
 BD local (fallback):   %APPDATA%\Inventario\inventario.db
-Imágenes:              %APPDATA%\Inventario\images\
+Imágenes local:        %APPDATA%\Inventario\images\
 ```
