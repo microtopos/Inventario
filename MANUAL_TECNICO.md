@@ -37,11 +37,12 @@ Todas las rutas de AppData usan el identificador de la app: **`Inventario`**.
 | Qué | Ruta |
 |---|---|
 | Directorio de datos de la app | `%APPDATA%\Inventario\` |
-| **Fichero de configuración de ruta de BD** | `%APPDATA%\Inventario\db-path.txt` |
-| Base de datos local (fallback) | `%APPDATA%\Inventario\inventario.db` |
+| **Ruta de red configurada (sync)** | `%APPDATA%\Inventario\db-path.txt` |
+| Base de datos local (copia de trabajo) | `%APPDATA%\Inventario\inventario.db` |
+| Timestamp del último push exitoso | `%APPDATA%\Inventario\last_push.txt` |
 | Imágenes de productos | `%APPDATA%\Inventario\images\{id}.jpg` |
 | Ejecutable instalado | `C:\Program Files\Gestión de Ropa\` (ruta por defecto del instalador) |
-| Instalador y fuente en red | `\\[RUTA_RED]\gestion_almacen\` *(ver sección 4)* |
+| Instalador en red | `Z:\instalador\` *(ver sección 4)* |
 
 > Para abrir `%APPDATA%` rápidamente: `Win + R` → escribir `%APPDATA%` → Enter.
 
@@ -49,38 +50,65 @@ Todas las rutas de AppData usan el identificador de la app: **`Inventario`**.
 
 ## 3. Base de datos — configuración y ruta en red
 
-### Cómo funciona
+### Cómo funciona (sistema con sincronización automática)
 
-Al arrancar, la app lee el fichero `%APPDATA%\Inventario\db-path.txt`:
+La app **siempre trabaja sobre la BD local** (`%APPDATA%\Inventario\inventario.db`). La ruta de red en `db-path.txt` se usa exclusivamente para sincronizar, no como conexión directa.
 
-- **Si el fichero existe y contiene una ruta** → la app abre el `.db` en esa ruta (normalmente una ruta UNC de red como `\\servidor\carpeta\inventario.db`).
-- **Si el fichero no existe o está vacío** → la app usa el `.db` local en `%APPDATA%\Inventario\inventario.db`.
+**Al arrancar (pull automático):**
+1. En un hilo paralelo con timeout de 5 s, la app compara la BD local con la de red.
+2. Si la de red fue modificada por alguien más (no por un push propio) → copia red → local antes de abrir la app.
+3. Si la local está al día, o la red no responde en 5 s → arranca directamente con la local.
+4. El timeout de 5 s garantiza que una VPN caída o lenta **no congele el arranque**.
 
-Esto permite que todos los puestos apunten al mismo fichero compartido en red cuando la VPN está activa.
+**Durante el uso (push automático):**
+- A los 5 segundos del arranque, y luego cada 60 segundos, la app copia local → red.
+- Al cerrar la ventana se lanza un último push.
+- Cada push es **atómico**: primero escribe `inventario.tmp` en la unidad de red y luego hace rename instantáneo. Si el PC se apaga a mitad de copia, la BD de red permanece intacta.
+
+**El usuario ve el estado en todo momento** mediante un chip en la cabecera de la app:
+
+| Chip | Significado |
+|---|---|
+| `● Guardado 14:32` (verde) | Último push completado correctamente a esa hora |
+| `● Sincronizando...` (gris) | Push en curso |
+| `● Solo local` (ámbar) | VPN caída o red no accesible — trabajando en local |
+| *(sin chip)* | Sin `db-path.txt` configurado — modo puramente local |
+
+**Qué ocurre en cada escenario de cierre:**
+
+| Situación | BD local | BD en red |
+|---|---|---|
+| Cierre normal de la app | Intacta | Push en `beforeunload` |
+| PC se apaga sin cerrar la app | Intacta (WAL mode) | Último push atómico completo |
+| Crash o matar proceso | Intacta (WAL mode) | Último push periódico (máx. 60 s antes) |
+| PC hiberna | Intacta | Idem |
+
+Resultado: si la VPN cae a mitad de sesión, la app **sigue funcionando** sin pérdida de datos. Cuando la VPN vuelve y el usuario arranca la app, los datos locales se sincronizan a la red automáticamente.
 
 ### Contenido del fichero `db-path.txt`
 
-El fichero contiene **una sola línea**: la ruta absoluta al fichero `.db`.
+El fichero contiene **una sola línea**: la ruta absoluta al fichero `.db` de red (destino de la sincronización).
 
-Ejemplo de contenido cuando la VPN está activa:
+Ejemplo:
 ```
-\\servidor\almacen\inventario.db
+Z:\inventario.db
 ```
 
-### Cambiar la ruta de BD manualmente
+### Cambiar la ruta de red manualmente
 
 1. Abrir `%APPDATA%\Inventario\`
 2. Editar (o crear) `db-path.txt` con el Bloc de notas
-3. Escribir la ruta absoluta al `.db` y guardar
+3. Escribir la ruta y guardar
 4. Reiniciar la aplicación
 
-Para volver a BD local: borrar el contenido del fichero (dejarlo vacío) o eliminar el fichero.
+Para desactivar la sincronización con red: dejar el fichero vacío o borrarlo.
 
 ### Qué pasa si la VPN está caída
 
-- La app intentará abrir la ruta de red y fallará al no poder acceder al fichero.
-- Síntoma: la app arranca pero no carga datos, o muestra errores de conexión.
-- Solución temporal: vaciar `db-path.txt` para usar la BD local mientras se restaura la VPN. **Los datos locales y los de red son independientes**, no se sincronizan automáticamente.
+- La app arranca y trabaja normalmente sobre la BD local.
+- Los intentos de push a red fallan en silencio.
+- Cuando la VPN vuelve y se reinicia la app, se sincroniza automáticamente.
+- **No hay pérdida de datos** mientras la VPN esté caída.
 
 ### Ruta de red en uso
 
@@ -98,15 +126,14 @@ net use Z: \\192.168.5.61\inventario /user:inventario Mejorada.2026 /persistent:
 ### Ubicación del instalador
 
 El instalador se encuentra en la red en:
-```
-[COMPLETAR CON LA RUTA UNC REAL — ej: \\NAS01\Almacen\instalador\]
-```
 
-El fichero se llama algo como `Gestión de Ropa_1.0.0_x64-setup.exe`.
+Z:\instalador\
+
+El fichero se llama algo como `Gestión de Ropa_x.x.x_x64-setup.exe`.
 
 ### Pasos
 
-1. **Conectar la VPN** (para acceder a la carpeta de red si el instalador está en red).
+1. **Conectar la VPN** (para acceder a la carpeta de red).
 2. Ejecutar el `.exe` del instalador → seguir el asistente (Next, Install).
 3. La app queda instalada. Al ejecutarla por primera vez, **crea automáticamente** la carpeta `%APPDATA%\Inventario\` y aplica todas las migraciones de BD.
 4. **Configurar la ruta de BD** (si el equipo va a usar la BD compartida en red):
@@ -212,11 +239,13 @@ Comprobaciones:
 
 ### La app arranca pero no carga datos / pantallas en blanco
 
-**Causa más probable:** la ruta de BD en `db-path.txt` no es accesible.
+Con el sistema de sincronización actual, la VPN caída **no debería causar este síntoma** (la app trabaja siempre sobre BD local). Si ocurre, las causas probables son:
 
-1. Comprobar que la VPN está conectada.
-2. Abrir el Explorador de Windows y pegar la ruta de `db-path.txt` — verificar que el fichero `.db` existe y es accesible.
-3. Si la ruta no funciona, vaciar `db-path.txt` para usar BD local y diagnosticar el problema de red por separado.
+1. **Primera instalación sin datos locales**: la BD local está vacía y la red tampoco era accesible al arrancar. Conectar VPN y reiniciar — el pull traerá los datos de red.
+2. **BD local corrupta**: ver sección "La base de datos está corrupta".
+3. **`db-path.txt` mal configurado**: si la ruta apunta a un fichero `.db` vacío o inexistente en red, el pull trajo una BD vacía. Corregir la ruta y restaurar desde backup.
+
+Para diagnosticar: abrir `%APPDATA%\Inventario\` y verificar que `inventario.db` existe y tiene un tamaño razonable (> 50 KB si hay datos). Si está vacío (0-4 KB), restaurar desde backup.
 
 ### "database is locked" o errores de escritura
 
@@ -301,9 +330,9 @@ Si la BD está en red, copiar el fichero `.db` de la ruta de red al directorio d
 ## Referencia rápida
 
 ```
-Instalador en red:     \\[RUTA_RED]\instalador\Gestión de Ropa_x64-setup.exe
+Instalador en red:     \\192.168.5.61\instalador\Gestión de Ropa_x64-setup.exe
 Repo fuente:           https://github.com/DanVPZ/gestion_almacen
-BD en red:             \\[RUTA_RED]\inventario.db
+BD en red:             \\192.168.5.61\inventario.db
 Configurar ruta BD:    %APPDATA%\Inventario\db-path.txt
 BD local (fallback):   %APPDATA%\Inventario\inventario.db
 Imágenes:              %APPDATA%\Inventario\images\

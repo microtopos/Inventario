@@ -3,11 +3,14 @@ import './index.css'
 import App from './App.tsx'
 import { ToastProvider } from "./Toast"
 import { DraftProvider } from "./DraftContext"
+import { ErrorBoundary } from "./ErrorBoundary"
 
 createRoot(document.getElementById('root')!).render(
-  <ToastProvider>
-    <DraftProvider>
-      <App />
-    </DraftProvider>
-  </ToastProvider>
+  <ErrorBoundary>
+    <ToastProvider>
+      <DraftProvider>
+        <App />
+      </DraftProvider>
+    </ToastProvider>
+  </ErrorBoundary>
 )

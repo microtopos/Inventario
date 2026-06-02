@@ -2,6 +2,9 @@ use tauri_plugin_sql::{Builder, Migration, MigrationKind};
 use tauri::Manager;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static STARTUP_PULLED: AtomicBool = AtomicBool::new(false);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 #[tauri::command]
@@ -146,19 +149,195 @@ fn set_db_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
     std::fs::write(app_dir.join("db-path.txt"), path.trim()).map_err(|e| e.to_string())
 }
 
-pub fn run() {
-    // identifier = "Inventario" → AppData es %APPDATA%\Inventario
-    let db_url = std::env::var("APPDATA")
+// Copia la BD local → ruta de red configurada en db-path.txt.
+// El frontend hace PRAGMA wal_checkpoint(TRUNCATE) antes de llamar a este comando.
+#[tauri::command]
+fn push_to_network(app: tauri::AppHandle) -> Result<String, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let network_path_raw = fs::read_to_string(app_dir.join("db-path.txt"))
+        .unwrap_or_default();
+    let network_path_str = network_path_raw.trim();
+
+    if network_path_str.is_empty() {
+        return Ok("no_network_configured".to_string());
+    }
+
+    let local_db = app_dir.join("inventario.db");
+    if !local_db.exists() {
+        return Err("BD local no encontrada".to_string());
+    }
+
+    let network_path = PathBuf::from(network_path_str);
+
+    // Comprobación rápida de accesibilidad antes de intentar la copia.
+    // fs::metadata sobre una unidad de red caída falla en pocos segundos en Windows.
+    if fs::metadata(&network_path).is_err() {
+        return Ok("network_unreachable".to_string());
+    }
+
+    // Escritura atómica: copia a .tmp en la misma unidad y luego rename.
+    // Si el proceso muere a mitad, el .tmp queda huérfano pero la BD de red
+    // permanece íntegra. El rename dentro del mismo share es instantáneo en NTFS.
+    let temp_path = network_path.with_file_name("inventario.tmp");
+    fs::copy(&local_db, &temp_path)
+        .map_err(|e| format!("Error al escribir temporal en red: {}", e))?;
+    fs::rename(&temp_path, &network_path).map_err(|e| {
+        let _ = fs::remove_file(&temp_path);
+        format!("Error al finalizar copia en red: {}", e)
+    })?;
+
+    // Registrar el timestamp del push para que el startup sync no confunda
+    // "la red parece más nueva" con un pull necesario.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let _ = fs::write(app_dir.join("last_push.txt"), now.to_string());
+
+    // Copiar imágenes locales a {red}/images/ como backup.
+    // Fallo silencioso: si la carpeta de imágenes no existe o hay un error
+    // por imagen individual, la BD ya está guardada y eso es lo crítico.
+    if let Some(net_dir) = network_path.parent() {
+        let net_images = net_dir.join("images");
+        let local_images = app_dir.join("images");
+        if local_images.exists() {
+            let _ = fs::create_dir_all(&net_images);
+            if let Ok(entries) = fs::read_dir(&local_images) {
+                for entry in entries.flatten() {
+                    let src = entry.path();
+                    if src.extension().and_then(|e| e.to_str()) == Some("jpg") {
+                        let _ = fs::copy(&src, net_images.join(entry.file_name()));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok("pushed".to_string())
+}
+
+#[derive(serde::Serialize)]
+struct DbDiagnostics {
+    size_bytes: u64,
+    last_push_secs: Option<u64>,
+}
+
+#[tauri::command]
+fn get_db_diagnostics(app: tauri::AppHandle) -> DbDiagnostics {
+    let app_dir = app.path().app_data_dir().unwrap_or_default();
+    let size_bytes = fs::metadata(app_dir.join("inventario.db"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let last_push_secs: Option<u64> = fs::read_to_string(app_dir.join("last_push.txt"))
         .ok()
-        .map(|a| PathBuf::from(a).join("Inventario").join("db-path.txt"))
-        .and_then(|p| fs::read_to_string(&p).ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .map(|p| format!("sqlite:{}", p))
-        .unwrap_or_else(|| "sqlite:inventario.db".to_string());
+        .and_then(|s| s.trim().parse().ok());
+    DbDiagnostics { size_bytes, last_push_secs }
+}
+
+// Devuelve true una sola vez si el arranque realizó un pull desde la red.
+// Se resetea automáticamente para que llamadas posteriores devuelvan false.
+#[tauri::command]
+fn check_startup_pull() -> bool {
+    STARTUP_PULLED.swap(false, Ordering::Relaxed)
+}
+
+// Abre una URL o ruta de fichero con la aplicación predeterminada del sistema.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    std::process::Command::new("cmd")
+        .args(["/c", "start", "", &url])
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn run() {
+    // Sincronización de arranque: en un hilo separado con timeout de 5 s para evitar
+    // que una unidad de red caída (VPN desconectada) congele el arranque de la app.
+    let app_dir_early = std::env::var("APPDATA")
+        .ok()
+        .map(|a| PathBuf::from(a).join("Inventario"));
+
+    if let Some(ref app_dir) = app_dir_early {
+        let _ = fs::create_dir_all(app_dir);
+
+        if let Ok(network_raw) = fs::read_to_string(app_dir.join("db-path.txt")) {
+            let network_str = network_raw.trim().to_string();
+            if !network_str.is_empty() {
+                let local_db  = app_dir.join("inventario.db");
+                let app_dir_c = app_dir.clone();
+                let (tx, rx) = std::sync::mpsc::channel::<()>();
+
+                std::thread::spawn(move || {
+                    let network_path = PathBuf::from(&network_str);
+
+                    if let Ok(net_meta) = fs::metadata(&network_path) {
+                        let should_pull = if local_db.exists() {
+                            // Leer el timestamp del último push exitoso.
+                            // Si la red es más nueva que ese timestamp, alguien más modificó
+                            // el fichero de red y hay que tirar de él.
+                            // Si la red es más nueva sólo porque nosotros la actualizamos
+                            // (last_push.txt lo registra), no hace falta pull.
+                            let last_push_secs: u64 = fs::read_to_string(app_dir_c.join("last_push.txt"))
+                                .ok()
+                                .and_then(|s| s.trim().parse().ok())
+                                .unwrap_or(0);
+
+                            match net_meta.modified() {
+                                Ok(net_mod) => {
+                                    let net_secs = net_mod
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_secs();
+                                    // Pull sólo si la red es más nueva que el último push conocido
+                                    net_secs > last_push_secs + 5
+                                }
+                                _ => false,
+                            }
+                        } else {
+                            true // no hay BD local → tomar la de red
+                        };
+
+                        if should_pull {
+                            // Eliminar WAL/SHM stale antes de sustituir el fichero principal.
+                            let _ = fs::remove_file(app_dir_c.join("inventario.db-wal"));
+                            let _ = fs::remove_file(app_dir_c.join("inventario.db-shm"));
+                            if fs::copy(&network_path, &local_db).is_ok() {
+                                STARTUP_PULLED.store(true, Ordering::Relaxed);
+                            }
+
+                            // Restaurar imágenes desde {red}/images/ que no existan en local.
+                            // Solo copiamos las que faltan para no sobreescribir cambios locales.
+                            if let Some(net_dir) = network_path.parent() {
+                                let net_images = net_dir.join("images");
+                                let local_images = app_dir_c.join("images");
+                                let _ = fs::create_dir_all(&local_images);
+                                if let Ok(entries) = fs::read_dir(&net_images) {
+                                    for entry in entries.flatten() {
+                                        let dst = local_images.join(entry.file_name());
+                                        if !dst.exists() {
+                                            let _ = fs::copy(entry.path(), dst);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    // Si fs::metadata falla (red caída), el hilo termina sin hacer nada.
+                    let _ = tx.send(());
+                });
+
+                // Esperar máximo 5 s. Si la red no responde, arrancamos con la BD local.
+                let _ = rx.recv_timeout(std::time::Duration::from_secs(5));
+            }
+        }
+    }
+
+    // Siempre trabajamos sobre la BD local en AppData.
+    let db_url = "sqlite:inventario.db".to_string();
 
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![save_product_image, save_product_image_from_path, read_product_image, delete_product_image, backup_database, get_db_path, set_db_path])
+        .invoke_handler(tauri::generate_handler![save_product_image, save_product_image_from_path, read_product_image, delete_product_image, backup_database, get_db_path, set_db_path, push_to_network, get_db_diagnostics, check_startup_pull, open_url])
         .plugin(
             Builder::default()
                 .add_migrations(

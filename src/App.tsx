@@ -26,6 +26,9 @@ import {
 } from "./settingsService"
 import { resetDBInstance } from "./db"
 import { invoke } from "@tauri-apps/api/core"
+import { getVersion } from "@tauri-apps/api/app"
+import { useSyncDB } from "./useSyncDB"
+import { AppShellContext } from "./AppShellContext"
 import { backupDB, changeBackupDir } from "./backupService"
 import { useToast } from "./Toast"
 import { useSortableTable } from "./useSortableTable"
@@ -96,6 +99,10 @@ function App() {
   const exportRef = useRef<HTMLDivElement>(null)
   const { confirm, dialog } = useConfirm()
   const toast = useToast()
+
+  const syncStatus = useSyncDB()
+  const [appVersion, setAppVersion] = useState<string>("")
+  const [diagInfo, setDiagInfo] = useState<{ sizeBytes: number; lastPushSecs: number | null } | null>(null)
 
   const inv = useInventory({ stockThresholds })
 
@@ -168,6 +175,10 @@ function App() {
       setDbPathState(p)
       setDbPathInput(p)
     })
+    getVersion().then(setAppVersion).catch(() => {})
+    invoke<boolean>("check_startup_pull").then(pulled => {
+      if (pulled) toast.info("Datos actualizados", "Se han cargado los datos más recientes desde la red")
+    }).catch(() => {})
     importInventory()
   }, [])
 
@@ -181,6 +192,13 @@ function App() {
     return () => document.removeEventListener("mousedown", handleClick)
   }, [])
 
+  useEffect(() => {
+    if (!showSettings) return
+    invoke<{ size_bytes: number; last_push_secs: number | null }>("get_db_diagnostics").then(d => {
+      setDiagInfo({ sizeBytes: d.size_bytes, lastPushSecs: d.last_push_secs })
+    }).catch(() => {})
+  }, [showSettings])
+
   // Resetear scroll al cambiar de página (inventario <-> producto)
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -188,82 +206,53 @@ function App() {
 
   // ── Navegación entre páginas ──────────────────────────────────────────────
 
-  if (selectedProduct) {
+  function renderPage() {
+    if (selectedProduct) {
+      return (
+        <ClothingDetail
+          product={selectedProduct}
+          stockThresholds={stockThresholds}
+          onBack={() => setSelectedProduct(null)}
+          onNavigate={(p: string) => { setSelectedProduct(null); setPage(p) }}
+          onProductUpdated={async (changes: any) => {
+            setSelectedProduct((prev: any) => ({ ...prev, ...changes }))
+            await inv.reload()
+          }}
+        />
+      )
+    }
+
+    if (showForm) {
+      return (
+        <ClothingForm
+          onClose={() => setShowForm(false)}
+          onNavigate={(p: string) => { setShowForm(false); setPage(p) }}
+          onSaved={async () => { await inv.reload() }}
+        />
+      )
+    }
+
+    if (page === "orders" || page === "orderHistory") {
+      return <OrderPage onNavigate={setPage} />
+    }
+
+    if (page === "dashboard") {
+      return <ClothingStatsPage onNavigate={setPage as any} />
+    }
+    if (page === "gasolina") {
+      return <FuelPage onNavigate={setPage} />
+    }
+    if (page === "productos") {
+      return <CleaningPage onNavigate={setPage} />
+    }
+    if (page === "almacen") {
+      return <StockPage onNavigate={setPage} />
+    }
+
+    // ── Vista de inventario ─────────────────────────────────────────────────
     return (
-      <ClothingDetail
-        product={selectedProduct}
-        stockThresholds={stockThresholds}
-        onBack={() => setSelectedProduct(null)}
-        onNavigate={(p: string) => { setSelectedProduct(null); setPage(p) }}
-        onProductUpdated={async (changes: any) => {
-          setSelectedProduct((prev: any) => ({ ...prev, ...changes }))
-          await inv.reload()
-        }}
-      />
-    )
-  }
-
-  if (showForm) {
-    return (
-      <ClothingForm
-        onClose={() => setShowForm(false)}
-        onNavigate={(p: string) => { setShowForm(false); setPage(p) }}
-        onSaved={async () => { await inv.reload() }}
-      />
-    )
-  }
-
-  if (page === "orders") {
-    return <OrderPage onNavigate={setPage} />
-  }
-
-  // orderHistory ya no se renderiza desde App — OrderPage lo gestiona internamente.
-  // Mantenemos el case por si algún onNavigate externo lo invoca directamente;
-  // en ese caso simplemente abrimos OrderPage (que arrancará en vista "new").
-  if (page === "orderHistory") {
-    return <OrderPage onNavigate={setPage} />
-  }
-
-  if (page === "dashboard") {
-    return <ClothingStatsPage onNavigate={setPage as any} />
-  }
-  if (page === "gasolina") {
-    return <FuelPage onNavigate={setPage} />
-  }
-  if (page === "productos") {
-    return <CleaningPage onNavigate={setPage} />
-  }
-  if (page === "almacen") {
-    return <StockPage onNavigate={setPage} />
-  }
-
-  // ── Vista de inventario ───────────────────────────────────────────────────
-
-  return (
-    <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f5", fontFamily: "system-ui, sans-serif" }}>
-
-      <AppHeader
-        page={page as any}
-        onNavigate={setPage as any}
-        actions={
-          <div style={{ display: "flex", gap: "6px" }}>
-            <button
-              onClick={() => setShowHelp(true)}
-              title="Ayuda"
-              style={{ background: "none", border: "1px solid #e0e0e0", borderRadius: "6px", padding: "6px 10px", fontSize: "16px", cursor: "pointer", color: "#888", lineHeight: 1 }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = "#aaa")}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = "#e0e0e0")}
-            >?</button>
-            <button
-              onClick={() => setShowSettings(true)}
-              title="Ajustes"
-              style={{ background: "none", border: "1px solid #e0e0e0", borderRadius: "6px", padding: "6px 10px", fontSize: "16px", cursor: "pointer", color: "#888", lineHeight: 1 }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = "#aaa")}
-              onMouseLeave={e => (e.currentTarget.style.borderColor = "#e0e0e0")}
-            >⚙</button>
-          </div>
-        }
-      />
+      <div style={{ minHeight: "100vh", backgroundColor: "#f5f5f5", fontFamily: "system-ui, sans-serif" }}>
+        <AppHeader page={page as any} onNavigate={setPage as any} />
 
       <main style={{ maxWidth: "1100px", margin: "0 auto", padding: "32px 24px" }}>
 
@@ -587,6 +576,13 @@ function App() {
         )}
 
       </main>
+      </div>
+    )
+  }
+
+  return (
+    <AppShellContext.Provider value={{ openHelp: () => setShowHelp(true), openSettings: () => setShowSettings(true), syncStatus }}>
+      {renderPage()}
 
       {/* MODAL DE AJUSTES */}
       {showSettings && (
@@ -713,10 +709,52 @@ function App() {
                   ))}
                 </div>
               </div>
+
+              {/* Separador */}
+              <div style={{ borderTop: "1px solid #e0e0e0" }} />
+
+              {/* Diagnóstico */}
+              <div>
+                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "10px" }}>Diagnóstico</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {[
+                    {
+                      label: "Ruta de red",
+                      value: dbPath || "Sin configurar (solo local)",
+                      mono: !!dbPath,
+                    },
+                    {
+                      label: "Tamaño BD local",
+                      value: diagInfo
+                        ? diagInfo.sizeBytes < 1024 * 1024
+                          ? `${(diagInfo.sizeBytes / 1024).toFixed(1)} KB`
+                          : `${(diagInfo.sizeBytes / (1024 * 1024)).toFixed(2)} MB`
+                        : "—",
+                      mono: false,
+                    },
+                    {
+                      label: "Último guardado en red",
+                      value: diagInfo?.lastPushSecs
+                        ? new Date(diagInfo.lastPushSecs * 1000).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" })
+                        : "Nunca",
+                      mono: false,
+                    },
+                  ].map(({ label, value, mono }) => (
+                    <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "12px" }}>
+                      <span style={{ fontSize: "12px", color: "#888", flexShrink: 0 }}>{label}</span>
+                      <span style={{ fontSize: "12px", color: "#333", fontFamily: mono ? "monospace" : "inherit", textAlign: "right", wordBreak: "break-all" }}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {/* Footer */}
-            <div style={{ padding: "16px 24px", borderTop: "1px solid #e0e0e0", display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+            <div style={{ padding: "12px 24px", borderTop: "1px solid #e0e0e0", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
+              <span style={{ fontSize: "11px", color: "#bbb", fontFamily: "monospace" }}>
+                {appVersion ? `v${appVersion}` : ""}{appVersion ? " · " : ""}BD v9
+              </span>
+              <div style={{ display: "flex", gap: "8px" }}>
               <button
                 onClick={() => setShowSettings(false)}
                 style={{ padding: "8px 18px", borderRadius: "8px", border: "1px solid #e0e0e0", backgroundColor: "#fff", fontSize: "13px", cursor: "pointer", color: "#555", fontWeight: 500 }}
@@ -747,6 +785,7 @@ function App() {
                 }}
                 style={{ padding: "8px 18px", borderRadius: "8px", border: "none", backgroundColor: "#111", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
               >Guardar</button>
+              </div>
             </div>
           </div>
         </div>
@@ -759,72 +798,95 @@ function App() {
           onClick={() => setShowHelp(false)}
         >
           <div
-            style={{ backgroundColor: "#fff", borderRadius: "12px", width: "500px", maxHeight: "88vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.14)" }}
+            style={{ backgroundColor: "#fff", borderRadius: "12px", width: "480px", maxHeight: "88vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 8px 32px rgba(0,0,0,0.14)" }}
             onClick={e => e.stopPropagation()}
           >
             {/* Header */}
             <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #e0e0e0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h2 style={{ fontSize: "15px", fontWeight: 700, margin: 0, color: "#111" }}>Ayuda — Backups</h2>
+              <h2 style={{ fontSize: "15px", fontWeight: 700, margin: 0, color: "#111" }}>Algo no funciona bien</h2>
               <button onClick={() => setShowHelp(false)} style={{ background: "none", border: "none", fontSize: "18px", cursor: "pointer", color: "#aaa", lineHeight: 1, padding: 0 }}>✕</button>
             </div>
 
-            <div style={{ overflowY: "auto", padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: "20px" }}>
+            <div style={{ overflowY: "auto", padding: "20px 24px 24px", display: "flex", flexDirection: "column", gap: "0" }}>
 
-              {/* Archivo de base de datos */}
-              <div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "8px" }}>Ubicación del archivo</div>
-                <div style={{ fontSize: "13px", color: "#555", marginBottom: "8px", lineHeight: 1.5 }}>
-                  La app guarda todo en un único archivo SQLite3:
+              {/* Problemas frecuentes */}
+              {[
+                {
+                  icon: "📋",
+                  title: "No hay datos / la pantalla aparece vacía",
+                  steps: [
+                    "Abre Ajustes ⚙ → Diagnóstico y comprueba que el tamaño de BD sea mayor de 50 KB.",
+                    "Si la VPN estaba apagada al arrancar: conéctala y reinicia la app. Los datos volverán solos.",
+                    "Si el tamaño de BD es 0–4 KB, hay que restaurar un backup (habla con el técnico).",
+                  ],
+                },
+                {
+                  icon: "🟡",
+                  title: "El header muestra «Solo local»",
+                  steps: [
+                    "La app trabaja correctamente pero no guarda en la red — todo queda solo en este equipo.",
+                    "Comprueba que la VPN esté activa. Al reiniciar la app con VPN conectada, los cambios se sincronizan automáticamente.",
+                  ],
+                },
+                {
+                  icon: "🚫",
+                  title: "La app no arranca",
+                  steps: [
+                    "Reinicia el equipo e inténtalo de nuevo.",
+                    "Si sigue sin arrancar, reinstálala desde la carpeta de red: Z:\\instalador\\",
+                    "La reinstalación no borra los datos ni la configuración.",
+                  ],
+                },
+                {
+                  icon: "💾",
+                  title: "Quiero guardar una copia de seguridad ahora",
+                  steps: [
+                    "Abre Ajustes ⚙ → «Crear backup ahora». Se guarda con la fecha de hoy.",
+                    "Los backups se hacen también automáticamente al confirmar pedidos.",
+                  ],
+                },
+              ].map((item, i, arr) => (
+                <div key={i} style={{ paddingBottom: "16px", marginBottom: "16px", borderBottom: i < arr.length - 1 ? "1px solid #f0f0f0" : "none" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+                    <span style={{ fontSize: "16px" }}>{item.icon}</span>
+                    <span style={{ fontSize: "13px", fontWeight: 600, color: "#111" }}>{item.title}</span>
+                  </div>
+                  <ol style={{ margin: 0, paddingLeft: "20px", display: "flex", flexDirection: "column", gap: "4px" }}>
+                    {item.steps.map((s, si) => (
+                      <li key={si} style={{ fontSize: "13px", color: "#555", lineHeight: 1.5 }}>{s}</li>
+                    ))}
+                  </ol>
                 </div>
-                <div style={{ backgroundColor: "#f5f5f5", border: "1px solid #e0e0e0", borderRadius: "8px", padding: "10px 14px" }}>
-                  <code style={{ fontSize: "12px", color: "#333", fontFamily: "monospace" }}>%APPDATA%\Inventario\inventario.db</code>
-                </div>
-                <div style={{ fontSize: "12px", color: "#888", marginTop: "8px" }}>
-                  Abre con DB Browser for SQLite, DBeaver o <code style={{ fontFamily: "monospace", fontSize: "11px" }}>sqlite3.exe</code> si necesitas inspeccionarlo.
-                </div>
-              </div>
+              ))}
 
-              <div style={{ borderTop: "1px solid #e0e0e0" }} />
-
-              {/* Backups */}
-              <div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "8px" }}>Backups automáticos y manuales</div>
-                <div style={{ fontSize: "13px", color: "#555", lineHeight: 1.6 }}>
-                  Se crea un backup automáticamente cada vez que confirmas un pedido. También puedes crear uno en cualquier momento desde Ajustes ⚙ → <em>Crear backup ahora</em>.
+              {/* Para los informáticos */}
+              <div style={{ backgroundColor: "#f8f9fa", border: "1px solid #e0e0e0", borderRadius: "8px", padding: "14px 16px", marginTop: "4px" }}>
+                <div style={{ fontSize: "12px", fontWeight: 700, color: "#555", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Para los informáticos
                 </div>
-                <div style={{ fontSize: "13px", color: "#555", marginTop: "8px", lineHeight: 1.6 }}>
-                  Los backups se guardan como <code style={{ fontFamily: "monospace", fontSize: "12px", backgroundColor: "#f5f5f5", padding: "1px 5px", borderRadius: "4px" }}>inventario_YYYY-MM-DD.db</code> en la carpeta configurada — por defecto:
+                <div style={{ fontSize: "12px", color: "#666", marginBottom: "10px", lineHeight: 1.5 }}>
+                  Manual técnico completo con instalación, base de datos, migraciones y errores frecuentes:
                 </div>
-                <div style={{ backgroundColor: "#f5f5f5", border: "1px solid #e0e0e0", borderRadius: "8px", padding: "10px 14px", marginTop: "8px" }}>
-                  <code style={{ fontSize: "12px", color: "#333", fontFamily: "monospace" }}>%APPDATA%\Inventario\backups\</code>
-                </div>
-              </div>
-
-              <div style={{ borderTop: "1px solid #e0e0e0" }} />
-
-              {/* Recuperación */}
-              <div>
-                <div style={{ fontSize: "13px", fontWeight: 600, color: "#111", marginBottom: "8px" }}>Recuperar un backup</div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                  {[
-                    "Cierra la aplicación.",
-                    "Ve a la carpeta de backups y copia el archivo que quieras restaurar.",
-                    "Pégalo un nivel arriba renombrado como inventario.db, sobreescribiendo el existente.",
-                    "Reabre la aplicación.",
-                  ].map((step, i) => (
-                    <div key={i} style={{ display: "flex", gap: "12px", alignItems: "flex-start" }}>
-                      <span style={{ minWidth: "20px", height: "20px", borderRadius: "50%", backgroundColor: "#f5f5f5", border: "1px solid #e0e0e0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "11px", fontWeight: 700, color: "#555", flexShrink: 0, marginTop: "1px" }}>{i + 1}</span>
-                      <span style={{ fontSize: "13px", color: "#555", lineHeight: 1.5 }}>{step}</span>
-                    </div>
-                  ))}
+                  <button
+                    onClick={() => invoke("open_url", { url: "https://github.com/DanVPZ/gestion_almacen/blob/main/MANUAL_TECNICO.md" })}
+                    style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", borderRadius: "6px", border: "1px solid #d1d5db", backgroundColor: "#fff", fontSize: "12px", color: "#111", cursor: "pointer", fontWeight: 500, textAlign: "left" }}
+                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#f3f4f6")}
+                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#fff")}
+                  >
+                    <span style={{ fontSize: "14px" }}>🌐</span>
+                    <span>GitHub — github.com/DanVPZ/gestion_almacen</span>
+                  </button>
+                  <button
+                    onClick={() => invoke("open_url", { url: "Z:\\MANUAL_TECNICO.md" })}
+                    style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", borderRadius: "6px", border: "1px solid #d1d5db", backgroundColor: "#fff", fontSize: "12px", color: "#111", cursor: "pointer", fontWeight: 500, textAlign: "left" }}
+                    onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#f3f4f6")}
+                    onMouseLeave={e => (e.currentTarget.style.backgroundColor = "#fff")}
+                  >
+                    <span style={{ fontSize: "14px" }}>📂</span>
+                    <span style={{ fontFamily: "monospace" }}>Z:\MANUAL_TECNICO.md</span>
+                  </button>
                 </div>
-              </div>
-
-              {/* Tip */}
-              <div style={{ backgroundColor: "#f0f7ff", border: "1px solid #bfdbfe", borderRadius: "8px", padding: "12px 14px" }}>
-                <span style={{ fontSize: "12px", color: "#1e40af", lineHeight: 1.6 }}>
-                  💡 Apunta la carpeta de backups a una unidad de red o carpeta sincronizada con OneDrive para tener las copias fuera del equipo.
-                </span>
               </div>
 
             </div>
@@ -833,7 +895,7 @@ function App() {
       )}
 
       {dialog}
-    </div>
+    </AppShellContext.Provider>
   )
 }
 

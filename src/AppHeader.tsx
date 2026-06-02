@@ -1,4 +1,40 @@
 import { useDraft } from "./DraftContext"
+import { useAppShell } from "./AppShellContext"
+import type { SyncStatus } from "./useSyncDB"
+
+function SyncChip({ status }: { status: SyncStatus }) {
+  if (status.state === "no_network") return null
+
+  const cfg = status.state === "ok"
+    ? {
+        dot: "#16a34a",
+        color: "#16a34a",
+        label: status.lastSync
+          ? `Guardado ${status.lastSync.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`
+          : "Sincronizado",
+      }
+    : status.state === "syncing"
+    ? { dot: "#9ca3af", color: "#9ca3af", label: "Sincronizando..." }
+    : { dot: "#f59e0b", color: "#b45309", label: "Solo local" }
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: "5px",
+      fontSize: "12px", color: cfg.color, whiteSpace: "nowrap",
+      padding: "4px 10px", borderRadius: "20px",
+      backgroundColor: status.state === "ok" ? "#f0fdf4"
+        : status.state === "offline" ? "#fffbeb" : "#f9fafb",
+      border: `1px solid ${status.state === "ok" ? "#bbf7d0" : status.state === "offline" ? "#fde68a" : "#e5e7eb"}`,
+      marginRight: "8px",
+    }}>
+      <span style={{
+        width: "7px", height: "7px", borderRadius: "50%",
+        backgroundColor: cfg.dot, display: "inline-block", flexShrink: 0,
+      }} />
+      {cfg.label}
+    </div>
+  )
+}
 
 export type Page =
   | "inventory"
@@ -15,8 +51,6 @@ interface AppHeaderProps {
   onBack?: () => void
   title?: string
   actions?: React.ReactNode
-  onHelp?: () => void
-  onSettings?: () => void
 }
 
 // orderHistory ya no aparece como ítem independiente en la nav.
@@ -36,8 +70,9 @@ const GROUP_ACCENT: Record<string, string> = {
   almacen:   "#7c3aed",
 }
 
-export default function AppHeader({ page, onNavigate, onBack, title, actions, onHelp, onSettings }: AppHeaderProps) {
+export default function AppHeader({ page, onNavigate, onBack, title, actions }: AppHeaderProps) {
   const { draftCount } = useDraft()
+  const { openHelp, openSettings, syncStatus } = useAppShell()
 
   // "orderHistory" se considera parte del grupo "ropa" / página "orders" a efectos visuales
   const activePage = page === "orderHistory" ? "orders" : page
@@ -101,31 +136,27 @@ export default function AppHeader({ page, onNavigate, onBack, title, actions, on
 
       {/* LADO DERECHO */}
       <div style={{ display: "flex", alignItems: "center", gap: "0" }}>
+        <SyncChip status={syncStatus} />
+
         {actions}
 
         {/* Botones Help y Settings */}
-        {(onHelp || onSettings) && (
-          <div style={{ display: "flex", gap: "6px", marginRight: "12px" }}>
-            {onHelp && (
-              <button
-                onClick={onHelp}
-                title="Ayuda"
-                style={{ background: "none", border: "1px solid #e0e0e0", borderRadius: "6px", padding: "6px 10px", fontSize: "16px", cursor: "pointer", color: "#888", lineHeight: 1 }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = "#aaa")}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = "#e0e0e0")}
-              >?</button>
-            )}
-            {onSettings && (
-              <button
-                onClick={onSettings}
-                title="Ajustes"
-                style={{ background: "none", border: "1px solid #e0e0e0", borderRadius: "6px", padding: "6px 10px", fontSize: "16px", cursor: "pointer", color: "#888", lineHeight: 1 }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = "#aaa")}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = "#e0e0e0")}
-              >⚙</button>
-            )}
-          </div>
-        )}
+        <div style={{ display: "flex", gap: "6px", marginLeft: "8px", marginRight: "12px" }}>
+          <button
+            onClick={openHelp}
+            title="Ayuda"
+            style={{ background: "none", border: "1px solid #e0e0e0", borderRadius: "6px", padding: "6px 10px", fontSize: "16px", cursor: "pointer", color: "#888", lineHeight: 1 }}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = "#aaa")}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = "#e0e0e0")}
+          >?</button>
+          <button
+            onClick={openSettings}
+            title="Ajustes"
+            style={{ background: "none", border: "1px solid #e0e0e0", borderRadius: "6px", padding: "6px 10px", fontSize: "16px", cursor: "pointer", color: "#888", lineHeight: 1 }}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = "#aaa")}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = "#e0e0e0")}
+          >⚙</button>
+        </div>
 
         {(["ropa", "gasolina", "productos", "almacen"] as const).map((group, gi) => {
           const items = NAV_ITEMS.filter(i => i.group === group)
