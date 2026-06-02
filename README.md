@@ -78,6 +78,7 @@ Inventario Ropa/
 │   ├── OrderPage.tsx          # Creación de pedido (borrador)
 │   ├── OrderHistoryPage.tsx   # Historial y recepción de pedidos
 │   ├── ClothingStatsPage.tsx  # Dashboard / estadísticas de ropa
+│   ├── StockPage.tsx          # Gestión de almacén general (artículos, movimientos, alertas)
 │   │
 │   │  # ── Componentes ──
 │   ├── AppHeader.tsx          # Barra superior con navegación
@@ -85,6 +86,8 @@ Inventario Ropa/
 │   ├── ClothingForm.tsx       # Formulario crear/editar prenda de ropa
 │   ├── CleaningProductModal.tsx  # Modal crear/editar producto de limpieza
 │   ├── ConsumptionModal.tsx   # Modal para registrar salida de producto
+│   ├── StockArticuloModal.tsx # Modal crear/editar artículo de almacén (con categoría inline)
+│   ├── StockMovimientoModal.tsx  # Modal registrar entrada/salida de stock
 │   ├── FormField.tsx          # Campo de formulario reutilizable
 │   ├── ColorSelect.tsx        # Selector de color para prendas
 │   ├── DepartmentSelect.tsx   # Selector de departamento
@@ -98,6 +101,7 @@ Inventario Ropa/
 │   ├── orderService.ts        # CRUD pedidos, borrador, recepción
 │   ├── cleaningService.ts     # CRUD productos de limpieza, salidas, categorías
 │   ├── fuelService.ts         # CRUD vehículos y repostajes
+│   ├── stockService.ts        # CRUD artículos de almacén, categorías, movimientos de stock
 │   ├── statisticsService.ts   # Consultas agregadas para estadísticas de ropa
 │   ├── exportService.ts       # Generación de PDFs y Excel
 │   ├── backupService.ts       # Copias de seguridad de la BD
@@ -160,6 +164,13 @@ presentaciones          id, producto_id, unidad_id, precio
 unidades_presentacion   id, nombre
 ```
 
+### Almacén general
+```
+categorias_stock    id, nombre
+articulos_stock     id, nombre, categoria_id, unidad, stock_actual, stock_minimo, activo
+movimientos_stock   id, articulo_id, tipo (entrada|salida), cantidad, notas, fecha
+```
+
 ### Configuración
 ```
 settings            key, value
@@ -167,7 +178,7 @@ settings            key, value
 
 ---
 
-## Los 3 módulos de la app
+## Los 4 módulos de la app
 
 ### 1. Ropa
 Gestión de inventario de ropa de trabajo con tallas. CRUD de prendas, ajustes de stock (entrada/salida) con historial, pedidos con borradores persistentes, recepción de pedidos, estadísticas y exportación a PDF/Excel.
@@ -177,6 +188,9 @@ Registro de vehículos y repostajes. CRUD de vehículos (con activación/desacti
 
 ### 3. Productos de limpieza
 Catálogo de ~60 productos de limpieza por categoría. Registro de salidas mensuales por departamento, vista de matriz de consumo (producto × departamento × mes), presentaciones con precios, importación desde Excel.
+
+### 4. Almacén general
+Control de stock genérico para cualquier tipo de artículo (consumibles, herramientas, materiales, etc.). CRUD de artículos con unidad configurable, stock mínimo de alerta y activación/desactivación. Registro de entradas y salidas con historial paginado por artículo, filtrable por tipo y rango de fechas. Barra de resumen colapsable con alertas de stock bajo o sin stock y los últimos movimientos globales. Las categorías se crean al vuelo desde el propio formulario del artículo.
 
 ---
 
