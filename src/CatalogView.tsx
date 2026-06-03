@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef, Fragment } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef, Fragment, memo } from "react"
 import { useConfirm } from "./ConfirmDialog"
 import { useToast } from "./Toast"
 import {
@@ -254,19 +254,6 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
     return salidasMap.get(claveSalida(productoId))?.get(mes) ?? 0
   }
 
-  /**
-   * Cantidad a mostrar en la celda según la preferencia actual del departamento.
-   * Para CAJA en modo "caja": valor / uds_por_caja (puede ser decimal).
-   * Para el resto: valor en unidades base.
-   */
-  function getConsumoDisplay(prod: ProductoAlmacen, mes: number): number {
-    const base = getConsumoBase(prod.id, mes)
-    if (prod.tipo_producto === "CAJA" && prefMap.get(prod.id) === "caja" && prod.uds_por_caja && prod.uds_por_caja > 1) {
-      return base / prod.uds_por_caja
-    }
-    return base
-  }
-
   // ─── Actualizar celda ─────────────────────────────────────────────────────
 
   const handleCellChange = useCallback(async (
@@ -320,14 +307,15 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
       const delta = cantidadAnterior - valorBase
       await ajustarStock(prod.id, delta)
 
-      // Actualizar mapa local de salidas
+      // Actualizar mapa local de salidas — crear nuevo Map interno para que
+      // React.memo de las otras filas detecte que su prop no ha cambiado
       const clave = claveSalida(prod.id)
       setSalidasMap(prev => {
         const nuevo = new Map(prev)
-        if (!nuevo.has(clave)) nuevo.set(clave, new Map())
-        const mesMap = nuevo.get(clave)!
+        const mesMap = new Map(prev.get(clave))
         if (valorBase === 0) mesMap.delete(mes)
         else mesMap.set(mes, valorBase)
+        nuevo.set(clave, mesMap)
         return nuevo
       })
 
@@ -377,6 +365,13 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
       setSavingStock(null)
     }
   }, [toast])
+
+  const handleToggleWideNombre = useCallback(() => setWideNombre(w => !w), [])
+
+  const handleSetPref = useCallback((prodId: number, v: "caja" | "unidad") => {
+    setPrefMap(prev => { const n = new Map(prev); n.set(prodId, v); return n })
+    setPreferenciaPres(prodId, Number(departamentoIdRef.current), v)
+  }, [])
 
   // ─── Eliminar producto ────────────────────────────────────────────────────
 
@@ -872,183 +867,25 @@ export default function VistaCatalogo({ onDepartamentoCreado }: { onDepartamento
                     </tr>
 
                     {/* Filas de productos */}
-                    {isExpanded && prodsEnCat.map((prod, rowIdx) => {
-                      // Para la columna Total: siempre en unidades base
-                      const totalProdBase = mesesVisibles.reduce((sum, idx) => sum + getConsumoBase(prod.id, idx + 1), 0)
-                      const isEven = rowIdx % 2 === 0
-                      const rowBg = prod.activo === 0 ? "#fafafa" : isEven ? "#fff" : "#f8fafc"
-                      const rowBgHover = prod.activo === 0 ? "#fafafa" : "#eef2ff"
-                      const stockVal = stockMap.get(prod.id) ?? null
-
-                      return (
-                        <tr
-                          key={prod.id}
-                          style={{ borderBottom: "1px solid #f1f5f9", backgroundColor: rowBg }}
-                          onMouseEnter={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = rowBgHover }}
-                          onMouseLeave={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = rowBg }}
-                        >
-                          {/* Referencia */}
-                          <td style={{ ...tdStyle, width: "90px" }}>
-                            <div style={{ padding: "10px 16px", fontSize: "11px", fontWeight: 700, color: prod.activo === 0 ? "#9ca3af" : "#1d4ed8" }}>
-                              {prod.referencia}
-                            </div>
-                          </td>
-
-                          {/* Nombre */}
-                          <td onClick={() => setWideNombre(w => !w)} style={{ ...tdStyle, padding: 0, position: "sticky", left: 0, zIndex: 3, width: wideNombre ? "320px" : "240px", minWidth: wideNombre ? "320px" : "240px", backgroundColor: rowBg, transition: "width 0.2s", cursor: "pointer" }}>
-                            <div style={{ padding: "10px 16px", fontSize: "13px", color: prod.activo === 0 ? "#9ca3af" : "#1f2937", fontWeight: prod.activo === 0 ? 400 : 500 }}>
-                              {prod.nombre}
-                              {prod.activo === 0 && (
-                                <span style={{ marginLeft: "6px", fontSize: "9px", padding: "1px 4px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>INACT.</span>
-                              )}
-                            </div>
-                          </td>
-
-                          {/* Tipo + Precio + toggle caja/uds (solo CAJA) */}
-                          <td style={{ ...tdStyle, padding: 0, position: "sticky", left: wideNombre ? "320px" : "240px", zIndex: 3, width: "200px", minWidth: "200px", backgroundColor: rowBg, boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)", transition: "left 0.2s" }}>
-                            {(() => {
-                              const pref2 = prefMap.get(prod.id) ?? "caja"
-                              const upc = prod.uds_por_caja && prod.uds_por_caja > 1 ? prod.uds_por_caja : null
-                              // El toggle ya indica el tipo cuando upc está configurado → ocultar badge
-                              const mostrarBadge = prod.tipo_producto !== "CAJA" || upc === null
-                              // Precio según modo activo, sin parentético
-                              const precioLabel = (() => {
-                                if (prod.tipo_producto === "CAJA" && upc) {
-                                  if (prod.precio == null) return "—"
-                                  if (pref2 === "unidad") {
-                                    const pu = prod.precio / upc
-                                    return `${pu.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/ud`
-                                  }
-                                  return `${prod.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/caja`
-                                }
-                                return labelPrecio(prod.precio, prod.tipo_producto, prod.uds_por_caja)
-                              })()
-                              return (
-                                <div style={{ padding: "6px 12px", display: "flex", flexDirection: "column", gap: "4px" }}>
-                                  {/* Línea 1: badge tipo (solo si no hay toggle) + precio */}
-                                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                    {mostrarBadge && <TipoBadge tipo={prod.tipo_producto} />}
-                                    <span style={{ fontSize: "12px", fontWeight: 600, color: prod.precio != null ? "#059669" : "#9ca3af" }}>
-                                      {precioLabel}
-                                    </span>
-                                  </div>
-                                  {/* Línea 2: toggle caja/uds para productos CAJA */}
-                                  {prod.tipo_producto === "CAJA" && (
-                                    upc !== null
-                                      ? (
-                                        <PresToggle
-                                          value={pref2}
-                                          onChange={v => {
-                                            setPrefMap(prev => { const n = new Map(prev); n.set(prod.id, v); return n })
-                                            setPreferenciaPres(prod.id, Number(departamentoId), v)
-                                          }}
-                                        />
-                                      ) : (
-                                        <span style={{ fontSize: "10px", color: "#f97316", fontWeight: 600 }}>
-                                          ⚠ Configura uds/caja
-                                        </span>
-                                      )
-                                  )}
-                                </div>
-                              )
-                            })()}
-                          </td>
-
-                          {/* Stock — en unidades base, se muestra formateado */}
-                          <td style={{ ...tdStyle, padding: "4px 8px", textAlign: "center" }}>
-                            {(() => {
-                              const isSavingThis = savingStock === prod.id
-                              return (
-                                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    value={stockVal ?? ""}
-                                    onChange={e => handleStockChange(prod, e.target.value)}
-                                    disabled={isSavingThis}
-                                    placeholder="0"
-                                    title={`Stock en unidades base${prod.tipo_producto === "CAJA" ? ` (${prod.uds_por_caja ?? 1} uds/caja)` : ""}`}
-                                    style={{
-                                      width: "64px", padding: "4px 6px", border: "1.5px solid #d1d5db",
-                                      borderRadius: "6px", textAlign: "center", fontSize: "12px",
-                                      backgroundColor: isSavingThis ? "#f5f5f5"
-                                        : stockVal == null ? "#fff"
-                                        : stockVal === 0 ? "#fef2f2"
-                                        : stockVal <= (prod.uds_por_caja ?? 5) ? "#fff7ed"
-                                        : "#f0fdf4",
-                                      color: (isSavingThis || stockVal == null) ? "#9ca3af"
-                                        : stockVal === 0 ? "#dc2626"
-                                        : stockVal <= (prod.uds_por_caja ?? 5) ? "#c2410c"
-                                        : "#15803d",
-                                      fontWeight: stockVal != null ? 600 : 400,
-                                      outline: "none",
-                                    }}
-                                  />
-                                  {/* Resumen legible debajo del input */}
-                                  {stockVal != null && stockVal > 0 && (
-                                    <span style={{ fontSize: "9px", color: "#94a3b8", fontWeight: 500, whiteSpace: "nowrap" }}>
-                                      {stockVisible(stockVal, prod.tipo_producto, prod.uds_por_caja)}
-                                    </span>
-                                  )}
-                                </div>
-                              )
-                            })()}
-                          </td>
-
-                          {/* Celdas de meses */}
-                          {mesesVisibles.map(idx => {
-                            const mes = idx + 1
-                            const valorBase = getConsumoBase(prod.id, mes)
-                            const valorDisplay = getConsumoDisplay(prod, mes)
-                            const isSaving = savingCell?.productoId === prod.id && savingCell?.mes === mes
-                            const bgColor = getConsumoColor(valorBase, maxConsumo)
-                            const textColor = getConsumoTextColor(valorBase)
-
-                            return (
-                              <td key={mes} style={{ padding: "4px", textAlign: "center", backgroundColor: bgColor }}>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="1"
-                                  value={valorDisplay > 0 ? valorDisplay : ""}
-                                  placeholder="0"
-                                  onChange={e => handleCellChange(prod, mes, e.target.value)}
-                                  disabled={isSaving}
-                                  style={{
-                                    width: "60px", padding: "4px", border: "1px solid #d1d5db", borderRadius: "4px",
-                                    textAlign: "center", fontSize: "12px",
-                                    backgroundColor: isSaving ? "#f5f5f5" : "rgba(255,255,255,0.92)",
-                                    color: textColor,
-                                    fontWeight: valorBase > 0 ? 600 : 400,
-                                    cursor: "pointer",
-                                    outline: "none",
-                                    boxShadow: valorBase > 0 ? "0 0 0 1px rgba(34,197,94,0.25)" : "none",
-                                    borderColor: valorBase > 0 ? "#93c5fd" : "#d1d5db",
-                                  }}
-                                  onMouseEnter={e => {
-                                    if (!isSaving) {
-                                      e.currentTarget.style.borderColor = "#3b82f6"
-                                      e.currentTarget.style.boxShadow = `0 0 0 2px ${valorBase > 0 ? "rgba(59,130,246,0.2)" : "rgba(59,130,246,0.12)"}`
-                                    }
-                                  }}
-                                  onMouseLeave={e => {
-                                    e.currentTarget.style.borderColor = valorBase > 0 ? "#93c5fd" : "#d1d5db"
-                                    e.currentTarget.style.boxShadow = valorBase > 0 ? "0 0 0 1px rgba(34,197,94,0.25)" : "none"
-                                  }}
-                                />
-                              </td>
-                            )
-                          })}
-
-                          {/* Total (siempre en unidades base con etiqueta legible) */}
-                          <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, fontSize: "13px", color: "#059669", backgroundColor: totalProdBase > 0 ? "#ecfdf5" : "transparent" }}>
-                            {totalProdBase > 0
-                              ? stockVisible(totalProdBase, prod.tipo_producto, prod.uds_por_caja)
-                              : "—"}
-                          </td>
-                        </tr>
-                      )
-                    })}
+                    {isExpanded && prodsEnCat.map((prod, rowIdx) => (
+                      <ProductRow
+                        key={prod.id}
+                        prod={prod}
+                        rowIdx={rowIdx}
+                        mesData={salidasMap.get(claveSalida(prod.id))}
+                        stock={stockMap.get(prod.id) ?? null}
+                        savingCellMes={savingCell?.productoId === prod.id ? savingCell.mes : null}
+                        isSavingStock={savingStock === prod.id}
+                        mesesVisibles={mesesVisibles}
+                        maxConsumo={maxConsumo}
+                        wideNombre={wideNombre}
+                        pref={prefMap.get(prod.id) ?? "caja"}
+                        onCellChange={handleCellChange}
+                        onStockChange={handleStockChange}
+                        onToggleWideNombre={handleToggleWideNombre}
+                        onSetPref={handleSetPref}
+                      />
+                    ))}
                   </Fragment>
                 )
               })}
@@ -1338,3 +1175,184 @@ const tdStyle: React.CSSProperties = {
   fontSize: "13px",
   borderBottom: "1px solid #e5e7eb",
 }
+
+// ─── Fila de producto memoizada ───────────────────────────────────────────────
+// Definida aquí abajo para que thStyle/tdStyle ya estén inicializados.
+// React.memo evita re-renders en filas que no cambiaron cuando el usuario
+// edita una celda de otro producto.
+
+interface ProductRowProps {
+  prod: ProductoAlmacen
+  rowIdx: number
+  mesData: Map<number, number> | undefined
+  stock: number | null
+  savingCellMes: number | null
+  isSavingStock: boolean
+  mesesVisibles: number[]
+  maxConsumo: number
+  wideNombre: boolean
+  pref: "caja" | "unidad"
+  onCellChange: (prod: ProductoAlmacen, mes: number, value: string) => void
+  onStockChange: (prod: ProductoAlmacen, value: string) => void
+  onToggleWideNombre: () => void
+  onSetPref: (prodId: number, v: "caja" | "unidad") => void
+}
+
+const ProductRow = memo(function ProductRow({
+  prod, rowIdx, mesData, stock, savingCellMes, isSavingStock,
+  mesesVisibles, maxConsumo, wideNombre, pref,
+  onCellChange, onStockChange, onToggleWideNombre, onSetPref,
+}: ProductRowProps) {
+  const isEven = rowIdx % 2 === 0
+  const rowBg = prod.activo === 0 ? "#fafafa" : isEven ? "#fff" : "#f8fafc"
+  const rowBgHover = prod.activo === 0 ? "#fafafa" : "#eef2ff"
+
+  function getBase(mes: number) { return mesData?.get(mes) ?? 0 }
+
+  const totalProdBase = mesesVisibles.reduce((sum, idx) => sum + getBase(idx + 1), 0)
+  const upc = prod.uds_por_caja && prod.uds_por_caja > 1 ? prod.uds_por_caja : null
+
+  return (
+    <tr
+      style={{ borderBottom: "1px solid #f1f5f9", backgroundColor: rowBg }}
+      onMouseEnter={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = rowBgHover }}
+      onMouseLeave={e => { if (prod.activo !== 0) e.currentTarget.style.backgroundColor = rowBg }}
+    >
+      {/* Referencia */}
+      <td style={{ ...tdStyle, width: "90px" }}>
+        <div style={{ padding: "10px 16px", fontSize: "11px", fontWeight: 700, color: prod.activo === 0 ? "#9ca3af" : "#1d4ed8" }}>
+          {prod.referencia}
+        </div>
+      </td>
+
+      {/* Nombre */}
+      <td onClick={onToggleWideNombre} style={{ ...tdStyle, padding: 0, position: "sticky", left: 0, zIndex: 3, width: wideNombre ? "320px" : "240px", minWidth: wideNombre ? "320px" : "240px", backgroundColor: rowBg, transition: "width 0.2s", cursor: "pointer" }}>
+        <div style={{ padding: "10px 16px", fontSize: "13px", color: prod.activo === 0 ? "#9ca3af" : "#1f2937", fontWeight: prod.activo === 0 ? 400 : 500 }}>
+          {prod.nombre}
+          {prod.activo === 0 && (
+            <span style={{ marginLeft: "6px", fontSize: "9px", padding: "1px 4px", borderRadius: "4px", backgroundColor: "#f3f4f6", color: "#6b7280", border: "1px solid #e5e7eb" }}>INACT.</span>
+          )}
+        </div>
+      </td>
+
+      {/* Tipo + Precio + toggle caja/uds */}
+      <td style={{ ...tdStyle, padding: 0, position: "sticky", left: wideNombre ? "320px" : "240px", zIndex: 3, width: "200px", minWidth: "200px", backgroundColor: rowBg, boxShadow: "2px 0 4px -2px rgba(0,0,0,0.1)", transition: "left 0.2s" }}>
+        {(() => {
+          const mostrarBadge = prod.tipo_producto !== "CAJA" || upc === null
+          const precioLabel = (() => {
+            if (prod.tipo_producto === "CAJA" && upc) {
+              if (prod.precio == null) return "—"
+              if (pref === "unidad") {
+                const pu = prod.precio / upc
+                return `${pu.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/ud`
+              }
+              return `${prod.precio.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/caja`
+            }
+            return labelPrecio(prod.precio, prod.tipo_producto, prod.uds_por_caja)
+          })()
+          return (
+            <div style={{ padding: "6px 12px", display: "flex", flexDirection: "column", gap: "4px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                {mostrarBadge && <TipoBadge tipo={prod.tipo_producto} />}
+                <span style={{ fontSize: "12px", fontWeight: 600, color: prod.precio != null ? "#059669" : "#9ca3af" }}>
+                  {precioLabel}
+                </span>
+              </div>
+              {prod.tipo_producto === "CAJA" && (
+                upc !== null
+                  ? <PresToggle value={pref} onChange={v => onSetPref(prod.id, v)} />
+                  : <span style={{ fontSize: "10px", color: "#f97316", fontWeight: 600 }}>⚠ Configura uds/caja</span>
+              )}
+            </div>
+          )
+        })()}
+      </td>
+
+      {/* Stock */}
+      <td style={{ ...tdStyle, padding: "4px 8px", textAlign: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "2px" }}>
+          <input
+            type="number"
+            min="0"
+            value={stock ?? ""}
+            onChange={e => onStockChange(prod, e.target.value)}
+            disabled={isSavingStock}
+            placeholder="0"
+            title={`Stock en unidades base${prod.tipo_producto === "CAJA" ? ` (${prod.uds_por_caja ?? 1} uds/caja)` : ""}`}
+            style={{
+              width: "64px", padding: "4px 6px", border: "1.5px solid #d1d5db",
+              borderRadius: "6px", textAlign: "center", fontSize: "12px",
+              backgroundColor: isSavingStock ? "#f5f5f5"
+                : stock == null ? "#fff"
+                : stock === 0 ? "#fef2f2"
+                : stock <= (prod.uds_por_caja ?? 5) ? "#fff7ed"
+                : "#f0fdf4",
+              color: (isSavingStock || stock == null) ? "#9ca3af"
+                : stock === 0 ? "#dc2626"
+                : stock <= (prod.uds_por_caja ?? 5) ? "#c2410c"
+                : "#15803d",
+              fontWeight: stock != null ? 600 : 400,
+              outline: "none",
+            }}
+          />
+          {stock != null && stock > 0 && (
+            <span style={{ fontSize: "9px", color: "#94a3b8", fontWeight: 500, whiteSpace: "nowrap" }}>
+              {stockVisible(stock, prod.tipo_producto, prod.uds_por_caja)}
+            </span>
+          )}
+        </div>
+      </td>
+
+      {/* Celdas de meses */}
+      {mesesVisibles.map(idx => {
+        const mes = idx + 1
+        const valorBase = getBase(mes)
+        const valorDisplay = prod.tipo_producto === "CAJA" && pref === "caja" && upc
+          ? valorBase / upc
+          : valorBase
+        const isSaving = savingCellMes === mes
+        const bgColor = getConsumoColor(valorBase, maxConsumo)
+        const textColor = getConsumoTextColor(valorBase)
+
+        return (
+          <td key={mes} style={{ padding: "4px", textAlign: "center", backgroundColor: bgColor }}>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={valorDisplay > 0 ? valorDisplay : ""}
+              placeholder="0"
+              onChange={e => onCellChange(prod, mes, e.target.value)}
+              disabled={isSaving}
+              style={{
+                width: "60px", padding: "4px", border: "1px solid #d1d5db", borderRadius: "4px",
+                textAlign: "center", fontSize: "12px",
+                backgroundColor: isSaving ? "#f5f5f5" : "rgba(255,255,255,0.92)",
+                color: textColor,
+                fontWeight: valorBase > 0 ? 600 : 400,
+                cursor: "pointer", outline: "none",
+                boxShadow: valorBase > 0 ? "0 0 0 1px rgba(34,197,94,0.25)" : "none",
+                borderColor: valorBase > 0 ? "#93c5fd" : "#d1d5db",
+              }}
+              onMouseEnter={e => {
+                if (!isSaving) {
+                  e.currentTarget.style.borderColor = "#3b82f6"
+                  e.currentTarget.style.boxShadow = `0 0 0 2px ${valorBase > 0 ? "rgba(59,130,246,0.2)" : "rgba(59,130,246,0.12)"}`
+                }
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.borderColor = valorBase > 0 ? "#93c5fd" : "#d1d5db"
+                e.currentTarget.style.boxShadow = valorBase > 0 ? "0 0 0 1px rgba(34,197,94,0.25)" : "none"
+              }}
+            />
+          </td>
+        )
+      })}
+
+      {/* Total */}
+      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, fontSize: "13px", color: "#059669", backgroundColor: totalProdBase > 0 ? "#ecfdf5" : "transparent" }}>
+        {totalProdBase > 0 ? stockVisible(totalProdBase, prod.tipo_producto, prod.uds_por_caja) : "—"}
+      </td>
+    </tr>
+  )
+})
