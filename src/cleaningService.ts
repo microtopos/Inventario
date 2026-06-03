@@ -130,17 +130,8 @@ async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   throw lastError
 }
 
-async function getDb() {
-  const db = await getDB()
-  try {
-    await db.execute("PRAGMA busy_timeout = 10000")
-    await db.execute("PRAGMA journal_mode = WAL")
-  } catch (_) { /* ignorar */ }
-  return db
-}
-
 export async function getDbWithRetry() {
-  return withRetry(getDb)
+  return withRetry(getDB)
 }
 
 // ─── Tipos de apoyo ───────────────────────────────────────────────────────────

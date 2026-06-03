@@ -1,8 +1,7 @@
 import { useState, useEffect } from "react"
 import { invoke } from "@tauri-apps/api/core"
-import { getDB } from "./db"
 
-const PUSH_INTERVAL_MS = 60_000
+const PUSH_INTERVAL_MS = 5 * 60_000  // backup cada 5 min
 
 export type SyncState = "syncing" | "ok" | "offline" | "no_network"
 
@@ -23,8 +22,6 @@ export function useSyncDB(): SyncStatus {
       isPushing = true
       setStatus(prev => ({ ...prev, state: "syncing" }))
       try {
-        const db = await getDB()
-        await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         const result = await invoke<string>("push_to_network")
         if (cancelled) return
         if (result === "pushed") {

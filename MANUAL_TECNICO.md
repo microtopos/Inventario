@@ -60,10 +60,10 @@ La app **siempre trabaja sobre la BD local** (`%APPDATA%\Inventario\inventario.d
 3. Si la local está al día, o la red no responde en 5 s → arranca directamente con la local.
 4. El timeout de 5 s garantiza que una VPN caída o lenta **no congele el arranque**.
 
-**Durante el uso (push automático):**
-- A los 5 segundos del arranque, y luego cada 60 segundos, la app copia local → red (BD + imágenes).
-- Solo un push puede ejecutarse a la vez: si el anterior aún no ha terminado cuando llega el siguiente tick, ese tick se salta.
-- Antes de intentar la copia, se comprueba si la ruta de red es accesible con un **timeout de 3 s**. Si no responde en ese tiempo, el push se cancela y el chip pasa a `Solo local` sin bloquear la app.
+**Durante el uso (backup automático):**
+- A los 5 segundos del arranque, y luego **cada 5 minutos**, la app copia local → red (BD + imágenes).
+- Solo un backup puede ejecutarse a la vez: si el anterior aún no ha terminado cuando llega el siguiente tick, ese tick se salta.
+- Antes de intentar la copia, se comprueba si la ruta de red es accesible con un **timeout de 3 s**. Si no responde en ese tiempo, el backup se cancela y el chip pasa a `Solo local` sin bloquear la app.
 - Al cerrar la ventana se lanza un último push.
 - El push de la BD es **atómico**: primero escribe `inventario.tmp` en la unidad de red y luego hace rename instantáneo. Si el PC se apaga a mitad de copia, la BD de red permanece intacta.
 - El push de imágenes copia cada `.jpg` de `%APPDATA%\Inventario\images\` a `{red}/images/`. Si falla una imagen individual, la BD ya está guardada y el error se ignora silenciosamente.
@@ -72,8 +72,8 @@ La app **siempre trabaja sobre la BD local** (`%APPDATA%\Inventario\inventario.d
 
 | Chip | Significado |
 |---|---|
-| `● Guardado 14:32` (verde) | Último push completado correctamente a esa hora |
-| `● Sincronizando...` (gris) | Push en curso |
+| `● Guardado 14:32` (verde) | Último backup completado correctamente a esa hora |
+| `● Sincronizando...` (gris) | Backup en curso (dura pocos segundos) |
 | `● Solo local` (ámbar) | VPN caída o red no accesible — trabajando en local |
 | *(sin chip)* | Sin `db-path.txt` configurado — modo puramente local |
 
