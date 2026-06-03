@@ -16,12 +16,19 @@ export async function getProductSizes(productId: number): Promise<any[]> {
 export async function deleteProduct(productId: number) {
   const db = await getDB()
   await deleteProductImage(productId).catch((e) => console.error("Error borrando imagen:", e))
-  await db.execute(
-    "DELETE FROM movimientos WHERE talla_id IN (SELECT id FROM tallas WHERE producto_id = ?)",
-    [productId]
-  )
-  await db.execute("DELETE FROM tallas WHERE producto_id = ?", [productId])
-  await db.execute("DELETE FROM productos WHERE id = ?", [productId])
+  await db.execute("BEGIN TRANSACTION")
+  try {
+    await db.execute(
+      "DELETE FROM movimientos WHERE talla_id IN (SELECT id FROM tallas WHERE producto_id = ?)",
+      [productId]
+    )
+    await db.execute("DELETE FROM tallas WHERE producto_id = ?", [productId])
+    await db.execute("DELETE FROM productos WHERE id = ?", [productId])
+    await db.execute("COMMIT")
+  } catch (e) {
+    await db.execute("ROLLBACK").catch(() => {})
+    throw e
+  }
 }
 
 export async function getDepartments(): Promise<any[]> {
@@ -39,9 +46,7 @@ export async function addDepartment(nombre: string): Promise<number> {
 
 export async function addStock(tallaId: number, cantidad: number, origen: "manual" | "pedido" = "manual") {
   const db = await getDB()
-  const row: any = await db.select("SELECT stock FROM tallas WHERE id = ?", [tallaId])
-  const nuevoStock = row[0].stock + cantidad
-  await db.execute("UPDATE tallas SET stock = ? WHERE id = ?", [nuevoStock, tallaId])
+  await db.execute("UPDATE tallas SET stock = stock + ? WHERE id = ?", [cantidad, tallaId])
   await db.execute(
     "INSERT INTO movimientos (talla_id, cambio, origen) VALUES (?, ?, ?)",
     [tallaId, cantidad, origen]
@@ -58,15 +63,13 @@ export async function addStockWithId(
   origen: "manual" | "pedido" = "manual"
 ): Promise<number> {
   const db = await getDB()
-  const row: any = await db.select("SELECT stock FROM tallas WHERE id = ?", [tallaId])
-  const nuevoStock = row[0].stock + cantidad
-  await db.execute("UPDATE tallas SET stock = ? WHERE id = ?", [nuevoStock, tallaId])
-  await db.execute(
+  await db.execute("UPDATE tallas SET stock = stock + ? WHERE id = ?", [cantidad, tallaId])
+  const result = await db.execute(
     "INSERT INTO movimientos (talla_id, cambio, origen) VALUES (?, ?, ?)",
     [tallaId, cantidad, origen]
   )
-  const idRow: any = await db.select("SELECT last_insert_rowid() as id")
-  return idRow[0].id as number
+  if (result.lastInsertId === undefined) throw new Error("No se pudo crear el movimiento")
+  return result.lastInsertId
 }
 
 /**
@@ -166,8 +169,15 @@ export async function addTallaToProduct(productId: number, talla: string): Promi
  */
 export async function deleteTalla(tallaId: number): Promise<void> {
   const db = await getDB()
-  await db.execute("DELETE FROM movimientos WHERE talla_id = ?", [tallaId])
-  await db.execute("DELETE FROM tallas WHERE id = ?", [tallaId])
+  await db.execute("BEGIN TRANSACTION")
+  try {
+    await db.execute("DELETE FROM movimientos WHERE talla_id = ?", [tallaId])
+    await db.execute("DELETE FROM tallas WHERE id = ?", [tallaId])
+    await db.execute("COMMIT")
+  } catch (e) {
+    await db.execute("ROLLBACK").catch(() => {})
+    throw e
+  }
 }
 
 
@@ -239,6 +249,7 @@ export async function importInventarioJSON(data: InventarioJSON): Promise<Import
   const result: ImportResult = { creados: 0, omitidos: 0, errores: [] }
 
   for (const p of data.productos) {
+    await db.execute("BEGIN TRANSACTION")
     try {
       // Comprobar duplicado por código o por nombre
       let existe = false
@@ -255,6 +266,7 @@ export async function importInventarioJSON(data: InventarioJSON): Promise<Import
       }
 
       if (existe) {
+        await db.execute("ROLLBACK")
         result.omitidos++
         continue
       }
@@ -279,30 +291,30 @@ export async function importInventarioJSON(data: InventarioJSON): Promise<Import
       }
 
       // Insertar producto
-      await db.execute(
+      const prodResult = await db.execute(
         "INSERT INTO productos (codigo, nombre, departamento_id, precio, color) VALUES (?, ?, ?, ?, ?)",
         [p.codigo ?? null, p.nombre, departamentoId, p.precio ?? null, p.color ?? null]
       )
+      const productoId = prodResult.lastInsertId
 
-      const idRow: any = await db.select("SELECT last_insert_rowid() as id")
-      const productoId = idRow[0].id as number
-
-      // Insertar tallas
+      // Insertar tallas — lastInsertId del INSERT evita la query extra por talla
       for (const t of p.tallas) {
-        await db.execute(
-          "INSERT OR IGNORE INTO tallas (producto_id, talla, stock) VALUES (?, ?, ?)",
+        const tallaResult = await db.execute(
+          "INSERT INTO tallas (producto_id, talla, stock) VALUES (?, ?, ?)",
           [productoId, t.talla, t.stock]
         )
         if (t.stock !== 0) {
           await db.execute(
             "INSERT INTO movimientos (talla_id, cambio, origen) VALUES (?, ?, 'pedido')",
-            [(await db.select("SELECT id FROM tallas WHERE producto_id = ? AND talla = ?", [productoId, t.talla]) as any)[0].id, t.stock]
+            [tallaResult.lastInsertId, t.stock]
           )
         }
       }
 
+      await db.execute("COMMIT")
       result.creados++
     } catch (e: any) {
+      await db.execute("ROLLBACK").catch(() => {})
       result.errores.push(`"${p.nombre}": ${e?.message ?? String(e)}`)
     }
   }

@@ -1,4 +1,4 @@
-import Database from "@tauri-apps/plugin-sql";
+import { getDB } from "./db";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -33,16 +33,10 @@ export interface FiltrosRepostaje {
   fecha_hasta?: string; // "YYYY-MM-DD"
 }
 
-// ─── Conexión ─────────────────────────────────────────────────────────────────
-
-async function getDb(): Promise<Database> {
-  return Database.load("sqlite:inventario.db");
-}
-
 // ─── Vehículos ────────────────────────────────────────────────────────────────
 
 export async function getVehiculos(soloActivos = true): Promise<Vehiculo[]> {
-  const db = await getDb();
+  const db = await getDB();
   const query = soloActivos
     ? "SELECT * FROM vehiculos WHERE activo = 1 ORDER BY nombre ASC"
     : "SELECT * FROM vehiculos ORDER BY nombre ASC";
@@ -53,7 +47,7 @@ export async function crearVehiculo(
   matricula: string,
   nombre: string
 ): Promise<number> {
-  const db = await getDb();
+  const db = await getDB();
   const result = await db.execute(
     "INSERT INTO vehiculos (matricula, nombre) VALUES (?, ?)",
     [matricula.trim().toUpperCase(), nombre.trim()]
@@ -69,7 +63,7 @@ export async function actualizarVehiculo(
   matricula: string,
   nombre: string
 ): Promise<void> {
-  const db = await getDb();
+  const db = await getDB();
   await db.execute(
     "UPDATE vehiculos SET matricula = ?, nombre = ? WHERE id = ?",
     [matricula.trim().toUpperCase(), nombre.trim(), id]
@@ -77,12 +71,12 @@ export async function actualizarVehiculo(
 }
 
 export async function desactivarVehiculo(id: number): Promise<void> {
-  const db = await getDb();
+  const db = await getDB();
   await db.execute("UPDATE vehiculos SET activo = 0 WHERE id = ?", [id]);
 }
 
 export async function reactivarVehiculo(id: number): Promise<void> {
-  const db = await getDb();
+  const db = await getDB();
   await db.execute("UPDATE vehiculos SET activo = 1 WHERE id = ?", [id]);
 }
 
@@ -93,7 +87,7 @@ export async function getRepostajesPaginados(
   pageSize: number,
   offset: number
 ): Promise<[Repostaje[], number]> {
-  const db = await getDb();
+  const db = await getDB();
 
   const condiciones: string[] = [];
   const params: (string | number)[] = [];
@@ -138,7 +132,7 @@ export async function getRepostajesPaginados(
 }
 
 export async function crearRepostaje(datos: NuevoRepostaje): Promise<number> {
-  const db = await getDb();
+  const db = await getDB();
   const result = await db.execute(
     "INSERT INTO repostajes (vehiculo_id, fecha, coste, notas) VALUES (?, ?, ?, ?)",
     [datos.vehiculo_id, datos.fecha, datos.coste, datos.notas ?? null]
@@ -153,7 +147,7 @@ export async function actualizarRepostaje(
   id: number,
   datos: Partial<NuevoRepostaje>
 ): Promise<void> {
-  const db = await getDb();
+  const db = await getDB();
 
   const campos: string[] = [];
   const params: (string | number | null)[] = [];
@@ -185,7 +179,7 @@ export async function actualizarRepostaje(
 }
 
 export async function eliminarRepostaje(id: number): Promise<void> {
-  const db = await getDb();
+  const db = await getDB();
   await db.execute("DELETE FROM repostajes WHERE id = ?", [id]);
 }
 
@@ -203,7 +197,7 @@ export interface GastoMensual {
 export async function getGastoMensual(
   filtros: FiltrosRepostaje = {}
 ): Promise<GastoMensual[]> {
-  const db = await getDb();
+  const db = await getDB();
 
   const condiciones: string[] = [];
   const params: (string | number)[] = [];
@@ -265,7 +259,7 @@ export interface ExportData {
  * listos para serializar a JSON.
  */
 export async function exportarDatos(): Promise<ExportData> {
-  const db = await getDb();
+  const db = await getDB();
 
   const vehiculos = await db.select<Vehiculo[]>(
     "SELECT * FROM vehiculos ORDER BY id ASC"
@@ -301,7 +295,7 @@ export async function importarDatos(data: ExportData): Promise<ImportResult> {
     throw new Error(`Versión de exportación no soportada: ${data.version}`);
   }
 
-  const db = await getDb();
+  const db = await getDB();
 
   let vehiculosInsertados = 0;
   let vehiculosOmitidos = 0;
@@ -356,7 +350,7 @@ export async function importarDatos(data: ExportData): Promise<ImportResult> {
 export async function getResumenPorVehiculo(
   filtros: FiltrosRepostaje = {}
 ): Promise<ResumenVehiculo[]> {
-  const db = await getDb();
+  const db = await getDB();
 
   const condiciones: string[] = [];
   const params: (string | number)[] = [];

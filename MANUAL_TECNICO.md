@@ -62,6 +62,8 @@ La app **siempre trabaja sobre la BD local** (`%APPDATA%\Inventario\inventario.d
 
 **Durante el uso (push automático):**
 - A los 5 segundos del arranque, y luego cada 60 segundos, la app copia local → red (BD + imágenes).
+- Solo un push puede ejecutarse a la vez: si el anterior aún no ha terminado cuando llega el siguiente tick, ese tick se salta.
+- Antes de intentar la copia, se comprueba si la ruta de red es accesible con un **timeout de 3 s**. Si no responde en ese tiempo, el push se cancela y el chip pasa a `Solo local` sin bloquear la app.
 - Al cerrar la ventana se lanza un último push.
 - El push de la BD es **atómico**: primero escribe `inventario.tmp` en la unidad de red y luego hace rename instantáneo. Si el PC se apaga a mitad de copia, la BD de red permanece intacta.
 - El push de imágenes copia cada `.jpg` de `%APPDATA%\Inventario\images\` a `{red}/images/`. Si falla una imagen individual, la BD ya está guardada y el error se ignora silenciosamente.

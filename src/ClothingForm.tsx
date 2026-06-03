@@ -22,12 +22,11 @@ export default function ProductForm({ onClose, onSaved, onNavigate }: any) {
       return
     }
     const db = await getDB()
-    await db.execute(
+    const prodResult = await db.execute(
       "INSERT INTO productos (codigo,nombre,departamento_id,color,precio) VALUES (?,?,?,?,?)",
       [codigo || null, nombre, departamento, color || null, precio ?? null]
     )
-    const row: any = await db.select("SELECT last_insert_rowid() as id")
-    const productId = row[0].id
+    const productId = prodResult.lastInsertId
     for (const talla of tallas) {
       await db.execute(
         "INSERT INTO tallas (producto_id,talla,stock) VALUES (?,?,0)",

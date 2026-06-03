@@ -16,9 +16,11 @@ export function useSyncDB(): SyncStatus {
 
   useEffect(() => {
     let cancelled = false
+    let isPushing = false
 
     async function doPush() {
-      if (cancelled) return
+      if (cancelled || isPushing) return
+      isPushing = true
       setStatus(prev => ({ ...prev, state: "syncing" }))
       try {
         const db = await getDB()
@@ -35,6 +37,8 @@ export function useSyncDB(): SyncStatus {
         }
       } catch {
         if (!cancelled) setStatus(prev => ({ ...prev, state: "offline" }))
+      } finally {
+        isPushing = false
       }
     }
 

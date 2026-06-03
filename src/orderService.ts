@@ -231,9 +231,9 @@ export async function syncDraft(
 
   let id = draftId
   if (id === null) {
-    await db.execute("INSERT INTO pedidos (borrador, notas) VALUES (1, ?)", [notas || null])
-    const row: any = await db.select("SELECT last_insert_rowid() as id")
-    id = row[0].id as number
+    const pedidoResult = await db.execute("INSERT INTO pedidos (borrador, notas) VALUES (1, ?)", [notas || null])
+    if (pedidoResult.lastInsertId === undefined) throw new Error("No se pudo crear el borrador")
+    id = pedidoResult.lastInsertId
   }
   // Mantén las notas sincronizadas con el borrador
   await db.execute("UPDATE pedidos SET notas = ? WHERE id = ?", [notas || null, id])

@@ -1,4 +1,4 @@
-import Database from "@tauri-apps/plugin-sql";
+import { getDB } from "./db";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -52,23 +52,17 @@ export interface FiltrosMovimiento {
   fecha_hasta?: string;
 }
 
-// ─── Conexión ─────────────────────────────────────────────────────────────────
-
-async function getDb(): Promise<Database> {
-  return Database.load("sqlite:inventario.db");
-}
-
 // ─── Categorías ───────────────────────────────────────────────────────────────
 
 export async function getCategorias(): Promise<CategoriaStock[]> {
-  const db = await getDb();
+  const db = await getDB();
   return db.select<CategoriaStock[]>(
     "SELECT * FROM categorias_stock ORDER BY nombre ASC"
   );
 }
 
 export async function crearCategoria(nombre: string): Promise<number> {
-  const db = await getDb();
+  const db = await getDB();
   const result = await db.execute(
     "INSERT INTO categorias_stock (nombre) VALUES (?)",
     [nombre.trim()]
@@ -78,12 +72,12 @@ export async function crearCategoria(nombre: string): Promise<number> {
 }
 
 export async function actualizarCategoria(id: number, nombre: string): Promise<void> {
-  const db = await getDb();
+  const db = await getDB();
   await db.execute("UPDATE categorias_stock SET nombre = ? WHERE id = ?", [nombre.trim(), id]);
 }
 
 export async function eliminarCategoria(id: number): Promise<void> {
-  const db = await getDb();
+  const db = await getDB();
   // Desasociar artículos antes de borrar
   await db.execute("UPDATE articulos_stock SET categoria_id = NULL WHERE categoria_id = ?", [id]);
   await db.execute("DELETE FROM categorias_stock WHERE id = ?", [id]);
@@ -95,7 +89,7 @@ export async function getArticulos(
   soloActivos = true,
   categoriaId?: number
 ): Promise<ArticuloStock[]> {
-  const db = await getDb();
+  const db = await getDB();
 
   const condiciones: string[] = [];
   const params: (string | number)[] = [];
@@ -123,7 +117,7 @@ export async function getArticulos(
 }
 
 export async function crearArticulo(datos: NuevoArticulo): Promise<number> {
-  const db = await getDb();
+  const db = await getDB();
   const stockInicial = datos.stock_inicial ?? 0;
 
   const result = await db.execute(
@@ -157,7 +151,7 @@ export async function actualizarArticulo(
   id: number,
   datos: Partial<NuevoArticulo>
 ): Promise<void> {
-  const db = await getDb();
+  const db = await getDB();
 
   const campos: string[] = [];
   const params: (string | number | null)[] = [];
@@ -173,12 +167,12 @@ export async function actualizarArticulo(
 }
 
 export async function desactivarArticulo(id: number): Promise<void> {
-  const db = await getDb();
+  const db = await getDB();
   await db.execute("UPDATE articulos_stock SET activo = 0 WHERE id = ?", [id]);
 }
 
 export async function reactivarArticulo(id: number): Promise<void> {
-  const db = await getDb();
+  const db = await getDB();
   await db.execute("UPDATE articulos_stock SET activo = 1 WHERE id = ?", [id]);
 }
 
@@ -189,7 +183,7 @@ export async function getMovimientosPaginados(
   pageSize: number,
   offset: number
 ): Promise<[MovimientoStock[], number]> {
-  const db = await getDb();
+  const db = await getDB();
 
   const condiciones: string[] = [];
   const params: (string | number)[] = [];
@@ -235,7 +229,7 @@ export async function getMovimientosPaginados(
 }
 
 export async function registrarMovimiento(datos: NuevoMovimiento): Promise<void> {
-  const db = await getDb();
+  const db = await getDB();
 
   // Verificar stock suficiente para salidas
   if (datos.tipo === "salida") {
@@ -267,7 +261,7 @@ export async function registrarMovimiento(datos: NuevoMovimiento): Promise<void>
 }
 
 export async function eliminarMovimiento(id: number): Promise<void> {
-  const db = await getDb();
+  const db = await getDB();
 
   // Recuperar el movimiento antes de borrarlo para revertir el stock
   const rows = await db.select<MovimientoStock[]>(
@@ -312,7 +306,7 @@ export interface ResumenStock {
 }
 
 export async function getResumen(): Promise<ResumenStock> {
-  const db = await getDb();
+  const db = await getDB();
 
   const [general] = await db.select<ResumenStock[]>(`
     SELECT
@@ -347,7 +341,7 @@ export interface MovimientoReciente extends MovimientoStock {
 }
 
 export async function getMovimientosRecientes(limit = 8): Promise<MovimientoReciente[]> {
-  const db = await getDb();
+  const db = await getDB();
   return db.select<MovimientoReciente[]>(
     `SELECT m.*, a.nombre AS articulo_nombre
      FROM movimientos_stock m

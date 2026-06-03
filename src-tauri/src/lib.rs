@@ -149,6 +149,19 @@ fn set_db_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
     std::fs::write(app_dir.join("db-path.txt"), path.trim()).map_err(|e| e.to_string())
 }
 
+/// Comprueba si una ruta de red es accesible con un timeout máximo.
+/// En Windows, fs::metadata sobre una unidad de red desconectada puede bloquear
+/// 30-60 s mientras el SO intenta reconectar. Este helper lo limita a `timeout_secs`.
+fn check_reachable(path: &PathBuf, timeout_secs: u64) -> bool {
+    let path = path.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(fs::metadata(&path).is_ok());
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(timeout_secs))
+        .unwrap_or(false)
+}
+
 // Copia la BD local → ruta de red configurada en db-path.txt.
 // El frontend hace PRAGMA wal_checkpoint(TRUNCATE) antes de llamar a este comando.
 #[tauri::command]
@@ -169,9 +182,7 @@ fn push_to_network(app: tauri::AppHandle) -> Result<String, String> {
 
     let network_path = PathBuf::from(network_path_str);
 
-    // Comprobación rápida de accesibilidad antes de intentar la copia.
-    // fs::metadata sobre una unidad de red caída falla en pocos segundos en Windows.
-    if fs::metadata(&network_path).is_err() {
+    if !check_reachable(&network_path, 3) {
         return Ok("network_unreachable".to_string());
     }
 

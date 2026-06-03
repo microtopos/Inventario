@@ -198,7 +198,9 @@ Control de stock genérico para cualquier tipo de artículo (consumibles, herram
 
 Seguir estos patrones al añadir funcionalidad o arreglar bugs:
 
-- **Servicios:** Toda la lógica de BD va en archivos `xxxService.ts`. Las queries son SQL directas vía `db.ts` (que usa `@tauri-apps/plugin-sql`). No hay ORM.
+- **Servicios:** Toda la lógica de BD va en archivos `xxxService.ts`. Las queries son SQL directas vía `db.ts` (que usa `@tauri-apps/plugin-sql`). No hay ORM. **Todos los servicios deben usar `getDB()` de `./db` — nunca llamar a `Database.load()` directamente**, ya que el singleton gestiona la conexión única, aplica los PRAGMAs de sesión (`foreign_keys`, `busy_timeout`) y garantiza que `resetDBInstance()` funcione correctamente.
+- **Insertar y obtener el ID:** usar `result.lastInsertId` del valor devuelto por `db.execute()`. No usar `SELECT last_insert_rowid()` (no es fiable con múltiples accesos).
+- **Operaciones multi-paso en BD:** envolver en `BEGIN TRANSACTION` / `COMMIT` / `ROLLBACK` cualquier secuencia de queries que deba ser atómica (deletes en cascada manual, imports, etc.).
 - **Hooks reutilizables:** `useAsyncAction` para loading/error, `usePagination` para listas, `useSortableTable` para ordenación.
 - **Estilos:** Objetos inline en `styles.ts`. No usar Tailwind ni CSS modules. Los estilos se definen como objetos TypeScript y se pasan vía `style={}`.
 - **Modales:** Patrón de `ConfirmDialog` para confirmaciones y `CleaningProductModal`/`ConsumptionModal` para edición. El hook `useConfirm()` devuelve `{ confirm, alert, dialog }` — hay que renderizar `{dialog}` en el JSX del componente que lo use.
